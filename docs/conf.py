@@ -126,7 +126,7 @@ exclude_patterns = [
     "Thumbs.db",
     ".DS_Store",
     ".ipynb_checkpoints",
-    "notebooks/README.md",  # the gatac-notebooks repo readme
+    "notebooks/README.md",  # the gatac-tutorials repo readme
 ]
 
 # -- Options for HTML output -------------------------------------------------
@@ -157,7 +157,7 @@ source_suffix = {
 }
 
 
-# The tutorials live in the gatac-notebooks submodule and enter the docs
+# The tutorials live in the gatac-tutorials submodule and enter the docs
 # through the docs/notebooks symlink. MyST resolves a notebook's link to a
 # sibling notebook through the symlink's real path, outside the source tree,
 # and names the target by that absolute path; map it back to its docname.

@@ -79,8 +79,8 @@ factor binding between cell types with the GPU port of TOBIAS.
 ---
 
 Analysis notebooks for GATAC are maintained in the companion
-[**gatac-notebooks**](https://github.com/Soldatov-Lab/gatac-notebooks) repository
-and are included here as a git submodule at `notebooks/` in the repo root.
+[**gatac-tutorials**](https://github.com/scverse/gatac-tutorials) repository
+and are included here as a git submodule at `tutorials/` in the repo root.
 
 Notebooks are rendered with [MyST-NB](https://myst-nb.readthedocs.io/) — you
 can view them here or download and run them locally after installing GATAC.
@@ -90,7 +90,7 @@ can view them here or download and run them locally after installing GATAC.
 ## Setting up the notebooks
 
 The notebooks are stored in a separate repository and linked as a git
-submodule under `notebooks/` at the repo root.  To initialise:
+submodule under `tutorials/` at the repo root.  To initialise:
 
 ```bash
 git submodule update --init --recursive
@@ -103,7 +103,7 @@ To run notebooks locally:
 uv sync --extra cuda12
 
 # Run a notebook
-uv run jupyter lab notebooks/01_fragment_preprocessing.ipynb
+uv run jupyter lab tutorials/01_fragment_preprocessing.ipynb
 ```
 
 :::{note}

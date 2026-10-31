@@ -19,7 +19,7 @@ uv sync --extra cuda12
 ## Running tests
 
 Tests are located in `tests/` (unit tests) and in the
-[`reproducibility/`](https://github.com/Soldatov-Lab/gatac-reproducibilty)
+[`reproducibility/`](https://github.com/scverse/gatac-reproducibility)
 submodule (tracked at `reproducibility/`) for integration/benchmark tests.
 
 After cloning, initialise the submodule once:
@@ -105,5 +105,5 @@ when the authors are part of the sentence (it renders as "Thibodeau et al.
 summary in the API tables.
 
 Analysis notebooks live in the separate
-[`gatac-notebooks`](https://github.com/Soldatov-Lab/gatac-notebooks)
+[`gatac-tutorials`](https://github.com/scverse/gatac-tutorials)
 repository — see [Tutorials](tutorials/index.md) for details.
