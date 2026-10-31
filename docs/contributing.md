@@ -7,7 +7,7 @@ Thank you for your interest in contributing to GATAC!
 ## Development setup
 
 ```bash
-git clone https://github.com/Soldatov-Lab/gatac.git
+git clone https://github.com/scverse/gatac.git
 cd GATAC
 
 # Install in editable mode with all dev extras

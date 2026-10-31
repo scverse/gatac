@@ -16,7 +16,7 @@ The following system libraries must be available:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Soldatov-Lab/gatac.git
+git clone https://github.com/scverse/gatac.git
 cd GATAC
 
 # Install with CUDA 12 support

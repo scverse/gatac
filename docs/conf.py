@@ -135,7 +135,7 @@ html_title = "GATAC: GPU-Accelerated scATACseq Analysis"
 html_logo = "_static/logo_outlines.svg"
 
 html_theme_options = {
-    "repository_url": "https://github.com/Soldatov-Lab/gatac",
+    "repository_url": "https://github.com/scverse/gatac",
     "repository_branch": "main",
     "use_repository_button": True,
     "navigation_with_keys": False,
