@@ -18,7 +18,7 @@ as ``gatac.<name>``, imported on first use; see :func:`extensions`.
 import logging
 import os
 import sys
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import EntryPoint, entry_points, version
 
 # Disable tqdm progress bars when not running in an interactive terminal
 # (e.g. when called from Snakemake), to keep logs clean.
@@ -34,6 +34,18 @@ os.environ.setdefault("KVIKIO_COMPAT_MODE", "ON")
 # through it. Writing through the page cache, as before 26.10, works everywhere.
 os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "OFF")
 
+# `pip install gatac` without a CUDA extra installs no RAPIDS; say how to fix it
+# instead of failing on `import cudf` deep inside gatac.io
+try:
+    import cudf  # noqa: F401
+    import cupy  # noqa: F401
+except ModuleNotFoundError as e:
+    raise ImportError(
+        f"GATAC runs on the GPU through RAPIDS, which is missing ({e}). Install it with "
+        "the CUDA extra matching the CUDA version nvidia-smi reports: "
+        "pip install 'gatac[cuda12]' or 'gatac[cuda13]'"
+    ) from e
+
 from . import io
 from . import pp
 from . import dr
@@ -43,7 +55,7 @@ from . import tobias
 from . import pl
 from . import gpu
 
-__version__ = "0.1.0"
+__version__ = version("gatac")
 __all__ = ["io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu", "extensions", "set_verbosity"]
 
 

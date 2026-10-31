@@ -131,6 +131,13 @@
 
 ### Changed
 
+- Packaging for PyPI: the version comes from the git tag (hatch-vcs); the
+  `cuda12` / `cuda13` extras require RAPIDS `>=26.02` instead of pinning
+  `26.02.*`, and CuPy `>=14` directly; the libraries GATAC imports itself
+  (NumPy, pandas, SciPy, AnnData, Matplotlib, seaborn, Numba, h5py,
+  scikit-learn) are declared instead of coming only through scanpy; the sdist
+  holds only the package and its tests. `import gatac` without RAPIDS says
+  which extra to install.
 - Removed `pp.tile.create_tile_matrix_gpu`, an older tile-matrix builder that
   `make_tile_matrix` no longer called and `gatac.pp` did not export, and four
   unused private helpers.

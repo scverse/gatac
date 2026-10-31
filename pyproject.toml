@@ -1,16 +1,39 @@
 [project]
 name = "gatac"
-version = "0.1.0"
+dynamic = ["version"]
 description = "GPU-accelerated ATAC-seq fragment processing and tile matrix generation"
 readme = "README.md"
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Louis Faure" }]
 requires-python = ">=3.12"
+keywords = ["ATAC-seq", "single-cell", "chromatin accessibility", "GPU", "RAPIDS"]
+classifiers = [
+    "Environment :: GPU :: NVIDIA CUDA :: 12",
+    "Environment :: GPU :: NVIDIA CUDA :: 13",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Everything gatac imports itself, not only through scanpy; floors are scanpy's
 dependencies = [
-    "pyarrow>=22.0.0",
+    "anndata>=0.10.8",
     "duckdb>=2.0",
+    "h5py>=3.11",
+    "matplotlib>=3.10",
+    "numba>=0.60",
+    "numpy>=2",
+    "pandas>=2.3",
+    "pyarrow>=22.0.0",
     "scanpy>=1.11.5",
-    "tqdm>=4.66.0",
+    "scikit-learn>=1.6",
+    "scipy>=1.13",
+    "seaborn>=0.13.2",
     "statsmodels>=0.14",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
@@ -20,17 +43,26 @@ dependencies = [
 archr-compat = [
     "annoy>=1.17",
 ]
+# RAPIDS floors, not pins, so GATAC installs next to newer releases; cap one
+# here when it breaks GATAC. CuPy is used directly (and its 14.x behaviour).
 cuda12 = [
-    "cudf-cu12==26.02.*",
-    "cuml-cu12==26.02.*",
-    "cugraph-cu12==26.02.*",
+    "cudf-cu12>=26.02",
+    "cuml-cu12>=26.02",
+    "cugraph-cu12>=26.02",
+    "cupy-cuda12x>=14",
 ]
 cuda13 = [
-    "cudf-cu13==26.02.*",
-    "cuml-cu13==26.02.*",
-    "cugraph-cu13==26.02.*",
+    "cudf-cu13>=26.02",
+    "cuml-cu13>=26.02",
+    "cugraph-cu13>=26.02",
+    "cupy-cuda13x>=14",
 ]
 
+[project.urls]
+Documentation = "https://gatac.readthedocs.io"
+Source = "https://github.com/scverse/gatac"
+Issues = "https://github.com/scverse/gatac/issues"
+Changelog = "https://gatac.readthedocs.io/en/latest/changelog.html"
 
 [project.scripts]
 gatac = "gatac.cli:main"
@@ -63,8 +95,16 @@ docs = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27", "hatch-vcs"]  # 1.27: SPDX license and license-files
 build-backend = "hatchling.build"
+
+# The version is the git tag (v0.1.0 -> 0.1.0); between tags, 0.1.1.devN+g<commit>
+[tool.hatch.version]
+source = "vcs"
+
+# The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
+[tool.hatch.build.targets.sdist]
+only-include = ["gatac", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
