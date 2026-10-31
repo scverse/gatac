@@ -288,6 +288,12 @@
 
 ### Fixed
 
+- RAPIDS 26.10: `filter_fragments` used `Series.values_host` and
+  `read_fragments_parquet` a private cuDF constructor, both removed (now
+  `to_numpy()` and `CategoricalIndex.from_codes`); and KvikIO 26.10's direct-I/O
+  file writes, which cuDF's `to_csv` / `to_parquet` use, fail with an illegal
+  memory access on some systems (WSL2), so `import gatac` defaults
+  `KVIKIO_AUTO_DIRECT_IO_WRITE` to `OFF`.
 - `dr.lsi(chunk_size=...)` and the streamed `dr.spectral` failed under CuPy
   14.2 with "index pointer should start with 0": each chunk's CSR matrix was
   built before its copy to the GPU had finished.

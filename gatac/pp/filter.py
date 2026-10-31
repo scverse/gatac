@@ -259,7 +259,7 @@ def _filter_single_file_streaming(
     # the prefix, which goes to its footer
     names = fragments._gpu_barcodes().take(cp.asarray(counts["barcode_id"].to_numpy()))
     if valid_barcodes is not None:
-        keep = names.isin(valid_barcodes).values_host
+        keep = names.isin(valid_barcodes).to_numpy()
     cells = counts[keep].copy()
     stored = names[cp.asarray(keep)].str.slice(len(fragments.barcode_prefix))
     cells["barcode"] = stored.to_arrow().to_numpy(zero_copy_only=False)

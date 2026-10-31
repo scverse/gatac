@@ -29,6 +29,10 @@ if not sys.stderr.isatty():
 # before applying that, so each process probes cuFile/GPUDirect Storage once
 # (seconds on nodes without it). Apply libcudf's intended default up front.
 os.environ.setdefault("KVIKIO_COMPAT_MODE", "ON")
+# KvikIO 26.10 writes files with direct I/O by default, which fails with an
+# illegal memory access on some systems (WSL2); cuDF's to_csv / to_parquet go
+# through it. Writing through the page cache, as before 26.10, works everywhere.
+os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "OFF")
 
 from . import io
 from . import pp

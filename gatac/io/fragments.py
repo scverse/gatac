@@ -629,8 +629,6 @@ def _categorical_from_ids(ids: cp.ndarray, names: np.ndarray) -> cudf.Series:
     Categorical Series from integer ids into ``names``: categories are the
     observed names, sorted, as ``astype('category')`` on the strings gives.
     """
-    from cudf.core.column import as_column
-
     # Mark the ids in use; unweighted cp.bincount would take CuPy 14's CUB
     # histogram, which crashes above ~5M bins (raw barcode counts can reach that)
     seen = cp.zeros(len(names), dtype=cp.bool_)
@@ -641,12 +639,7 @@ def _categorical_from_ids(ids: cp.ndarray, names: np.ndarray) -> cudf.Series:
     remap = np.full(len(names), -1, dtype=np.int32)
     remap[present[order]] = np.arange(len(order), dtype=np.int32)
     codes = cp.asarray(remap)[ids]
-    # cuDF has no public constructor for a categorical from codes; this is
-    # the internal path pandas-style ``from_codes`` would take.
-    col = as_column(codes)._with_type_metadata(
-        cudf.CategoricalDtype(categories=list(observed[order]))
-    )
-    return cudf.Series._from_column(col)
+    return cudf.Series(cudf.CategoricalIndex.from_codes(codes, categories=list(observed[order]), ordered=False))
 
 
 # =============================================================================
