@@ -8,6 +8,7 @@ reproducibility suite; this file covers what operates on built matrices.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 import scanpy as sc
 
@@ -59,3 +60,21 @@ def test_combine_concatenates_files_and_rejects_duplicate_barcodes(split_h5ad, t
     assert got.obs["source_file"].tolist() == ["A_tile.h5ad"] * n_a + ["B_tile.h5ad"] * (ordered.n_obs - n_a)
     with pytest.raises(ValueError, match="duplicate cell barcode"):
         ga.pp.combine([paths[0], paths[0]], tmp_path / "dup.h5ad")
+
+
+def test_tile_matrix_from_interval_matrix_sums_overlapping_features(peaks, world, tmp_path):
+    """An .h5ad of peaks (var names "chrom:start-end"): each tile is the sum of the peaks it overlaps."""
+    peaks.write_h5ad(tmp_path / "peaks.h5ad")
+    with ga.io.Fasta(world["fasta"]) as fa:
+        sizes = fa.chrom_sizes
+    got = ga.pp.make_tile_matrix(tmp_path / "peaks.h5ad", chrom_sizes=sizes, tile_size=5_000,
+                                 min_fragments_per_cell=0)
+    assert list(got.obs_names) == list(peaks.obs_names)
+    tile = {(c, int(s)): j for j, (c, s) in enumerate(zip(got.var["chrom"], got.var["start"]))}
+    X = peaks.X.toarray().astype(np.int64)
+    expected = np.zeros((peaks.n_obs, got.n_vars), np.int64)
+    coords = pd.Series(peaks.var_names).str.extract(r"^(\w+):(\d+)-(\d+)$")
+    for k, (c, s, e) in enumerate(coords.itertuples(index=False)):
+        for t in range(int(s) // 5_000 * 5_000, int(e), 5_000):
+            expected[:, tile[(c, t)]] += X[:, k]
+    np.testing.assert_array_equal(got.X.toarray(), expected)
