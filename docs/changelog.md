@@ -288,6 +288,9 @@
 
 ### Fixed
 
+- `dr.lsi(chunk_size=...)` and the streamed `dr.spectral` failed under CuPy
+  14.2 with "index pointer should start with 0": each chunk's CSR matrix was
+  built before its copy to the GPU had finished.
 - `peak.call` and `peak.make_matrix` given a directory found none of the
   files of a tile matrix built from several fragment files, whose
   `source_file` holds the Parquet file name: they looked for
