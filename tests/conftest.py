@@ -91,7 +91,7 @@ def world(tmp_path_factory):
 
     df = _fragments(rng, hot)
     tsv = d / "frags.tsv.gz"
-    with gzip.open(tsv, "wt") as fh:
+    with gzip.open(tsv, "wt", compresslevel=1) as fh:
         df.to_csv(fh, sep="\t", header=False, index=False)
     parquet = ga.io.make_parquet(tsv, d / "frags.parquet")
     return {"dir": d, "fasta": fasta, "meme": meme, "tsv": tsv, "parquet": parquet,

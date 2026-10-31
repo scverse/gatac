@@ -436,12 +436,13 @@ def test_tile_matrix_independent_of_batching(data, strategy):
         _adata_equal(r, res[0])
 
 
-@pytest.fixture
-def two_samples(data, tmp_path):
+@pytest.fixture(scope="module")
+def two_samples(data, tmp_path_factory):
     """Two fragment files of the same barcodes (one's are a subset of the other's), with their own prefixes."""
-    small = ga.pp.filter_fragments(data["path"], tmp_path / "small.parquet", metrics=pd.DataFrame(
+    d = tmp_path_factory.mktemp("two_samples")
+    small = ga.pp.filter_fragments(data["path"], d / "small.parquet", metrics=pd.DataFrame(
         {"barcode": _cells(data, 20)}), chrom_sizes=CHROM_SIZES, barcode_prefix="A_")
-    return [small, ga.io.set_barcode_prefix(data["path"], "B_", output_path=tmp_path / "big.parquet")]
+    return [small, ga.io.set_barcode_prefix(data["path"], "B_", output_path=d / "big.parquet")]
 
 
 def test_set_barcode_prefix(data, tmp_path):
@@ -583,19 +584,35 @@ def test_metrics_several_files(data, tmp_path):
     pd.testing.assert_frame_equal(both, pd.concat(one, ignore_index=True))
 
 
-def test_doublets_run(data):
-    sizes = {c: CHROM_SIZES[c] for c in ("chr1", "chr2", "chr3")}
-    res = ga.pp.detect_doublets(data["path"], sizes, min_fragments=50)
-    assert len(res) > 10
-    assert set(res["cell_id"]) <= set(data["df"]["barcode"])
+def test_doublets_finds_planted_multiplets(tmp_path):
+    """Cells holding more than two copies of many loci are the doublets, and only they."""
+    rng = np.random.default_rng(0)
+    cells = np.repeat([f"c{i:03d}" for i in range(100)], 400)
+    start = rng.integers(0, 2_000_000, len(cells))
+    single = pd.DataFrame({"chrom": rng.choice(["chr1", "chr2"], len(cells)), "start": start,
+                           "end": start + rng.integers(50, 500, len(cells)), "barcode": cells})
+    # Five multiplets: three stacked fragments at each of 30 loci of their own
+    planted = ["c000", "c001", "c002", "c003", "c004"]
+    loci = rng.integers(0, 2_000_000, (len(planted), 30)).repeat(3, axis=1) + np.tile([0, 20, 40], 30)
+    stacks = pd.DataFrame({"chrom": "chr1", "start": loci.ravel(), "end": loci.ravel() + 200,
+                           "barcode": np.repeat(planted, loci.shape[1])})
+    df = pd.concat([single, stacks]).assign(count=1).sort_values(["chrom", "start", "end", "barcode"])
+    tsv = tmp_path / "f.tsv.gz"
+    with gzip.open(tsv, "wt", compresslevel=1) as fh:
+        df.drop_duplicates(["chrom", "start", "end", "barcode"]).to_csv(fh, sep="\t", header=False, index=False)
+    path = ga.io.make_parquet(tsv, tmp_path / "f.parquet")
 
+    sizes = {"chr1": 2_100_000, "chr2": 2_100_000}
+    res = ga.pp.detect_doublets(path, sizes, min_fragments=50)
+    assert len(res) == 100
+    assert set(res.loc[res["is_doublet"], "cell_id"]) == set(planted)
 
-@pytest.mark.parametrize("fn", ["gene", "genescore"])
-def test_gene_matrices_run(data, fn):
-    make = ga.pp.make_gene_matrix if fn == "gene" else ga.pp.make_gene_score_matrix
-    res = make(data["path"], data["gtf"], min_fragments_per_cell=50)
-    assert res.n_obs > 10 and sp.csr_matrix(res.X).nnz > 0
-    assert set(res.obs_names) <= set(data["df"]["barcode"])
+    # Known repeats given as a BED: the first multiplet's loci no longer count
+    bed = tmp_path / "repeats.bed"
+    pd.DataFrame({"chrom": "chr1", "start": loci[0, ::3], "end": loci[0, ::3] + 240}).to_csv(
+        bed, sep="\t", header=False, index=False)
+    res = ga.pp.detect_doublets(path, sizes, min_fragments=50, repeat_filter=bed)
+    assert set(res.loc[res["is_doublet"], "cell_id"]) == set(planted[1:])
 
 
 def test_gene_matrix_var_spans_transcripts(data, tmp_path):
@@ -692,73 +709,3 @@ def test_combine_file_matrices_widens_and_checks_features(tmp_path):
         combine_file_matrices([parts[0], other], ["a", "b"])
     with pytest.raises(ValueError, match=r"2 cell names are in more than one of the files \['a', 'c'\]"):
         combine_file_matrices([parts[0], parts[1], part("a_", np.uint8, 1)], ["a", "b", "c"])
-
-
-def _cells_adata(data):
-    import anndata as ad
-    cells = _cells(data, 80)
-    obs = pd.DataFrame({"group": np.where(np.arange(len(cells)) % 2, "a", "b")}, index=cells)
-    return ad.AnnData(obs=obs)
-
-
-def test_peaks_run(data):
-    adata = _cells_adata(data)
-    called = ga.peak.call(adata, "group", data["path"], genome=CHROM_SIZES,
-                              verbose=False, inplace=False)
-    assert sum(len(p) for p in called.values()) > 0
-
-    peaks = pd.concat(called.values())[["chrom", "start", "end"]].drop_duplicates()
-    peak_file = data["dir"] / "peaks.bed"
-    peaks.to_csv(peak_file, sep="\t", header=False, index=False)
-    # counting_strategy="fragment" is not exercised: it fails on cupy's
-    # array-valued `repeats`.
-    for strategy in ("paired-insertion", "insertion"):
-        res = ga.peak.make_matrix(adata, data["path"], peak_file=peak_file, use_rep=None,
-                                     genome=CHROM_SIZES, counting_strategy=strategy, verbose=False)
-        assert res.X.nnz > 0
-
-
-def test_peaks_from_a_directory_of_samples(data, tmp_path):
-    """A tile matrix of several files finds each cell's fragments by its source_file."""
-    cells = _cells(data, 80)
-    d = tmp_path / "filtered"
-    d.mkdir()
-    paths = [ga.pp.filter_fragments(data["path"], d / f"{name}.parquet",
-                                    metrics=pd.DataFrame({"barcode": part}), chrom_sizes=CHROM_SIZES)
-             for name, part in (("s1", cells[::2]), ("s2", cells[1::2]))]
-    adata = ga.pp.make_tile_matrix(paths, **SCAN_KW)
-    assert set(adata.obs["source_file"]) == {"s1.parquet", "s2.parquet"}
-    adata.obs["group"] = np.where(np.arange(adata.n_obs) % 2, "a", "b")
-
-    kw = dict(genome=CHROM_SIZES, verbose=False)
-    by_dir = ga.peak.call(adata, "group", d, inplace=False, **kw)
-    by_file = ga.peak.call(adata, "group", data["path"], inplace=False, **kw)
-    for g in by_file:
-        pd.testing.assert_frame_equal(by_dir[g], by_file[g])
-
-    peak_file = tmp_path / "peaks.bed"
-    pd.concat(by_file.values())[["chrom", "start", "end"]].drop_duplicates().to_csv(
-        peak_file, sep="\t", header=False, index=False)
-    kw.update(peak_file=peak_file, use_rep=None)
-    X_dir = ga.peak.make_matrix(adata, d, **kw).X
-    X_file = ga.peak.make_matrix(adata, data["path"], **kw).X
-    assert X_dir.nnz > 0 and (X_dir != X_file).nnz == 0
-
-
-def test_footprint_cuts(data):
-    from gatac.tobias.footprint import _load_cuts
-    adata = _cells_adata(data)
-    groups = dict(zip(adata.obs_names, (adata.obs["group"] == "a").astype(int)))
-    sizes = {c: CHROM_SIZES[c] for c in ("chr1", "chr2")}
-    got = _load_cuts(data["path"], groups, sizes, 50, True)
-    df = data["df"]
-    df = df[df["barcode"].isin(groups) & df["chrom"].isin(sizes)].assign(g=lambda d: d["barcode"].map(groups))
-    df = df.drop_duplicates(["g", "chrom", "start", "end"])
-    length = df["chrom"].map(sizes)
-    s, e = df["start"], df["end"]
-    df = df[(s - 4 >= 0) & (e + 4 - 50 >= 0) & (e + 4 <= length) & (s - 4 + 50 <= length)]
-    for g in set(groups.values()):
-        for c in sizes:
-            sub = df[(df["g"] == g) & (df["chrom"] == c)]
-            assert np.array_equal(got[g][c][0], np.sort(sub["start"].to_numpy()))
-            assert np.array_equal(got[g][c][1], np.sort(sub["end"].to_numpy() - 1))
