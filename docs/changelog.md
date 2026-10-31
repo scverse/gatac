@@ -131,6 +131,9 @@
 
 ### Changed
 
+- Removed `pp.tile.create_tile_matrix_gpu`, an older tile-matrix builder that
+  `make_tile_matrix` no longer called and `gatac.pp` did not export, and four
+  unused private helpers.
 - `filter_fragments` runs on the GPU: cells are matched by barcode id instead
   of by name, and the kept fragments are read, renumbered, encoded and
   ZSTD-compressed by cuDF into the same file layout. Several files are

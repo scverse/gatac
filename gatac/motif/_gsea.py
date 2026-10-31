@@ -212,55 +212,6 @@ def _enrichment_scores_gpu(
     return es
 
 
-def _enrichment_scores_and_running_gpu_batch(
-    weighted_metric: cp.ndarray,
-    tag_indicators: cp.ndarray,
-) -> tuple[cp.ndarray, cp.ndarray]:
-    """
-    Compute enrichment scores and full running ES for multiple feature sets.
-
-    Reference implementation, retained as the oracle for leading-edge tests.
-
-    Parameters
-    ----------
-    weighted_metric : cp.ndarray, shape (N,)
-    tag_indicators : cp.ndarray, shape (n_sets, N)
-        Binary indicators: 1 if feature is in set, 0 otherwise.
-
-    Returns
-    -------
-    es : cp.ndarray, shape (n_sets,)
-    run_es : cp.ndarray, shape (n_sets, N)
-    """
-    N = weighted_metric.shape[0]
-
-    n_hits = tag_indicators.sum(axis=1, keepdims=True)
-    n_miss = N - n_hits
-
-    sum_correl_tag = (tag_indicators * weighted_metric[None, :]).sum(
-        axis=1, keepdims=True
-    )
-
-    norm_tag = 1.0 / cp.maximum(sum_correl_tag, 1e-10)
-    norm_no_tag = 1.0 / cp.maximum(n_miss, 1.0)
-
-    no_tag = 1.0 - tag_indicators
-
-    increments = (
-        tag_indicators * weighted_metric[None, :] * norm_tag
-        - no_tag * norm_no_tag
-    )
-
-    run_es = cp.cumsum(increments, axis=1)
-
-    max_es = run_es.max(axis=1)
-    min_es = run_es.min(axis=1)
-
-    es = cp.where(cp.abs(max_es) > cp.abs(min_es), max_es, min_es)
-
-    return es, run_es
-
-
 # =============================================================================
 # Permutation generation
 # =============================================================================
@@ -445,23 +396,6 @@ def _leading_edge_from_peak(
     if peak_j > 0 and hit_indices[peak_j - 1] == hit_indices[peak_j] - 1:
         start = peak_j - 1
     return hit_indices[start:]
-
-
-def _leading_edge_size(run_es_np: np.ndarray, es: float, hit_indices: np.ndarray) -> int:
-    """
-    Reference implementation: count leading-edge genes from the full running ES.
-
-    Superseded by :func:`_leading_edge_from_peak`; retained as a test oracle.
-    """
-    if len(hit_indices) == 0:
-        return 0
-
-    if es >= 0:
-        peak_idx = np.argmax(run_es_np)
-        return int((hit_indices <= peak_idx).sum())
-    else:
-        peak_idx = np.argmin(run_es_np)
-        return int((hit_indices >= peak_idx).sum())
 
 
 # =============================================================================
