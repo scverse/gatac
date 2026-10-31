@@ -625,7 +625,7 @@ def make_gene_matrix(
         Minimum fragments required per barcode (default: 100)
     exclude_chroms : list, optional
         List of chromosomes to exclude. (default: None)
-    metrics : str, Path, pandas.DataFrame, cudf.DataFrame or polars.DataFrame, optional
+    metrics : str, Path, pandas.DataFrame or cudf.DataFrame, optional
         Cell metrics for filtering: the table returned by
         :func:`gatac.pp.compute_metrics`, or a CSV file of it.
     filter_query : str, optional

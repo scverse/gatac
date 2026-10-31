@@ -19,7 +19,7 @@ def _chrom_sizes(world):
 METRICS = pd.DataFrame({"barcode": ["AAA-1", "CCC-1"], "n_unique": [1500, 200], "tsse_score": [7.5, 2.0]})
 
 
-@pytest.mark.parametrize("kind", ["csv", "str", "pandas", "cudf", "polars"])
+@pytest.mark.parametrize("kind", ["csv", "str", "pandas", "cudf"])
 def test_read_metrics_inputs(kind, tmp_path):
     path = tmp_path / "metrics.csv"
     METRICS.to_csv(path, index=False)
@@ -28,7 +28,6 @@ def test_read_metrics_inputs(kind, tmp_path):
         "str": lambda: str(path),
         "pandas": lambda: METRICS,
         "cudf": lambda: cudf.from_pandas(METRICS),
-        "polars": lambda: pytest.importorskip("polars").from_pandas(METRICS),
     }[kind]()
     got = read_metrics(metrics)
     assert isinstance(got, pd.DataFrame)
@@ -59,15 +58,14 @@ def test_make_tile_matrix_missing_metrics_raises(world, tmp_path):
                                metrics=tmp_path / "typo.csv", filter_query="n_unique >= 100")
 
 
-@pytest.mark.parametrize("kind", ["pandas", "polars", "csv"])
+@pytest.mark.parametrize("kind", ["pandas", "csv"])
 def test_make_tile_matrix_metrics_inputs(kind, world, tmp_path):
     """Every metrics input gives the cells of a cuDF one."""
     counts = ga.io.FragmentFile(world["parquet"]).barcode_counts()
     metrics = counts.assign(tsse_score=np.arange(len(counts)) % 10)
     path = tmp_path / "metrics.csv"
     metrics.to_csv(path, index=False)
-    other = {"pandas": lambda: metrics, "csv": lambda: path,
-             "polars": lambda: pytest.importorskip("polars").from_pandas(metrics)}[kind]()
+    other = {"pandas": lambda: metrics, "csv": lambda: path}[kind]()
     kw = dict(chrom_sizes=_chrom_sizes(world), tile_size=5_000, filter_query="tsse_score >= 5")
     ref = ga.pp.make_tile_matrix(world["parquet"], metrics=cudf.from_pandas(metrics), **kw)
     got = ga.pp.make_tile_matrix(world["parquet"], metrics=other, **kw)

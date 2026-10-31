@@ -213,7 +213,7 @@
   format, like every other reader.
 - Every function that takes `metrics` (`make_tile_matrix`, `make_gene_matrix`,
   `make_gene_score_matrix`, `filter_fragments`, `pl.qc_metrics`) accepts the
-  same inputs: a CSV path, or a pandas, cuDF or Polars DataFrame. A metrics
+  same inputs: a CSV path, or a pandas or cuDF DataFrame. A metrics
   path that does not exist raises `FileNotFoundError`; `make_tile_matrix`,
   `make_gene_matrix` and `make_gene_score_matrix` used to warn and keep every
   barcode, skipping `filter_query`.
@@ -222,7 +222,8 @@
   DuckDB reader for `compute_metrics`, `make_gene_matrix` and
   `make_gene_score_matrix`: as fast as Polars on GENCODE v44 (1.7 s) with
   0.5 GB of host memory instead of 5.1 GB. `compute_metrics(tss_source=)`
-  takes a pandas DataFrame (cuDF and Polars ones are converted).
+  takes a pandas DataFrame (a cuDF one is converted). Polars DataFrames are
+  no longer accepted as `metrics` or `tss_source`: convert with `.to_pandas()`.
 - Tied rows now keep a defined order where Polars left an arbitrary one:
   annotation rows keep the file order, and `peak.markers` lists features with
   equal FDR and |log2FC| in `var` order. On PBMC 5k this moves at most 2 of

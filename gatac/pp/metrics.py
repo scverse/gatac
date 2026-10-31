@@ -110,7 +110,7 @@ def compute_metrics(
         rows are concatenated in the order given.
     tss_source : str, Path, or DataFrame
         Either a path to a GTF file (the TSS table is loaded internally)
-        or a pre-built pandas, cuDF or Polars DataFrame of TSS positions
+        or a pre-built pandas or cuDF DataFrame of TSS positions
         (columns: ``chrom``, ``tss`` (0-based), ``strand``).  When a pre-built
         DataFrame is passed, the underlying GTF file is not re-read.
     window_size : int
@@ -153,11 +153,11 @@ def compute_metrics(
         tss_df = _load_tss_from_gtf(tss_source)
     elif isinstance(tss_source, pd.DataFrame):
         tss_df = tss_source
-    elif hasattr(tss_source, "to_pandas"):     # cuDF or Polars
+    elif isinstance(tss_source, cudf.DataFrame):
         tss_df = tss_source.to_pandas()
     else:
         raise TypeError(
-            "tss_source must be a GTF path or a pandas, cuDF or Polars DataFrame, "
+            "tss_source must be a GTF path or a pandas or cuDF DataFrame, "
             f"not {type(tss_source).__name__}"
         )
 

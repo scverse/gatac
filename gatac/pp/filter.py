@@ -49,7 +49,7 @@ def filter_fragments(
         Path for output filtered parquet file(s). If None, will use
         input name with '_filtered' suffix. For multiple inputs, can be
         None or a list of same length.
-    metrics : str, Path, pandas.DataFrame, cudf.DataFrame or polars.DataFrame, optional
+    metrics : str, Path, pandas.DataFrame or cudf.DataFrame, optional
         Cell metrics for filtering: the table returned by
         :func:`gatac.pp.compute_metrics`, or a CSV file of it.
     min_fragments_per_cell : int, default 100

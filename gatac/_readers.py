@@ -23,7 +23,7 @@ def read_metrics(metrics, gpu: bool = False) -> Union[pd.DataFrame, cudf.DataFra
 
     Parameters
     ----------
-    metrics : str, Path, pandas.DataFrame, cudf.DataFrame, polars.DataFrame or None
+    metrics : str, Path, pandas.DataFrame, cudf.DataFrame or None
         A CSV file (as written from :func:`gatac.pp.compute_metrics`) or a
         loaded table.
     gpu : bool
@@ -51,11 +51,9 @@ def read_metrics(metrics, gpu: bool = False) -> Union[pd.DataFrame, cudf.DataFra
         return metrics.copy() if gpu else metrics.to_pandas()
     elif isinstance(metrics, pd.DataFrame):
         df = metrics.copy()
-    elif type(metrics).__module__.startswith("polars"):
-        df = metrics.to_pandas()
     else:
         raise TypeError(
-            "metrics must be a CSV path or a pandas, cuDF or Polars DataFrame, "
+            "metrics must be a CSV path or a pandas or cuDF DataFrame, "
             f"not {type(metrics).__name__}"
         )
     return cudf.from_pandas(df) if gpu else df

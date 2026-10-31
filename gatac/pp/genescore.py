@@ -592,7 +592,7 @@ def make_gene_score_matrix(
         Build the model on the 1bp TSS rather than the gene body.
     metrics
         Cell metrics for filtering: the table returned by
-        :func:`gatac.pp.compute_metrics` (pandas, cuDF or Polars), or a CSV
+        :func:`gatac.pp.compute_metrics` (pandas or cuDF), or a CSV
         file of it.
     filter_query
         Query on ``metrics`` selecting the cells (e.g. ``"tsse_score > 5"``).
