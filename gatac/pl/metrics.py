@@ -106,4 +106,4 @@ def qc_metrics(
 
     sns.despine()
     plt.tight_layout()
-
+    return fig

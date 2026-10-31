@@ -9,6 +9,7 @@ pytest.importorskip("cupy")
 pytest.importorskip("cudf")
 
 import anndata as ad  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
 
 import gatac as ga  # noqa: E402
 
@@ -143,6 +144,16 @@ def test_bindetect_results_do_not_depend_on_return_sites(inputs, bindetect_res):
     pd.testing.assert_frame_equal(bindetect_res.results, lean.results, check_exact=True)
     with pytest.raises(ValueError):
         lean.site_log2fc("a", "b")
+
+
+def test_plots(inputs, bindetect_res):
+    ax = ga.pl.bindetect_volcano(bindetect_res)
+    assert len(ax.collections) == 3                          # not highlighted, up, down
+    ax = ga.pl.footprint_aggregate(inputs["tracks"], bindetect_res, "AP1")
+    assert [line.get_label() for line in ax.get_lines()][:2] == ["a", "b"]
+    plt.close("all")
+
+
 def test_merge_quirk():
     from gatac.tobias.footprint import _merge
     iv = np.array([[0, 100], [10, 50], [40, 60], [200, 300]])

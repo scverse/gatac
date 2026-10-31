@@ -298,6 +298,7 @@
   file writes, which cuDF's `to_csv` / `to_parquet` use, fail with an illegal
   memory access on some systems (WSL2), so `import gatac` defaults
   `KVIKIO_AUTO_DIRECT_IO_WRITE` to `OFF`.
+- `pl.qc_metrics` returned `None` instead of the figure.
 - `gatac doublets` without `-o` failed instead of writing
   `<input>_doublets.csv`, and `gatac doublets` / `gatac filter` took a genome
   name only, although `-g` was documented to accept a chromosome sizes file as

@@ -16,11 +16,14 @@ from __future__ import annotations
 import gzip
 
 import anndata as ad
+import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
 
-import gatac as ga
+matplotlib.use("Agg")  # the plotting tests never show a window
+
+import gatac as ga  # noqa: E402
 
 CHROM_SIZES = {"chr1": 2_000_000, "chr2": 1_500_000, "chrX": 1_000_000}
 N_GROUPS, CELLS_PER_GROUP, HOTSPOTS_PER_CHROM = 3, 80, 40
