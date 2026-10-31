@@ -298,6 +298,10 @@
   file writes, which cuDF's `to_csv` / `to_parquet` use, fail with an illegal
   memory access on some systems (WSL2), so `import gatac` defaults
   `KVIKIO_AUTO_DIRECT_IO_WRITE` to `OFF`.
+- `gatac doublets` without `-o` failed instead of writing
+  `<input>_doublets.csv`, and `gatac doublets` / `gatac filter` took a genome
+  name only, although `-g` was documented to accept a chromosome sizes file as
+  for `gatac tile`.
 - `dr.lsi(chunk_size=...)` and the streamed `dr.spectral` failed under CuPy
   14.2 with "index pointer should start with 0": each chunk's CSR matrix was
   built before its copy to the GPU had finished.

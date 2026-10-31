@@ -129,27 +129,30 @@ def _input_files(args) -> list[Path]:
     return input_paths
 
 
+def _genome(arg: str):
+    """A genome name (e.g. hg38), or the chromosome sizes read from a file of that path."""
+    if not Path(arg).exists():
+        return arg
+    chrom_sizes = {}
+    try:
+        with open(arg, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    chrom_sizes[parts[0]] = int(parts[1])
+    except Exception as e:
+        logging.error(f"Error reading chromosome sizes file: {e}")
+        sys.exit(1)
+    return chrom_sizes
+
+
 def tile_command(args):
     """Handle 'gatac tile' subcommand."""
     from .pp.tile import make_tile_matrix
 
     input_paths = _input_files(args)
     input_path = input_paths[0]
-
-    # Resolve genome if it's a file
-    genome_arg = args.genome
-    if Path(genome_arg).exists():
-        chrom_sizes = {}
-        try:
-            with open(genome_arg, 'r') as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        chrom_sizes[parts[0]] = int(parts[1])
-            genome_arg = chrom_sizes
-        except Exception as e:
-            logging.error(f"Error reading chromosome sizes file: {e}")
-            sys.exit(1)
+    genome_arg = _genome(args.genome)
 
     try:
         output_path = args.output
@@ -386,7 +389,7 @@ def filter_command(args):
             filter_query=args.filter_query,
             barcode_prefix=args.barcode_prefix,
             row_groups_per_batch=args.batch_size,
-            chrom_sizes=args.genome if hasattr(args, 'genome') and args.genome else None,
+            chrom_sizes=_genome(args.genome) if args.genome else None,
         )
     except ValueError as e:
         logging.error(str(e))
@@ -405,13 +408,14 @@ def doublets_command(args):
         logging.error(f"Input file not found: {input_path}")
         sys.exit(1)
 
-    output_path = Path(args.output)
-    if output_path.suffix == "":
+    if args.output:
+        output_path = Path(args.output)
+    else:
         output_path = input_path.with_name(input_path.stem + "_doublets.csv")
 
     result = detect_doublets(
         fragment_path=input_path,
-        chrom_sizes=args.genome,
+        chrom_sizes=_genome(args.genome),
         barcodes=None,
         min_fragments=args.min_fragments,
         expected_overlap=args.expected_overlap,
@@ -677,7 +681,7 @@ def main():
     )
     filter_parser.add_argument(
         '-g', '--genome',
-        help='Genome name for chromosome filtering (e.g., hg38, mm10). Matches SnapATAC2 behavior by excluding non-standard contigs.'
+        help='Genome name (e.g., hg38, mm10) or path to chromosome sizes file, to drop other contigs as SnapATAC2 does'
     )
     filter_parser.add_argument(
         '--barcode-prefix',
