@@ -78,6 +78,7 @@ conflicts = [
 [dependency-groups]
 test = [
     "pytest>=8",
+    "pytest-xdist>=3.6",
     "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
 ]
 docs = [
@@ -108,4 +109,7 @@ only-include = ["gatac", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib", "--strict-markers"]
+# Four workers share the one GPU, one per vCPU of the GPU CI runner (g4dn.xlarge);
+# more only contend for the GPU (-n 8 is no faster). Pass -n0 to run in one
+# process, e.g. for --pdb.
+addopts = ["--import-mode=importlib", "--strict-markers", "-n", "4"]
