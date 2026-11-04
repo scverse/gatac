@@ -15,6 +15,7 @@ functions in a row, do not decompress it again.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 import os
 import shutil
@@ -203,7 +204,10 @@ def _load_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
             f.writelines(f"{c}\t{n}\t{o}\t{lb}\t{lw}\n" for c, (n, o, lb, lw) in index.items())
         os.replace(tmp, fai)
     except OSError as e:
-        tmp.unlink(missing_ok=True)
+        # Not only missing_ok: in a read-only directory, gVisor (Modal) refuses the
+        # unlink of a missing file with EACCES, and that must not hide the fallback
+        with contextlib.suppress(OSError):
+            tmp.unlink()
         logger.info(f"Could not write {fai} ({e}); the index is kept in memory")
     return index
 
