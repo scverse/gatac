@@ -1058,7 +1058,7 @@ def make_matrix(
         Larger values are faster but use more GPU memory.
     verbose
         Controls progress reporting. ``False`` disables progress output.
-        ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` prints
+        ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` logs
         one line per file with ETA for non-interactive environments.
     filter_chromosomes : bool
         If True, only keep fragments from chromosomes recognized by the 
@@ -1203,10 +1203,9 @@ def make_matrix(
                     eta_str = f", ETA: {eta:.1f}s"
                 else:
                     eta_str = ""
-                print(
+                logger.info(
                     f"[{file_idx + 1}/{n_files}] Processing {parquet_file.name}: "
-                    f"{len(barcodes_for_file):,} barcodes{eta_str}",
-                    flush=True,
+                    f"{len(barcodes_for_file):,} barcodes{eta_str}"
                 )
 
             logger.debug(f"Processing {parquet_file.name}: {len(barcodes_for_file):,} barcodes")

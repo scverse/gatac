@@ -4,6 +4,9 @@
 
 ### Added
 
+- Extras for the optional dependencies: `gatac[gseapy]` (`motif.gsea(backend="gseapy")`),
+  `gatac[bigwig]` (`FootprintResult.to_bigwig`) and `gatac[rapidgzip]`
+  (parallel decompression of a gzipped FASTA).
 - Extensions: packages that declare a `gatac.ext` entry point are reached as
   `gatac.<name>` (imported on first use, listed by `gatac.extensions()`), and
   a `gatac.cli` entry point adds their commands to `gatac`. The new
