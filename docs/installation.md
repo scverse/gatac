@@ -39,9 +39,7 @@ gatac --help
 | Extra | For |
 |-------|-----|
 | `archr-compat` | Seurat's approximate neighbour search (Annoy), to reproduce ArchR's clustering |
-| `gseapy` | `motif.gsea(backend="gseapy")` |
 | `bigwig` | Writing footprint tracks as bigWig (`FootprintResult.to_bigwig`) |
-| `rapidgzip` | Faster decompression of gzipped FASTA files |
 
 Combine them with the CUDA extra: `pip install 'gatac[cuda12,bigwig]'`.
 

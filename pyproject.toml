@@ -43,17 +43,9 @@ dependencies = [
 archr-compat = [
     "annoy>=1.17",
 ]
-# `motif.gsea(backend="gseapy")`, the reference implementation of the GPU GSEA
-gseapy = [
-    "gseapy>=1.1",
-]
 # `tobias` footprint tracks written as bigWig (`FootprintResult.to_bigwig`)
 bigwig = [
     "pyBigWig>=0.3.22",
-]
-# Parallel decompression of a gzipped FASTA (io.Fasta); gzip is used without it
-rapidgzip = [
-    "rapidgzip>=0.14",
 ]
 # RAPIDS floors, not pins, so GATAC installs next to newer releases; cap one
 # here when it breaks GATAC. CuPy is used directly (and its 14.x behaviour).

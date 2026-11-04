@@ -1533,7 +1533,7 @@ def gsea(
         except ImportError as exc:
             raise ImportError(
                 "gseapy is required for backend='gseapy'. "
-                "Install it with: pip install 'gatac[gseapy]' (or pip install gseapy)"
+                "Install it with: pip install gseapy"
             ) from exc
     elif backend == "gpu":
         from gatac.motif._gsea import prerank_gpu
