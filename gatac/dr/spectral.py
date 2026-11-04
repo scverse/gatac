@@ -34,7 +34,6 @@ streamed from page-locked host memory at every product.
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp

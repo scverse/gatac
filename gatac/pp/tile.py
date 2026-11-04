@@ -13,7 +13,7 @@ import functools
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Tuple, List, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import anndata as ad
 import cudf
@@ -437,7 +437,7 @@ def _make_tile_matrix_from_interval_matrix(
     chrom_sizes: dict[str, int],
     output_path: Optional[Path] = None,
     tile_size: int = 5000,
-    exclude_chroms: Optional[list] = ["chrM", "chrY", "M", "Y"],
+    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
     min_fragments_per_cell: int = 100,
     metrics: Optional[str | Path | pd.DataFrame | cudf.DataFrame] = None,
     filter_query: Optional[str] = None,
@@ -673,7 +673,7 @@ def make_tile_matrix(
     output_path: Optional[str | Path] = None,
     tile_size: int = 5000,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: Optional[list] = ["chrM", "chrY", "M", "Y"],
+    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
     metrics: Optional[str | Path | pd.DataFrame | cudf.DataFrame] = None,
     filter_query: Optional[str] = None,
     count_strategy: str = "unique",

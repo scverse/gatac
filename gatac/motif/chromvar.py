@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Sequence, Union
 
 import cupy as cp
 import cupyx.scipy.sparse as cupy_sparse
@@ -345,7 +345,7 @@ def sample_bg_peaks(
     *,
     method: Literal["knn", "chromvar"] = "knn",
     n_iterations: int = 50,
-    bg_columns: list[str] = ["gc_content", "reads_per_peak"],
+    bg_columns: Sequence[str] = ("gc_content", "reads_per_peak"),
     genome_fasta: Optional[Union[str, Path]] = None,
     n_neighbors: int = 50,
     bs: int = 50,
@@ -372,7 +372,7 @@ def sample_bg_peaks(
         - "chromvar": Original chromVAR binning (CPU, slower)
     n_iterations : int, default 50
         Number of background peaks to sample per peak
-    bg_columns : list[str], default ["gc_content", "reads_per_peak"]
+    bg_columns : sequence of str, default ("gc_content", "reads_per_peak")
         Columns in `adata.var` to use for bias matching. Any column listed here
         that is absent from `adata.var` will be computed automatically when
         `genome_fasta` is provided.
@@ -429,7 +429,7 @@ def sample_bg_peaks(
 
     # Prepare bias matrix
     if len(bg_columns) > 0:
-        bias_matrix = np.asarray(adata.var[bg_columns].values, dtype=np.float64)
+        bias_matrix = np.asarray(adata.var[list(bg_columns)].values, dtype=np.float64)
         trans_norm_mat = normalize_bias_matrix(bias_matrix)
     else:
         trans_norm_mat = reads_per_peak.reshape(-1, 1)
@@ -445,12 +445,12 @@ def sample_bg_peaks(
                 n_neighbors=n_iterations,
                 exclude_self=True,
             )
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "cuML is required for method='knn'. Install via: "
                 "pip install cuml-cu12 (or appropriate CUDA version). "
                 "Alternatively, use method='chromvar'."
-            )
+            ) from e
             
     elif method == "chromvar":
         # Original chromVAR binning method
@@ -831,6 +831,7 @@ def compute_deviations(
     2. `scan()` to generate `adata.varm["motif_match"]`
 
     The algorithm:
+
     - For each cell, computes observed motif accessibility
     - Computes expected accessibility based on overall peak accessibility and cell depth
     - For each background iteration, replaces every motif peak by its

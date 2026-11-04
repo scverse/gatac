@@ -44,7 +44,7 @@ def inputs(tmp_path_factory):
     # Two groups of cells: fragments in and around the peaks, the rest spread over the genome
     cells = {g: [f"{g}{i:03d}-1" for i in range(40)] for g in ("a", "b")}
     rows = []
-    for g, bcs in cells.items():
+    for bcs in cells.values():
         for _ in range(60_000):
             if rng.random() < 0.6:
                 p = peaks.iloc[rng.integers(len(peaks))]

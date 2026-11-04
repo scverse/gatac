@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal, Optional, Union
@@ -1235,7 +1234,6 @@ def enrichment(
     ... )
     """
     from scipy.stats import binom, hypergeom
-    from .._progress import tqdm
     
     # Determine method
     if method is None:
@@ -1321,7 +1319,7 @@ def enrichment(
     N_bg_arr = np.empty(total_results, dtype=np.int32)
     
     result_idx = 0
-    for group_name, group_regions in regions.items():
+    for group_name in regions:
         fg_indices = fg_indices_dict[group_name]
         total_fg = len(fg_indices)
 
@@ -1531,7 +1529,7 @@ def gsea(
 
     if backend == "gseapy":
         try:
-            import gseapy as gp
+            import gseapy  # noqa: F401  (only checks that it is installed)
         except ImportError as exc:
             raise ImportError(
                 "gseapy is required for backend='gseapy'. "

@@ -43,7 +43,6 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass, field
-from typing import Literal
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp
@@ -1451,7 +1450,7 @@ def cluster_var_features(
     # float64 from here: a near-tie in the variance ranking should not be
     # decided by float32 rounding, and the group matrix is only k x n_pool.
     g = group.astype(cp.float64)
-    del group
+    group = None  # free it; _accumulate is done
     totals = g.sum(axis=1, keepdims=True)
     totals = cp.where(totals == 0, cp.float64(1.0), totals)
     g = cp.log2(g / totals * cp.float64(scale_to) + cp.float64(1.0))
@@ -2136,7 +2135,7 @@ def iterative_lsi(
     depth_final = depth if depth is not None else cp.asnumpy(
         _cell_depth(_to_gpu_csr(_select(features)), binarize)
     )
-    del X_dev
+    X_dev = None  # free the device copy; _select is done
     keep, r = drop_depth_correlated(
         scale_dims(model.embedding), depth_final, cutoff=depth_cor_cutoff
     )

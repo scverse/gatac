@@ -11,11 +11,10 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional, List, Sequence, Union
+from typing import Sequence, Union
 
 import cudf
 import cupy as cp
-import cupyx
 import numpy as np
 import pandas as pd
 
@@ -92,7 +91,7 @@ def compute_metrics(
     smooth_window: int = 11,
     min_unique_frags: int = 100,
     chrom_sizes: dict[str, int] | None = None,
-    exclude_chroms: list[str] | None = ['chrM', 'M'],
+    exclude_chroms: Sequence[str] | None = ("chrM", "M"),
     row_groups_per_batch: int = 64,
     workers: int = 4,
 ) -> cudf.DataFrame:
@@ -221,7 +220,7 @@ def _compute_metrics_file(
     # =========================================================================
     # Filter TSS
     if exclude_chroms:
-        tss_filtered = tss_df[~tss_df['chrom'].isin(exclude_chroms)]
+        tss_filtered = tss_df[~tss_df['chrom'].isin(list(exclude_chroms))]
     else:
         tss_filtered = tss_df
 
@@ -294,7 +293,7 @@ def _compute_metrics_file(
         
         del chunk_df
 
-    logger.info(f"Completed TSSe computation")
+    logger.info("Completed TSSe computation")
     
     # =========================================================================
     # Phase 4: Compute final scores

@@ -250,7 +250,7 @@ class ChunkedMatrix:
             # indptr in the constructor, on the default stream, which does not
             # wait for self._stream
             yield pc, cusp.csr_matrix(cur_gpu, shape=pc.shape)
-            del cur_gpu
+            cur_gpu = None  # free the chunk before the next one's copy lands
 
             if nxt_gpu is not None:
                 cur_gpu, cur_ev = nxt_gpu, nxt_ev

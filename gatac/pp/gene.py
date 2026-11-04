@@ -10,12 +10,12 @@ import logging
 import time
 import gc
 from pathlib import Path
-from typing import Optional, Tuple, Literal, List, Union
+from typing import Optional, Tuple, Literal, List
 
 import cudf
 import cupy as cp
-import cupyx.scipy.sparse as cusp
 import numpy as np
+from anndata import AnnData
 import pandas as pd
 import scipy.sparse as sp
 
@@ -587,7 +587,7 @@ def make_gene_matrix(
     gene_id_key: str = "gene_id",
     transcript_name_key: str = "transcript_name",
     transcript_id_key: str = "transcript_id",
-) -> 'sc.AnnData':
+) -> AnnData:
     """
     Process ATAC fragments parquet file and generate gene activity matrix.
 
@@ -670,7 +670,6 @@ def make_gene_matrix(
     """
 
     from ..io.fragments import read_fragments_parquet
-    import scanpy as sc
 
     if isinstance(input_parquet, (list, tuple)):
         from ._combine import _check_distinct_cells, _file_names, combine_file_matrices

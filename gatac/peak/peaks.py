@@ -17,6 +17,7 @@ from typing import Literal, Optional, Union
 import cudf
 import cupy as cp
 import numpy as np
+from anndata import AnnData
 import pandas as pd
 from numba import njit, prange
 
@@ -175,7 +176,7 @@ def _concat_group(chunks: dict) -> dict:
 
 
 def call(
-    adata: "AnnData",
+    adata: AnnData,
     groupby: str,
     parquet_path: Union[str, Path],
     *,
@@ -562,7 +563,7 @@ def _find_overlapping_groups_with_chroms_numba(
 
 
 def merge(
-    peaks: Union[dict[str, pd.DataFrame], "AnnData"],
+    peaks: Union[dict[str, pd.DataFrame], AnnData],
     chrom_sizes: Optional[Union[str, dict[str, int]]] = None,
     half_width: int = 250,
     use_rep: str = "gmacs",
@@ -711,7 +712,6 @@ def merge(
     # Create chromosome encoding on GPU
     chrom_cat = all_peaks_gpu['chrom'].astype('category')
     chrom_codes_cp = chrom_cat.cat.codes.to_cupy().astype(cp.int32)
-    unique_chroms = chrom_cat.cat.categories.to_pandas().tolist()
     
     # Peaks are merged unclipped (start saturating at 0) and clipped to the
     # chromosome afterwards, as SnapATAC2 does
@@ -736,8 +736,6 @@ def merge(
     
     # Find overlapping groups with chromosome boundaries
     # A new group starts when: (a) chromosome changes OR (b) no overlap with previous
-    n = len(sorted_starts)
-    
     # Transfer to CPU once for the grouping/merge algorithm
     sorted_starts_np = cp.asnumpy(sorted_starts)
     sorted_ends_np = cp.asnumpy(sorted_ends)
@@ -1005,7 +1003,7 @@ def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
 
 
 def make_matrix(
-    adata: "AnnData",
+    adata: AnnData,
     parquet_path: Union[str, Path, list[Union[str, Path]]],
     *,
     use_rep: str = "peaks",
@@ -1016,7 +1014,7 @@ def make_matrix(
     batch_size: int = 50,
     verbose: Union[bool, str] = True,
     filter_chromosomes: bool = True,
-) -> Optional["AnnData"]:
+) -> Optional[AnnData]:
     """Generate cell by peak count matrix.
 
     This function counts fragment insertions overlapping with peak regions to create
@@ -1098,7 +1096,6 @@ def make_matrix(
     ...     inplace=False,
     ... )
     """
-    import scipy.sparse as sp
     from anndata import AnnData as AD
     
     # Get peaks: a peak_file takes precedence over use_rep

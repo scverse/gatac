@@ -95,6 +95,11 @@ test = [
     "coverage>=7.10",
     "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
 ]
+# Lint (ruff) and its pre-commit hook; `uv run pre-commit install` once per clone
+dev = [
+    "pre-commit>=4",
+    "ruff>=0.17",
+]
 docs = [
     "sphinx>=9.1",  # TODO: remove conf.py monkey-patch once executablebooks/MyST-Parser#1052 is fixed
     "scanpydoc[typehints]>=0.17.5",  # extra pulls a matching sphinx-autodoc-typehints; <0.17.5 breaks with it >=3.14
@@ -120,6 +125,22 @@ source = "vcs"
 # The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
 [tool.hatch.build.targets.sdist]
 only-include = ["gatac", "tests"]
+
+[tool.ruff]
+# The package, its tests and the docs config; not the submodules
+extend-exclude = ["reproducibility", "tutorials"]
+
+[tool.ruff.lint]
+# Pyflakes and bugbear: likely bugs only. There is no formatter (yet), so no
+# style rules either.
+select = ["F", "B"]
+# zip(strict=) on every zip is noise here: the zips pair arrays of one length
+ignore = ["B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# The closures of the motif scan and the background sampling read the loop's
+# variables, but each runs in the iteration that defines it
+"gatac/tobias/bindetect.py" = ["B023"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

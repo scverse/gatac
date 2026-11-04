@@ -10,8 +10,12 @@ Thank you for your interest in contributing to GATAC!
 git clone https://github.com/scverse/gatac.git
 cd GATAC
 
-# Install in editable mode with all dev extras
-uv sync --extra cuda12
+# Install in editable mode with the CUDA extra of your driver (cuda12 or
+# cuda13), the test and lint tools
+uv sync --extra cuda12 --group test --group dev
+
+# Lint each commit (ruff check)
+uv run pre-commit install
 ```
 
 ---
@@ -82,15 +86,21 @@ options.
 
 ## Code style
 
-- **Formatter**: `ruff format`
-- **Linter**: `ruff check`
+- **Linter**: `ruff check`, with the pyflakes and bugbear rules (`[tool.ruff]`
+  in `pyproject.toml`). The pre-commit hook runs it on each commit, and the
+  *Checks* workflow on each pull request. There is no formatter yet: keep to
+  the style of the surrounding code.
 - **Type hints**: encouraged for all public functions
 - **Docstrings**: NumPy style
 
 ```bash
-uv run ruff format gatac/
-uv run ruff check gatac/
+uv run ruff check            # or: uv run pre-commit run --all-files
 ```
+
+The *Checks* workflow also builds the package (`uv build`, `twine check
+--strict`), installs the wheel without a CUDA extra, and builds the docs with
+warnings as errors. It runs on GitHub's free runners, on every pull request;
+the GPU tests need the `run-gpu-ci` label.
 
 ---
 
@@ -110,7 +120,7 @@ Please open a GitHub issue with:
 - A minimal reproducible example
 - GATAC version (`gatac --version`)
 - GPU model and CUDA version
-- Error traceback
+- Error traceback (`gatac -v <command> ...` prints it for the CLI)
 
 ---
 
@@ -119,7 +129,7 @@ Please open a GitHub issue with:
 The docs live in `docs/`.  To build locally:
 
 ```bash
-uv sync --extra docs
+uv sync --group docs
 cd docs
 make html
 # Open _build/html/index.html

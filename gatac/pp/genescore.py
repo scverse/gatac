@@ -31,12 +31,13 @@ import gc
 import logging
 import time
 from pathlib import Path
-from typing import Callable, List, Literal, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import cudf
 import cupy as cp
 import cupyx.scipy.sparse as cusp
 import numpy as np
+from anndata import AnnData
 import pandas as pd
 import scipy.sparse as sp
 
@@ -557,7 +558,7 @@ def make_gene_score_matrix(
     cell_batch_size: Optional[int] = None,
     gene_name_key: str = "gene_name",
     gene_id_key: str = "gene_id",
-) -> "sc.AnnData":
+) -> AnnData:
     """GPU-accelerated ArchR-style gene activity *score* matrix.
 
     Faithful port of ArchR ``addGeneScoreMatrix`` :cite:p:`Granja2021`. See module docstring for the
@@ -620,7 +621,7 @@ def make_gene_score_matrix(
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
-    def _score(path: Path) -> "sc.AnnData":
+    def _score(path: Path) -> AnnData:
         """The gene score matrix of one fragment file."""
         def _run(use_low_mem):
             df = read_fragments_parquet(path, low_memory=use_low_mem)

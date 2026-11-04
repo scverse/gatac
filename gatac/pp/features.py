@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp

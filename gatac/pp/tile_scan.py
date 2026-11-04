@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Union
 
 import anndata as ad
 import cupy as cp
@@ -50,7 +50,7 @@ def scan_tiles(
     chrom_sizes: dict[str, int] | str,
     tile_size: int = 5000,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: Optional[list] = ["chrM", "chrY", "M", "Y"],
+    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
     metrics=None,
     filter_query: Optional[str] = None,
     count_strategy: str = "unique",

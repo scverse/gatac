@@ -100,8 +100,6 @@ def filter_fragments(
     ...     filter_query="tsse_score > 5"
     ... )
     """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
     from .genome import get_chrom_sizes
 
     # Get valid chromosomes from chrom_sizes
@@ -164,7 +162,7 @@ def filter_fragments(
             try:
                 metrics_df = metrics_df.query(filter_query)
             except Exception as e:
-                raise ValueError(f"Invalid filter query '{filter_query}': {e}")
+                raise ValueError(f"Invalid filter query '{filter_query}': {e}") from e
             logger.info(f"Retained {len(metrics_df):,} cells after query filter")
         
         if 'n_unique' in metrics_df.columns:

@@ -134,6 +134,11 @@
 
 ### Changed
 
+- The default `exclude_chroms` of the tile and metrics functions and
+  `bg_columns` of `motif.sample_bg_peaks` are tuples instead of lists shared
+  between calls; the return type hints of the gene matrices and the
+  `AnnData` hints of the peak functions resolve (`typing.get_type_hints`,
+  the API docs).
 - CLI errors: every command reports an error the same way, as one line and
   exit status 1, and `gatac -v` adds its traceback (several commands caught
   every exception and only logged its message, even with `-v`). `gatac

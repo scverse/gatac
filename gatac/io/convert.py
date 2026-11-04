@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -138,7 +139,7 @@ def make_parquet(
     separator : str
         Column separator (default: tab)
     barcode_prefix : str, optional
-        Prefix of the sample's barcodes (e.g. "sample1_"), so that cells keep
+        Prefix of the sample's barcodes (e.g. ``"sample1_"``), so that cells keep
         distinct names across samples. ``{sample}`` in it is replaced by the
         input's name without its extensions (``"{sample}_"``). It is stored
         once, in the file footer, and every reader puts it in front of the
