@@ -78,7 +78,9 @@ conflicts = [
 [dependency-groups]
 test = [
     "pytest>=8",
+    "pytest-timeout>=2",
     "pytest-xdist>=3.6",
+    "coverage>=7.10",
     "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
 ]
 docs = [
@@ -109,7 +111,17 @@ only-include = ["gatac", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Four workers share the one GPU, one per vCPU of the GPU CI runner (g4dn.xlarge);
+# A hung GPU test fails after 2 minutes instead of holding the CI runner.
+# Four workers share the one GPU, one per vCPU of the CI runner (g4dn.xlarge);
 # more only contend for the GPU (-n 8 is no faster). Pass -n0 to run in one
 # process, e.g. for --pdb.
-addopts = ["--import-mode=importlib", "--strict-markers", "-n", "4"]
+addopts = ["--import-mode=importlib", "--strict-markers", "--timeout=120", "-n", "4"]
+
+[tool.coverage]
+run.source_pkgs = ["gatac"]
+run.patch = ["subprocess"]  # test_lsi_reproducible_across_processes runs LSI in a child process
+# Hidden: coverage combines every file named like it, and coverage.xml would be one
+run.data_file = "test-data/.coverage"
+# Numba compiles these functions: their bodies never run as Python
+report.exclude_also = ["if TYPE_CHECKING:", "@(numba\\.)?njit"]
+xml.output = "test-data/coverage.xml"

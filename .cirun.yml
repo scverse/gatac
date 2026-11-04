@@ -1,0 +1,13 @@
+runners:
+  # T4 (g4dn.xlarge), spot first then on-demand. The scverse-standard AMI in
+  # eu-west-1, built by scverse/gpu-ci-config, as for anndata and rapids_singlecell.
+  - name: aws-gpu-runner-g4dn
+    cloud: aws
+    instance_type: g4dn.xlarge
+    machine_image: ami-0756bd122da9b2618
+    region: eu-west-1
+    preemptible:
+      - true
+      - false
+    labels:
+      - cirun-aws-gpu-t4
