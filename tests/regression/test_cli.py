@@ -75,3 +75,25 @@ def test_commands(files, monkeypatch):
     gatac("doublets", frags, "-g", sizes, "-m", 100)              # default output next to the input
     doublets = pd.read_csv(d / "a_doublets.csv")
     assert set(doublets["cell_id"]) == set(tiles.obs_names)
+
+
+def test_version_and_errors(tmp_path, monkeypatch, capsys, caplog):
+    """--version; an error is one line and exit status 1, and -v adds its traceback."""
+    def gatac(*argv):
+        monkeypatch.setattr("sys.argv", ["gatac", *map(str, argv)])
+        with pytest.raises(SystemExit) as e:
+            cli.main()
+        return e.value.code
+
+    assert gatac("--version") == 0
+    assert capsys.readouterr().out.strip() == f"gatac {ga.__version__}"
+    bad = tmp_path / "sizes.txt"
+    bad.write_text("chr1\tnot-a-number\n")
+    frags = tmp_path / "f.parquet"
+    frags.touch()
+    assert gatac("tile", frags, "-g", bad) == 1
+    assert "Error reading the chromosome sizes file" in caplog.text
+    assert "Traceback" not in caplog.text
+    caplog.clear()
+    assert gatac("-v", "tile", frags, "-g", bad) == 1
+    assert "gatac tile failed" in caplog.text and "Traceback" in caplog.text

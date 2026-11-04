@@ -131,6 +131,10 @@
 
 ### Changed
 
+- CLI errors: every command reports an error the same way, as one line and
+  exit status 1, and `gatac -v` adds its traceback (several commands caught
+  every exception and only logged its message, even with `-v`). `gatac
+  --version` prints the version.
 - `import gatac` no longer sets `TQDM_DISABLE` for the whole process, which
   turned off the progress bars of every library, in notebooks too. GATAC
   decides for its own bars when it shows one: in a terminal or a Jupyter
