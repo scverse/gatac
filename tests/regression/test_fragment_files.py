@@ -707,5 +707,15 @@ def test_combine_file_matrices_widens_and_checks_features(tmp_path):
     other = ad.AnnData(sp.csr_matrix((1, 2)), var=pd.DataFrame(index=["g1", "x"]))
     with pytest.raises(ValueError, match="other features"):
         combine_file_matrices([parts[0], other], ["a", "b"])
+    # an error after the first part is written keeps an existing output, and
+    # leaves no partial file where there was none
+    reordered = parts[1][:, ["g2", "g1", "g3"]].copy()
+    out = tmp_path / "c.h5ad"
+    before = out.read_bytes()
+    for target in (out, tmp_path / "new.h5ad"):
+        with pytest.raises(ValueError, match="same 3 features in another order"):
+            combine_file_matrices(iter([parts[0], reordered]), ["a", "b"], target)
+    assert out.read_bytes() == before
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["c.h5ad"]
     with pytest.raises(ValueError, match=r"2 cell names are in more than one of the files \['a', 'c'\]"):
         combine_file_matrices([parts[0], parts[1], part("a_", np.uint8, 1)], ["a", "b", "c"])

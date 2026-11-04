@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import write_h5ad
 from .._readers import read_gtf, read_metrics
 from ._utils import async_memory_pool
 
@@ -765,7 +766,7 @@ def make_gene_matrix(
 
     total_time = time.perf_counter() - start_time
     if output_path is not None:
-        adata.write_h5ad(str(output_path))
+        write_h5ad(adata, output_path)
         total_time = time.perf_counter() - start_time
         logger.info(f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)")
     else:

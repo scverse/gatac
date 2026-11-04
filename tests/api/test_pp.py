@@ -58,8 +58,34 @@ def test_combine_concatenates_files_and_rejects_duplicate_barcodes(split_h5ad, t
     assert (got.X != ordered.X).nnz == 0
     n_a = (ordered.n_obs + 1) // 2
     assert got.obs["source_file"].tolist() == ["A_tile.h5ad"] * n_a + ["B_tile.h5ad"] * (ordered.n_obs - n_a)
-    with pytest.raises(ValueError, match="duplicate cell barcode"):
+    with pytest.raises(ValueError, match="cell names are in more than one of the files"):
         ga.pp.combine([paths[0], paths[0]], tmp_path / "dup.h5ad")
+
+
+def _one_cell(path, cell, features, values):
+    import anndata as ad
+    import scipy.sparse as sp
+    ad.AnnData(sp.csr_matrix(np.array([values], dtype=np.float32)),
+               obs=pd.DataFrame(index=[cell]), var=pd.DataFrame(index=features)).write_h5ad(path)
+    return path
+
+
+@pytest.mark.parametrize("features_b, match", [
+    (["geneB", "geneA"], "same 2 features in another order"),
+    (["geneA", "geneC"], "1 of them not among the 2"),
+])
+def test_combine_rejects_other_features_and_keeps_the_output(tmp_path, features_b, match):
+    """Columns are stacked by position: files whose features differ, even only in order, are refused
+    before the existing output is touched."""
+    a = _one_cell(tmp_path / "a.h5ad", "c1", ["geneA", "geneB"], [1, 2])
+    b = _one_cell(tmp_path / "b.h5ad", "c2", features_b, [10, 20])
+    out = tmp_path / "out.h5ad"
+    ga.pp.combine([a], out)
+    before = out.read_bytes()
+    with pytest.raises(ValueError, match=match):
+        ga.pp.combine([a, b], out)
+    assert out.read_bytes() == before
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["a.h5ad", "b.h5ad", "out.h5ad"]
 
 
 def test_tile_matrix_from_interval_matrix_sums_overlapping_features(peaks, world, tmp_path):

@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import write_h5ad
 from .._readers import read_gtf, read_metrics
 
 logger = logging.getLogger(__name__)
@@ -679,7 +680,7 @@ def make_gene_score_matrix(
         output_path = Path(output_path)
 
     adata = _score(input_parquet)
-    adata.write_h5ad(str(output_path))
+    write_h5ad(adata, output_path)
     logger.info(
         f"Created {output_path.name}: {adata.shape[0]:,} cells x {adata.shape[1]:,} genes "
         f"({time.perf_counter() - start:.1f}s)")

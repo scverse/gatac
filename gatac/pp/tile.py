@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import write_h5ad
 from ..gpu import bincount
 from .._readers import read_metrics
 from ..io.fragments import FragmentFile
@@ -579,7 +580,7 @@ def _make_tile_matrix_from_interval_matrix(
     adata.uns['tile_aggregation'] = 'sum_overlapping_features'
 
     if output_path is not None:
-        adata.write_h5ad(str(output_path))
+        write_h5ad(adata, output_path)
         logger.info(
             f"Created {output_path.name}: {adata.shape[0]:,} cells × "
             f"{adata.shape[1]:,} tiles from interval matrix"
@@ -906,7 +907,7 @@ def _make_tile_matrix_one(
 
     # Save
     if resolved_output_path is not None:
-        adata.write_h5ad(str(resolved_output_path))
+        write_h5ad(adata, resolved_output_path)
         total_time = time.perf_counter() - start_time
         logger.info(
             f"Created {resolved_output_path.name}: {adata.shape[0]:,} cells × "

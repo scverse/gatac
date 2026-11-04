@@ -299,6 +299,18 @@
 
 ### Fixed
 
+- `pp.combine` / `gatac combine` stacked the files' columns by position and
+  only checked their number, so files whose features were in another order,
+  or other features of the same count, were combined into wrong counts
+  without an error. Every file must now have the same features in the same
+  order, checked before anything is written. `pp.combine` is now built on the
+  streaming writer of the multi-file matrices: one file is held at a time,
+  the `barcode` column of `obs` is kept, and `source_file` is categorical.
+- An `.h5ad` output (`pp.combine`, `build_tile_matrix`, the multi-file tile
+  and gene matrices, and every other `output_path`) is written next to the
+  target and moved onto it once complete: an error midway, e.g. on a file of
+  other features, no longer truncates an existing output or leaves a partial
+  file.
 - RAPIDS 26.10: `filter_fragments` used `Series.values_host` and
   `read_fragments_parquet` a private cuDF constructor, both removed (now
   `to_numpy()` and `CategoricalIndex.from_codes`); and KvikIO 26.10's direct-I/O
