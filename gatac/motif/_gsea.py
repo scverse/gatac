@@ -474,7 +474,7 @@ def prerank_gpu(
         - lead_edge_idx: indices of the leading-edge features in the ranked list
         - hits: indices of feature-set members in the ranked list
     """
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     N = len(feature_names)
     if N == 0:

@@ -790,7 +790,7 @@ def _scan_motifs_batch_gpu(
     np.ndarray
         Boolean array of shape (n_motifs, n_seqs) indicating motif presence
     """
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
     
     n_seqs, max_len = encoded_seqs.shape
     n_motifs = len(pwm_list)
@@ -1235,7 +1235,7 @@ def enrichment(
     ... )
     """
     from scipy.stats import binom, hypergeom
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
     
     # Determine method
     if method is None:
@@ -1856,7 +1856,7 @@ def presence_matrix(
     --------
     enrichment_regression : consumes this through ``precomputed_hits``.
     """
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     if len(motifs) == 0:
         raise ValueError("no motifs supplied")
@@ -2118,7 +2118,7 @@ def enrichment_regression(
     >>> res.head()
     """
     from scipy.stats import norm
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     scores = np.asarray(scores, dtype=np.float64)
     if len(regions) != len(scores):

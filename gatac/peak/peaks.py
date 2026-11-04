@@ -366,7 +366,7 @@ def call(
         logger.info(f"Reading the groups in {len(passes)} passes to fit {budget / 1e9:.0f} GB of host memory")
 
     if verbose:
-        from tqdm.auto import tqdm
+        from .._progress import tqdm
     peaks_dict = {}
     for k, members in enumerate(passes):
         chunks = {i: defaultdict(list) for i in members}
@@ -1173,7 +1173,7 @@ def make_matrix(
     # Process each parquet file
     n_files = len(parquet_files)
     if verbose == "tqdm" or verbose is True:
-        from tqdm.auto import tqdm
+        from .._progress import tqdm
         file_iter = tqdm(parquet_files, desc="Parquet files")
     else:
         file_iter = parquet_files

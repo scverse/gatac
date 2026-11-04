@@ -18,7 +18,7 @@ import numpy as np
 import scipy.sparse as sp
 from anndata import AnnData
 from scipy.sparse import csr_matrix as scipy_csr_matrix
-from tqdm.auto import tqdm, trange
+from .._progress import tqdm, trange
 
 from ._bias_matching import compute_bias_knn_indices, normalize_bias_matrix
 from ..io.fasta import Fasta
@@ -559,7 +559,7 @@ def scan(
         _reverse_complement_encoded,
         _scan_motifs_batch_gpu,
     )
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
     
     logger.info(f"Scanning {len(motifs)} motifs in {adata.n_vars} peaks...")
     logger.info(f"Using {coordinate_system} coordinate system")

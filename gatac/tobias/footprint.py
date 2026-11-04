@@ -808,7 +808,7 @@ def footprint(
     """
     import time
 
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     keep_tracks = tuple(keep_tracks)
     bad = set(keep_tracks) - set(TRACKS)

@@ -17,13 +17,7 @@ as ``gatac.<name>``, imported on first use; see :func:`extensions`.
 
 import logging
 import os
-import sys
 from importlib.metadata import EntryPoint, entry_points, version
-
-# Disable tqdm progress bars when not running in an interactive terminal
-# (e.g. when called from Snakemake), to keep logs clean.
-if not sys.stderr.isatty():
-    os.environ.setdefault("TQDM_DISABLE", "1")
 
 # libcudf means to default KvikIO to POSIX reads, but opens the first file
 # before applying that, so each process probes cuFile/GPUDirect Storage once
@@ -101,24 +95,28 @@ def __dir__() -> list[str]:
 # ---------------------------------------------------------------------------
 # Package-level logging
 # ---------------------------------------------------------------------------
-# Attach a single StreamHandler to the "gatac" root logger so that
-# INFO messages from all submodules (gatac.dr.spectral, etc.) are visible
-# when the library is imported interactively or in a script.
-# Users can silence output with gatac.set_verbosity("WARNING") or by
-# configuring their own handlers via the standard logging API.
+# GATAC's INFO messages are shown by default: on stderr while logging is not
+# configured, and through the application's own handlers once it is (root
+# logger handlers, e.g. logging.basicConfig or pytest's caplog), so they are
+# never printed twice. gatac.set_verbosity("WARNING") silences them.
+
+
+class _DefaultHandler(logging.StreamHandler):
+    """GATAC's messages on stderr, while the root logger has no handler of its own."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not logging.getLogger().handlers:
+            super().emit(record)
+
 
 _logger = logging.getLogger("gatac")
 _logger.setLevel(logging.INFO)
-
-_handler = logging.StreamHandler()
+_handler = _DefaultHandler()
 _handler.setFormatter(
     logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                       datefmt="%H:%M:%S")
 )
 _logger.addHandler(_handler)
-# Prevent messages from propagating to the root logger (avoids duplicate
-# output when the caller also configures basicConfig).
-_logger.propagate = False
 
 
 def set_verbosity(level: str | int) -> None:

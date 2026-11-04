@@ -131,6 +131,14 @@
 
 ### Changed
 
+- `import gatac` no longer sets `TQDM_DISABLE` for the whole process, which
+  turned off the progress bars of every library, in notebooks too. GATAC
+  decides for its own bars when it shows one: in a terminal or a Jupyter
+  kernel, not in logs (e.g. Snakemake), and never with `TQDM_DISABLE` set.
+- GATAC's logger propagates to the root logger: its INFO messages are still
+  shown by default, but once the application configures logging (e.g.
+  `logging.basicConfig`) they go through its handlers only, and pytest's
+  `caplog` sees them. `set_verbosity` sets the level as before.
 - Packaging for PyPI: the version comes from the git tag (hatch-vcs); the
   `cuda12` / `cuda13` extras require RAPIDS `>=26.02` instead of pinning
   `26.02.*`, and CuPy `>=14` directly; the libraries GATAC imports itself
