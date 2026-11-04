@@ -46,6 +46,38 @@ pixi run pytest test/tile_matrix.py
 pixi run pytest test/spectral_embedding.py
 ```
 
+### GPU tests in CI
+
+GATAC imports cuDF at module level, so the whole suite needs a GPU. The
+`GPU Tests` workflow runs it on an AWS T4 through [Cirun](https://cirun.io)
+on every push to `main`. On a pull request, it runs only once a maintainer
+adds the `run-gpu-ci` label (removed again after the run); `skip-gpu-ci`
+skips it.
+
+### On a Modal GPU
+
+Without a local GPU, `ci/modal_gpu.py` runs the workflow's test job on a
+[Modal](https://modal.com) GPU, against your working tree as it is,
+uncommitted changes included. It reads the machine (a T4, 4 cores, 16 GiB),
+the Python version, the CUDA extra, the environment and the steps from
+`.github/workflows/tests.yml` and `.cirun.yml`, so it runs the tests as CI
+does. You need a Modal account (`uvx modal setup` once), then:
+
+```bash
+uvx --with pyyaml modal run ci/modal_gpu.py                 # the CI test job
+uvx --with pyyaml modal run ci/modal_gpu.py --pytest-args "tests/api/test_pp.py -x"
+uvx --with pyyaml modal run ci/modal_gpu.py --gpu L4        # another GPU
+GATAC_CUDA=cuda12 uvx --with pyyaml modal run ci/modal_gpu.py   # the cuda12 extra
+uv run --no-project --with modal --with pyyaml python ci/modal_gpu.py   # show what it read; runs nothing
+```
+
+`--pytest-args` are appended to the workflow's pytest command. The first run
+builds the image with the RAPIDS dependencies, which takes several minutes;
+later runs reuse it until a dependency list in `pyproject.toml` changes.
+The CuPy, Numba and CUDA JIT caches persist in the Modal Volume
+`gatac-gpu-tests-jit-cache`. See the script's docstring for the rest of the
+options.
+
 ---
 
 ## Code style
