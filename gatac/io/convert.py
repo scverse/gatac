@@ -3,6 +3,7 @@ ATAC fragments TSV.GZ to Parquet conversion, and back.
 """
 
 import logging
+import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -427,7 +428,10 @@ def make_parquet_batch(
 
     results: list[Optional[Path]] = [None] * len(input_paths)
 
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+    # Spawned, not forked: the parent runs DuckDB and Arrow threads, and a
+    # fork of a multi-threaded process can deadlock in the child (Python
+    # 3.14 no longer forks by default either). Each worker imports gatac once.
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp.get_context("spawn")) as executor:
         future_to_idx = {
             executor.submit(
                 make_parquet,

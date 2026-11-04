@@ -320,6 +320,9 @@
   `skip_invalid=True` / `--skip-invalid` skips them and logs how many. File
   names with a quote (`patient's.tsv.gz`) failed with a SQL error; the paths
   are now bound parameters or quoted.
+- `make_parquet_batch` / `gatac convert` with several files forked its
+  workers from a multi-threaded process, which can deadlock; they are now
+  spawned.
 - An `.h5ad` output (`pp.combine`, `build_tile_matrix`, the multi-file tile
   and gene matrices, and every other `output_path`) is written next to the
   target and moved onto it once complete: an error midway, e.g. on a file of
