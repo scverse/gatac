@@ -113,6 +113,30 @@ the GPU tests need the `run-gpu-ci` label.
 
 ---
 
+## Releasing
+
+The version is the git tag (hatch-vcs): `v0.1.0` builds `0.1.0`. Publishing a
+GitHub release uploads it to PyPI through trusted publishing
+(`.github/workflows/release.yml`).
+
+Once, before the first release: on PyPI, add a *pending trusted publisher* for
+the project `gatac` (owner `scverse`, repository `gatac`, workflow
+`release.yml`, environment `pypi`), and create the `pypi` environment in the
+repository's settings, ideally with required reviewers.
+
+For each release:
+
+1. In `docs/changelog.md`, replace *unreleased* in the version's heading by
+   the date, and start a new *unreleased* section above it for the next one.
+2. Run the GPU tests on the release commit (`run-gpu-ci` label, or the Modal
+   script) and check that the *Checks* workflow passes.
+3. Tag the commit and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
+4. Create a GitHub release of the tag, with the changelog section as notes.
+   The *Release* workflow builds the sdist and wheel, checks that their
+   version is the tag's, and publishes them to PyPI.
+
+---
+
 ## Reporting issues
 
 Please open a GitHub issue with:

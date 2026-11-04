@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — *unreleased*
+
+First public version of GATAC. Added lists what it provides; Changed and
+Fixed, the changes made while it was developed, before this first release.
 
 ### Added
 
@@ -432,9 +435,3 @@
 - FDR computation no longer upcasts the whole null distribution once per feature
   set, which dominated runtime for large feature-set collections (37s of a 38s
   run at 5000 sets). Results are bit-identical.
-
----
-
-## 0.1.0 — *initial release*
-
-First public version of GATAC.
