@@ -52,6 +52,12 @@ logger = logging.getLogger(__name__)
 FORMAT_VERSION = "1"
 FRAGMENT_COLUMNS = ("chrom", "start", "end", "barcode", "count")
 
+
+def sql_string(value) -> str:
+    """``value`` as a SQL string literal, for the statements that take no bound parameters (views, ``COPY ... TO``)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 NAMED_SCHEMA = pa.schema([
     ("chrom", pa.string()),
     ("start", pa.uint32()),
@@ -436,7 +442,7 @@ class FragmentFile:
             CREATE OR REPLACE TEMP VIEW {name} AS
             SELECT c.chrom, f.start, (f.start + f.length)::UINTEGER AS "end", b.barcode,
                    f.count::USMALLINT AS count
-            FROM read_parquet('{self.path}') f
+            FROM read_parquet({sql_string(self.path)}) f
             JOIN {name}_chroms c USING (chrom_id)
             JOIN {name}_barcodes b USING (barcode_id)
         """)

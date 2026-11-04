@@ -135,6 +135,37 @@ def test_end_before_start_is_rejected(tmp_path):
         ga.io.fragments.write_fragments(lambda: iter([t]), tmp_path / "bad.parquet")
 
 
+@pytest.mark.parametrize("line, match", [
+    ("chr1\t5\t60\tBCX\t1\textra", "Expected Number of Columns: 5 Found: 6"),
+    ("chr1\t5\t60\tBCX", "Expected Number of Columns: 5 Found: 4"),
+    ("chr1\tabc\t60\tBCX\t1", 'Could not convert string "abc"'),
+    ("chr1\t-5\t60\tBCX\t1", 'Could not convert string "-5"'),
+    ("chr1\t5\t60\t\t1", "empty chrom, start, end or barcode"),
+])
+def test_invalid_lines_fail_or_are_skipped_and_counted(data, tmp_path, caplog, line, match):
+    """A line that is not a fragment is an error, or with skip_invalid is skipped and counted;
+    the other lines are kept either way. A quote in the path is no SQL."""
+    valid = data["df"].head(100).copy()
+    valid["barcode"] = valid["barcode"].str.removeprefix("S1_")
+    tsv = tmp_path / "patient's sample.tsv.gz"
+    with gzip.open(tsv, "wt") as fh:
+        valid.head(50).to_csv(fh, sep="\t", header=False, index=False)
+        fh.write(line + "\n")
+        valid.iloc[50:].to_csv(fh, sep="\t", header=False, index=False)
+    out = tmp_path / "out.parquet"
+    with pytest.raises(ValueError, match=match):
+        ga.io.make_parquet(tsv, out)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [tsv.name]
+    ga.io.make_parquet(tsv, out, skip_invalid=True)
+    assert "skipped 1 invalid line(s)" in caplog.text
+    got = pd.concat(t.to_pandas() for t in FragmentFile(out).iter_arrow())
+    pd.testing.assert_frame_equal(got.reset_index(drop=True), valid.reset_index(drop=True),
+                                  check_dtype=False, check_categorical=False)
+    con = duckdb.connect()
+    FragmentFile(out).register(con)
+    assert con.execute("SELECT count(*) FROM fragments").fetchall() == [(len(valid),)]
+
+
 @pytest.mark.parametrize("chroms", [None, ["chr2", "chrM"]])
 def test_barcode_counts(data, chroms):
     df = data["df"]

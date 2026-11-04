@@ -314,6 +314,12 @@
   order, checked before anything is written. `pp.combine` is now built on the
   streaming writer of the multi-file matrices: one file is held at a time,
   the `barcode` column of `obs` is kept, and `source_file` is categorical.
+- `make_parquet` / `gatac convert` skipped the lines it could not read
+  (another number of fields, a field that is not a number, an empty field)
+  without saying so. Such a line is now an error naming it, and
+  `skip_invalid=True` / `--skip-invalid` skips them and logs how many. File
+  names with a quote (`patient's.tsv.gz`) failed with a SQL error; the paths
+  are now bound parameters or quoted.
 - An `.h5ad` output (`pp.combine`, `build_tile_matrix`, the multi-file tile
   and gene matrices, and every other `output_path`) is written next to the
   target and moved onto it once complete: an error midway, e.g. on a file of

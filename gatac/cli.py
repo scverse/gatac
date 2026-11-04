@@ -99,6 +99,7 @@ def convert_command(args):
             file_prefix=one_or_each(args.file_prefix),
             output_paths=one_or_each(args.output),
             samples=args.samples,
+            skip_invalid=args.skip_invalid,
         )
     except (ValueError, OSError) as e:
         logging.error(str(e))
@@ -503,6 +504,12 @@ def main():
         '--overwrite',
         action='store_true',
         help='Replace existing .tsv.gz / .tsv outputs of .parquet inputs'
+    )
+    convert_parser.add_argument(
+        '--skip-invalid',
+        action='store_true',
+        help='Skip the lines that are not a fragment (other than 5 fields, a field '
+             'that is not a number, an empty field) and log how many, instead of failing'
     )
     convert_parser.set_defaults(func=convert_command)
 
