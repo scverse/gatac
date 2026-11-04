@@ -1,3 +1,7 @@
+from .._rapids import require as _require_rapids
+
+_require_rapids()
+
 from .fragments import fragment_size_distribution
 from .metrics import qc_metrics
 from .motifs import motif_enrichment

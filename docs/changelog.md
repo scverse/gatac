@@ -137,6 +137,10 @@ Fixed, the changes made while it was developed, before this first release.
 
 ### Changed
 
+- The submodules (`gatac.pp`, `gatac.io`, ...) are imported on first use:
+  `import gatac` takes milliseconds instead of seconds, and `gatac --help` /
+  `--version` work without RAPIDS. Without RAPIDS, the error naming the CUDA
+  extras comes from the first submodule used instead of `import gatac`.
 - The default `exclude_chroms` of the tile and metrics functions and
   `bg_columns` of `motif.sample_bg_peaks` are tuples instead of lists shared
   between calls; the return type hints of the gene matrices and the

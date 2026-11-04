@@ -1,3 +1,7 @@
+from .._rapids import require as _require_rapids
+
+_require_rapids()
+
 from .process import combine
 from .tile import make_tile_matrix
 from .tile_scan import scan_tiles, build_tile_matrix

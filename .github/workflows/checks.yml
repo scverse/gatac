@@ -46,14 +46,16 @@ jobs:
         run: uv build
       - name: Check the metadata
         run: uvx twine check --strict dist/*
-      - name: Without a CUDA extra, import gatac names the extra to install
+      - name: Without a CUDA extra, the CLI parses and the modules name the extra to install
         run: |
           uv venv --python 3.12 /tmp/plain
           uv pip install --python /tmp/plain dist/*.whl
-          if /tmp/plain/bin/python -c "import gatac" 2> err.txt; then
-            echo "::error::import gatac succeeded without RAPIDS"; exit 1
+          /tmp/plain/bin/gatac --version
+          /tmp/plain/bin/gatac --help > /dev/null
+          if /tmp/plain/bin/python -c "import gatac.pp" 2> err.txt; then
+            echo "::error::import gatac.pp succeeded without RAPIDS"; exit 1
           fi
-          cat err.txt
+          tail -1 err.txt
           grep -q "gatac\[cuda12\]" err.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

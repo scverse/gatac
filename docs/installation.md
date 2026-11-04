@@ -23,8 +23,9 @@ pip install 'gatac[cuda13]'
 ```
 
 With uv: `uv pip install 'gatac[cuda12]'`, or `uv add 'gatac[cuda12]'` in a
-project. Without a CUDA extra, `import gatac` fails with a message naming the
-extras, unless RAPIDS is installed otherwise (see Conda below).
+project. Without a CUDA extra, and unless RAPIDS is installed otherwise (see
+Conda below), the first use of a GATAC module (`ga.pp`, `gatac tile`, ...)
+fails with a message naming the extras.
 
 After installation the `gatac` command is available:
 

@@ -15,9 +15,11 @@ Installed extensions (packages with a ``gatac.ext`` entry point) are reached
 as ``gatac.<name>``, imported on first use; see :func:`extensions`.
 """
 
+import importlib
 import logging
 import os
 from importlib.metadata import EntryPoint, entry_points, version
+from typing import TYPE_CHECKING
 
 # libcudf means to default KvikIO to POSIX reads, but opens the first file
 # before applying that, so each process probes cuFile/GPUDirect Storage once
@@ -28,26 +30,13 @@ os.environ.setdefault("KVIKIO_COMPAT_MODE", "ON")
 # through it. Writing through the page cache, as before 26.10, works everywhere.
 os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "OFF")
 
-# `pip install gatac` without a CUDA extra installs no RAPIDS; say how to fix it
-# instead of failing on `import cudf` deep inside gatac.io
-try:
-    import cudf  # noqa: F401
-    import cupy  # noqa: F401
-except ModuleNotFoundError as e:
-    raise ImportError(
-        f"GATAC runs on the GPU through RAPIDS, which is missing ({e}). Install it with "
-        "the CUDA extra matching the CUDA version nvidia-smi reports: "
-        "pip install 'gatac[cuda12]' or 'gatac[cuda13]'"
-    ) from e
+# The submodules are imported on first use (gatac.pp, `from gatac import pp`):
+# `import gatac` is quick, and the CLI parses its arguments and shows --help
+# without RAPIDS. Each checks first that RAPIDS is installed (gatac._rapids).
+_SUBMODULES = ("io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu")
 
-from . import io
-from . import pp
-from . import dr
-from . import peak
-from . import motif
-from . import tobias
-from . import pl
-from . import gpu
+if TYPE_CHECKING:
+    from . import dr, gpu, io, motif, peak, pl, pp, tobias  # noqa: F401
 
 __version__ = version("gatac")
 __all__ = ["io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu", "extensions", "set_verbosity"]
@@ -80,6 +69,8 @@ def extensions() -> dict[str, EntryPoint]:
 
 
 def __getattr__(name: str):
+    if name in _SUBMODULES:
+        return importlib.import_module(f".{name}", __name__)
     ep = extensions().get(name) if not name.startswith("_") else None
     if ep is None:
         raise AttributeError(f"module 'gatac' has no attribute {name!r}")
@@ -89,7 +80,7 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(extensions()))
+    return sorted(set(globals()) | set(_SUBMODULES) | set(extensions()))
 
 
 # ---------------------------------------------------------------------------
