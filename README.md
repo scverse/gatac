@@ -1,3 +1,6 @@
+[![CI-Pass](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml)
+[![codecov](https://codecov.io/gh/scverse/gatac/graph/badge.svg?token=YMSDUHQRBB)](https://codecov.io/gh/scverse/gatac)
+
 # GATAC: GPU-Accelerated scATACseq Analysis
 
 GATAC is a GPU-accelerated toolkit for end-to-end ATAC-seq data processing.

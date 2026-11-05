@@ -69,3 +69,13 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "--strict-markers"]
+
+[tool.coverage]
+run.source_pkgs = ["gatac"]
+run.omit = ["tests/*"]
+run.data_file = "test-data/coverage"
+paths.source = ["gatac", "**/site-packages/gatac"]
+report.exclude_also = [
+  "if TYPE_CHECKING:",
+]
+xml.output = "test-data/coverage.xml"
