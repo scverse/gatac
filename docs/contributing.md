@@ -159,8 +159,9 @@ GitHub release uploads it to PyPI through trusted publishing
 Once, before the first release: on PyPI and on TestPyPI, add a *pending
 trusted publisher* for the project `gatac` (owner `scverse`, repository
 `gatac`, workflow `release.yml`, environment `pypi` on PyPI and `testpypi` on
-TestPyPI), and create both environments in the repository's settings, ideally
-with required reviewers.
+TestPyPI), and create both environments in the repository's settings. As in
+scanpy, only version tags (`v[0-9]*.[0-9]*.[0-9]*`) may deploy to `pypi`;
+`testpypi` stays open to the branches run by hand.
 
 For each release:
 
