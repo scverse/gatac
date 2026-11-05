@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-GATAC requires **Python ≥ 3.12**, Linux, and a CUDA-capable GPU with drivers
+GATAC requires **Python ≥ 3.13**, Linux, and a CUDA-capable GPU with drivers
 compatible with CUDA 12 or 13.
 
 The following system libraries must be available:
@@ -117,7 +117,7 @@ extra so that pip does not install a second RAPIDS:
 
 ```bash
 conda create -n gatac -c rapidsai -c conda-forge \
-    rapids=26.10 python=3.12 cuda-version=12.9
+    rapids=26.10 python=3.13 cuda-version=12.9
 conda activate gatac
 pip install gatac
 ```

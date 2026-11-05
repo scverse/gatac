@@ -6,7 +6,7 @@ readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [{ name = "Louis Faure" }]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 keywords = ["ATAC-seq", "single-cell", "chromatin accessibility", "GPU", "RAPIDS"]
 classifiers = [
     "Environment :: GPU :: NVIDIA CUDA :: 12",
@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]

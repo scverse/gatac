@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - name: pre-commit (ruff check, YAML/TOML)
         run: uv run --only-group dev pre-commit run --all-files --show-diff-on-failure
 
@@ -41,14 +41,14 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - name: Build the sdist and wheel
         run: uv build
       - name: Check the metadata
         run: uvx twine check --strict dist/*
       - name: Without a CUDA extra, the CLI parses and the modules name the extra to install
         run: |
-          uv venv --python 3.12 /tmp/plain
+          uv venv --python 3.13 /tmp/plain
           uv pip install --python /tmp/plain dist/*.whl
           /tmp/plain/bin/gatac --version
           /tmp/plain/bin/gatac --help > /dev/null
