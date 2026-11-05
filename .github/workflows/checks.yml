@@ -1,7 +1,8 @@
 name: Checks
 
-# What needs no GPU, on every push and pull request: lint, the package build
-# and its metadata, the wheel installed without a CUDA extra, and the docs.
+# What needs no GPU, on every push and pull request: the package build and its
+# metadata, the wheel installed without a CUDA extra, and the docs. Lint and
+# format are pre-commit, run by autofix.ci (autofix.yaml).
 on:
   push:
     branches: [main]
@@ -14,20 +15,6 @@ concurrency:
 permissions: {}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: "3.13"
-      - name: pre-commit (ruff check, YAML/TOML)
-        run: uv run --only-group dev pre-commit run --all-files --show-diff-on-failure
-
   build:
     runs-on: ubuntu-latest
     permissions:

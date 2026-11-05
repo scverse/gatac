@@ -14,7 +14,7 @@ cd GATAC
 # cuda13), the test and lint tools
 uv sync --extra cuda12 --group test --group dev
 
-# Lint each commit (ruff check)
+# Lint and format each commit (ruff check, ruff format)
 uv run pre-commit install
 ```
 
@@ -58,26 +58,34 @@ on every push to `main`. On a pull request, it runs only once a maintainer
 adds the `run-gpu-ci` label (removed again after the run); `skip-gpu-ci`
 skips it.
 
+It runs in the hatch-test environments of `hatch.toml`, all on CUDA 13:
+`stable` (Python 3.13, the oldest RAPIDS the extras allow) and `dev` (Python
+3.14, the latest RAPIDS, anndata and scanpy from git) must pass; the
+`rapids_prerelease` one (RAPIDS nightlies) may fail. Locally, the same
+environments run with hatch, e.g. `hatch run hatch-test.stable-13:run`.
+
 ### On a Modal GPU
 
-Without a local GPU, `ci/modal_gpu.py` runs the workflow's test job on a
-[Modal](https://modal.com) GPU, against your working tree as it is,
+Without a local GPU, `ci/modal_gpu.py` runs the workflow's required test job
+on a [Modal](https://modal.com) GPU, against your working tree as it is,
 uncommitted changes included. It reads the machine (a T4, 4 cores, 16 GiB),
-the Python version, the CUDA extra, the environment and the steps from
-`.github/workflows/tests.yml` and `.cirun.yml`, so it runs the tests as CI
-does. You need a Modal account (`uvx modal setup` once), then:
+the environment and the steps from `.github/workflows/test-gpu.yml` and
+`.cirun.yml`, and the Python, CUDA extra and dependencies of the hatch-test
+environment from `hatch.toml` (`hatch-test.stable-13` by default), so it runs
+the tests as CI does. You need a Modal account (`uvx modal setup` once), then:
 
 ```bash
 uvx --with pyyaml modal run ci/modal_gpu.py                 # the CI test job
 uvx --with pyyaml modal run ci/modal_gpu.py --pytest-args "tests/api/test_pp.py -x"
 uvx --with pyyaml modal run ci/modal_gpu.py --gpu L4        # another GPU
-GATAC_CUDA=cuda12 uvx --with pyyaml modal run ci/modal_gpu.py   # the cuda12 extra
+GATAC_ENV=hatch-test.dev-13 uvx --with pyyaml modal run ci/modal_gpu.py   # another environment
 uv run --no-project --with modal --with pyyaml python ci/modal_gpu.py   # show what it read; runs nothing
 ```
 
 `--pytest-args` are appended to the workflow's pytest command. The first run
-builds the image with the RAPIDS dependencies, which takes several minutes;
-later runs reuse it until a dependency list in `pyproject.toml` changes.
+builds the image with the environment's dependencies, which takes several
+minutes; later runs reuse it until a dependency list in `pyproject.toml` or
+`hatch.toml` changes.
 The CuPy, Numba and CUDA JIT caches persist in the Modal Volume
 `gatac-gpu-tests-jit-cache`. See the script's docstring for the rest of the
 options.
@@ -86,18 +94,20 @@ options.
 
 ## Code style
 
-- **Linter**: `ruff check`, with the pyflakes and bugbear rules (`[tool.ruff]`
-  in `pyproject.toml`). The pre-commit hook runs it on each commit, and the
-  *Checks* workflow on each pull request. There is no formatter yet: keep to
-  the style of the surrounding code.
+- **Linter and formatter**: `ruff check` (pycodestyle, pyflakes, isort,
+  pyupgrade and bugbear rules) and `ruff format`, 120 characters a line
+  (`[tool.ruff]` in `pyproject.toml`). The pre-commit hook runs them on each
+  commit, and [autofix.ci](https://autofix.ci) on each pull request, where it
+  commits the fixes it can make. `.git-blame-ignore-revs` lists the reformat
+  commits: `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 - **Type hints**: encouraged for all public functions
 - **Docstrings**: NumPy style
 
 ```bash
-uv run ruff check            # or: uv run pre-commit run --all-files
+uv run ruff check --fix && uv run ruff format   # or: uv run pre-commit run --all-files
 ```
 
-The *Checks* workflow also builds the package (`uv build`, `twine check
+The *Checks* workflow builds the package (`uv build`, `twine check
 --strict`), installs the wheel without a CUDA extra, and builds the docs with
 warnings as errors. It runs on GitHub's free runners, on every pull request;
 the GPU tests need the `run-gpu-ci` label.

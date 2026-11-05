@@ -1,5 +1,11 @@
 name: GPU Tests
 
+# GATAC imports cudf at module level, so the whole suite needs a GPU. It runs on
+# a Cirun AWS T4 (see .cirun.yml), in the hatch-test environments of hatch.toml;
+# to save GPU time, pull requests only run with the 'run-gpu-ci' label.
+# pytest runs on four xdist workers (addopts in pyproject.toml).
+# ci/modal_gpu.py runs the test-stable-dev job on a Modal GPU, from this file and
+# hatch.toml: keep its steps' `hatch run "${ENV_NAME}:<script>"` form.
 on:
   push:
     branches: [main]
@@ -92,7 +98,7 @@ jobs:
     name: Test (${{ matrix.env.name }})
     needs: get-envs
     runs-on: ${{ matrix.env.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -100,6 +106,14 @@ jobs:
         env: ${{ fromJson(needs.get-envs.outputs.stable-dev) }}
     env:
       ENV_NAME: ${{ matrix.env.name }}
+      # Kernels CuPy compiles at run time (gatac.gpu, motif, tobias), cached across runs
+      CUPY_CACHE_DIR: ${{ github.workspace }}/.cache/cupy
+      # Numba's cache=True functions; editable installs would otherwise write them into gatac/
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.cache/numba
+      # The driver's PTX-to-SASS cache, for kernels shipped without code for this GPU
+      CUDA_CACHE_PATH: ${{ github.workspace }}/.cache/nv
+      # Python 3.12+ monitoring API: coverage adds a few percent instead of ~30%
+      COVERAGE_CORE: sysmon
     permissions:
       contents: read
 
@@ -110,9 +124,21 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      - name: Restore file mtimes from git
+        # Numba's cache is keyed on the source's mtime; a fresh checkout would invalidate all of it
+        run: |
+          git ls-files -z gatac | xargs -0 -P 4 -n 50 sh -c 'for f; do touch -d "@$(git log -1 --format=%ct -- "$f")" "$f"; done' sh
+
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: ${{ matrix.env.python }}
+
+      - name: Restore JIT caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .cache
+          key: ${{ matrix.env.name }}-jit-${{ github.run_id }}
+          restore-keys: ${{ matrix.env.name }}-jit-
 
       - name: Add CUDA to PATH
         run: |
@@ -130,13 +156,15 @@ jobs:
       - name: Run tests
         run: |
           mkdir -p test-data
-          if [[ "$ENV_NAME" == *"stable"* ]]; then
-            hatch run "${ENV_NAME}:run-cov" -v --color=yes --junitxml=test-data/test-results.xml
-            hatch run "${ENV_NAME}:coverage" xml
-            hatch run "${ENV_NAME}:cov-report"
-          else
-            hatch run "${ENV_NAME}:run" -v --color=yes
-          fi
+          hatch run "${ENV_NAME}:run-cov" -v --color=yes -ra --junitxml=test-data/test-results.xml
+
+      # coverage run combines the xdist workers' data itself (run.patch in pyproject.toml);
+      # `coverage combine` after it finds nothing and fails
+      - name: Coverage report
+        if: ${{ !cancelled() }}
+        run: |
+          hatch run "${ENV_NAME}:coverage" xml
+          hatch run "${ENV_NAME}:cov-report" --sort=cover --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test results
         if: ${{ !cancelled() && contains(matrix.env.name, 'stable') }}
@@ -161,7 +189,7 @@ jobs:
     name: Test (${{ matrix.env.name }})
     needs: get-envs
     runs-on: ${{ matrix.env.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     continue-on-error: true  # Prerelease failures don't fail the workflow
     strategy:
       fail-fast: false
