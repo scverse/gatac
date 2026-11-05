@@ -21,7 +21,7 @@ def _chrom_sizes(world):
 METRICS = pd.DataFrame({"barcode": ["AAA-1", "CCC-1"], "n_unique": [1500, 200], "tsse_score": [7.5, 2.0]})
 
 
-@pytest.mark.parametrize("kind", ["csv", "str", "pandas", "cudf", "polars"])
+@pytest.mark.parametrize("kind", ["csv", "str", "pandas", "cudf"])
 def test_read_metrics_inputs(kind, tmp_path):
     path = tmp_path / "metrics.csv"
     METRICS.to_csv(path, index=False)
@@ -30,7 +30,6 @@ def test_read_metrics_inputs(kind, tmp_path):
         "str": lambda: str(path),
         "pandas": lambda: METRICS,
         "cudf": lambda: cudf.from_pandas(METRICS),
-        "polars": lambda: pytest.importorskip("polars").from_pandas(METRICS),
     }[kind]()
     got = read_metrics(metrics)
     assert isinstance(got, pd.DataFrame)
@@ -65,18 +64,14 @@ def test_make_tile_matrix_missing_metrics_raises(world, tmp_path):
         )
 
 
-@pytest.mark.parametrize("kind", ["pandas", "polars", "csv"])
+@pytest.mark.parametrize("kind", ["pandas", "csv"])
 def test_make_tile_matrix_metrics_inputs(kind, world, tmp_path):
     """Every metrics input gives the cells of a cuDF one."""
     counts = ga.io.FragmentFile(world["parquet"]).barcode_counts()
     metrics = counts.assign(tsse_score=np.arange(len(counts)) % 10)
     path = tmp_path / "metrics.csv"
     metrics.to_csv(path, index=False)
-    other = {
-        "pandas": lambda: metrics,
-        "csv": lambda: path,
-        "polars": lambda: pytest.importorskip("polars").from_pandas(metrics),
-    }[kind]()
+    other = {"pandas": lambda: metrics, "csv": lambda: path}[kind]()
     kw = dict(chrom_sizes=_chrom_sizes(world), tile_size=5_000, filter_query="tsse_score >= 5")
     ref = ga.pp.make_tile_matrix(world["parquet"], metrics=cudf.from_pandas(metrics), **kw)
     got = ga.pp.make_tile_matrix(world["parquet"], metrics=other, **kw)
@@ -130,31 +125,3 @@ def test_read_gtf(fmt, tmp_path):
     assert got["start"].tolist() == [100, 300, 50] and got["end"].tolist() == [500, 900, 80]
     assert got["name"].tolist()[0::2] == ["A", "B"] and pd.isna(got["name"][1])  # absent key: null
     assert got["start"].dtype == np.int64
-
-
-def test_bindetect_site_order_with_underscore_chroms():
-    """Sites ordered by motif, then by TOBIAS's "chrom_start_end" id in Python string order."""
-    from types import SimpleNamespace
-
-    from gatac.tobias.bindetect import _tobias_site_order
-
-    rng = np.random.default_rng(0)
-    chroms = ["chr1", "chr1_KI270706v1_random", "chr10", "chr2", "chrUn_GL000220v1"]
-    n = 5_000
-    sites = SimpleNamespace(
-        chroms=chroms,
-        motif=rng.integers(0, 4, n).astype(np.int32),
-        chrom=rng.integers(0, len(chroms), n).astype(np.int16),
-        start=rng.integers(0, 3_000, n).astype(np.int64),
-    )
-    sites.end = sites.start + rng.integers(5, 30, n)
-    sites.start[:200] = sites.start[200:400]  # shared starts and full ties
-    sites.end[:100], sites.chrom[:100] = sites.end[200:300], sites.chrom[200:300]
-
-    def ids(idx):
-        return [(sites.motif[i], f"{chroms[sites.chrom[i]]}_{sites.start[i]}_{sites.end[i]}") for i in idx]
-
-    expect = sorted(range(n), key=lambda i: ids([i])[0])  # sorted() is stable
-    assert _tobias_site_order(sites).tolist() == expect
-    sub = np.sort(rng.choice(n, 1_000, replace=False))
-    assert _tobias_site_order(sites, sub).tolist() == sorted(range(len(sub)), key=lambda j: ids([sub[j]])[0])

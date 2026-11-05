@@ -96,7 +96,7 @@ def compute_metrics(
     smooth_window: int = 11,
     min_unique_frags: int = 100,
     chrom_sizes: dict[str, int] | None = None,
-    exclude_chroms: list[str] | None = ["chrM", "M"],
+    exclude_chroms: Sequence[str] | None = ("chrM", "M"),
     row_groups_per_batch: int = 64,
     workers: int = 4,
 ) -> cudf.DataFrame:
@@ -114,7 +114,7 @@ def compute_metrics(
         rows are concatenated in the order given.
     tss_source : str, Path, or DataFrame
         Either a path to a GTF file (the TSS table is loaded internally)
-        or a pre-built pandas, cuDF or Polars DataFrame of TSS positions
+        or a pre-built pandas or cuDF DataFrame of TSS positions
         (columns: ``chrom``, ``tss`` (0-based), ``strand``).  When a pre-built
         DataFrame is passed, the underlying GTF file is not re-read.
     window_size : int
@@ -157,12 +157,10 @@ def compute_metrics(
         tss_df = _load_tss_from_gtf(tss_source)
     elif isinstance(tss_source, pd.DataFrame):
         tss_df = tss_source
-    elif hasattr(tss_source, "to_pandas"):  # cuDF or Polars
+    elif isinstance(tss_source, cudf.DataFrame):
         tss_df = tss_source.to_pandas()
     else:
-        raise TypeError(
-            f"tss_source must be a GTF path or a pandas, cuDF or Polars DataFrame, not {type(tss_source).__name__}"
-        )
+        raise TypeError(f"tss_source must be a GTF path or a pandas or cuDF DataFrame, not {type(tss_source).__name__}")
 
     single = isinstance(parquet_path, (str, os.PathLike))
     paths = [parquet_path] if single else list(parquet_path)
@@ -237,7 +235,7 @@ def _compute_metrics_file(
     # =========================================================================
     # Filter TSS
     if exclude_chroms:
-        tss_filtered = tss_df[~tss_df["chrom"].isin(exclude_chroms)]
+        tss_filtered = tss_df[~tss_df["chrom"].isin(list(exclude_chroms))]
     else:
         tss_filtered = tss_df
 

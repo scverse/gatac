@@ -13,12 +13,13 @@ import logging
 from collections import defaultdict
 from math import log
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import cudf
 import cupy as cp
 import numpy as np
 import pandas as pd
+from anndata import AnnData
 from numba import njit, prange
 
 from .._readers import read_bed
@@ -29,10 +30,6 @@ from ..pp.gene import optimize_sparse_matrix_dtype
 from ..pp.genome import get_chrom_sizes
 from ..pp.tile import _iter_slabs
 from . import _macs
-
-if TYPE_CHECKING:
-    from anndata import AnnData
-
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +368,7 @@ def call(
         logger.info(f"Reading the groups in {len(passes)} passes to fit {budget / 1e9:.0f} GB of host memory")
 
     if verbose:
-        from tqdm.auto import tqdm
+        from .._progress import tqdm
     peaks_dict = {}
     for k, members in enumerate(passes):
         chunks = {i: defaultdict(list) for i in members}
@@ -1041,7 +1038,7 @@ def make_matrix(
         Larger values are faster but use more GPU memory.
     verbose
         Controls progress reporting. ``False`` disables progress output.
-        ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` prints
+        ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` logs
         one line per file with ETA for non-interactive environments.
     filter_chromosomes : bool
         If True, only keep fragments from chromosomes recognized by the
@@ -1153,7 +1150,7 @@ def make_matrix(
     # Process each parquet file
     n_files = len(parquet_files)
     if verbose == "tqdm" or verbose is True:
-        from tqdm.auto import tqdm
+        from .._progress import tqdm
 
         file_iter = tqdm(parquet_files, desc="Parquet files")
     else:
@@ -1185,10 +1182,9 @@ def make_matrix(
                     eta_str = f", ETA: {eta:.1f}s"
                 else:
                     eta_str = ""
-                print(
+                logger.info(
                     f"[{file_idx + 1}/{n_files}] Processing {parquet_file.name}: "
-                    f"{len(barcodes_for_file):,} barcodes{eta_str}",
-                    flush=True,
+                    f"{len(barcodes_for_file):,} barcodes{eta_str}"
                 )
 
             logger.debug(f"Processing {parquet_file.name}: {len(barcodes_for_file):,} barcodes")

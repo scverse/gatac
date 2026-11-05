@@ -15,24 +15,30 @@ Installed extensions (packages with a ``gatac.ext`` entry point) are reached
 as ``gatac.<name>``, imported on first use; see :func:`extensions`.
 """
 
+import importlib
 import logging
 import os
-import sys
-from importlib.metadata import EntryPoint, entry_points
-
-# Disable tqdm progress bars when not running in an interactive terminal
-# (e.g. when called from Snakemake), to keep logs clean.
-if not sys.stderr.isatty():
-    os.environ.setdefault("TQDM_DISABLE", "1")
+from importlib.metadata import EntryPoint, entry_points, version
+from typing import TYPE_CHECKING
 
 # libcudf means to default KvikIO to POSIX reads, but opens the first file
 # before applying that, so each process probes cuFile/GPUDirect Storage once
 # (seconds on nodes without it). Apply libcudf's intended default up front.
 os.environ.setdefault("KVIKIO_COMPAT_MODE", "ON")
+# KvikIO 26.10 writes files with direct I/O by default, which fails with an
+# illegal memory access on some systems (WSL2); cuDF's to_csv / to_parquet go
+# through it. Writing through the page cache, as before 26.10, works everywhere.
+os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "OFF")
 
-from . import dr, gpu, io, motif, peak, pl, pp, tobias
+# The submodules are imported on first use (gatac.pp, `from gatac import pp`):
+# `import gatac` is quick, and the CLI parses its arguments and shows --help
+# without RAPIDS. Each checks first that RAPIDS is installed (gatac._rapids).
+_SUBMODULES = ("io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu")
 
-__version__ = "0.1.0"
+if TYPE_CHECKING:
+    from . import dr, gpu, io, motif, peak, pl, pp, tobias  # noqa: F401
+
+__version__ = version("gatac")
 __all__ = ["io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu", "extensions", "set_verbosity"]
 
 
@@ -63,6 +69,8 @@ def extensions() -> dict[str, EntryPoint]:
 
 
 def __getattr__(name: str):
+    if name in _SUBMODULES:
+        return importlib.import_module(f".{name}", __name__)
     ep = extensions().get(name) if not name.startswith("_") else None
     if ep is None:
         raise AttributeError(f"module 'gatac' has no attribute {name!r}")
@@ -72,27 +80,31 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(extensions()))
+    return sorted(set(globals()) | set(_SUBMODULES) | set(extensions()))
 
 
 # ---------------------------------------------------------------------------
 # Package-level logging
 # ---------------------------------------------------------------------------
-# Attach a single StreamHandler to the "gatac" root logger so that
-# INFO messages from all submodules (gatac.dr.spectral, etc.) are visible
-# when the library is imported interactively or in a script.
-# Users can silence output with gatac.set_verbosity("WARNING") or by
-# configuring their own handlers via the standard logging API.
+# GATAC's INFO messages are shown by default: on stderr while logging is not
+# configured, and through the application's own handlers once it is (root
+# logger handlers, e.g. logging.basicConfig or pytest's caplog), so they are
+# never printed twice. gatac.set_verbosity("WARNING") silences them.
+
+
+class _DefaultHandler(logging.StreamHandler):
+    """GATAC's messages on stderr, while the root logger has no handler of its own."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not logging.getLogger().handlers:
+            super().emit(record)
+
 
 _logger = logging.getLogger("gatac")
 _logger.setLevel(logging.INFO)
-
-_handler = logging.StreamHandler()
+_handler = _DefaultHandler()
 _handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
 _logger.addHandler(_handler)
-# Prevent messages from propagating to the root logger (avoids duplicate
-# output when the caller also configures basicConfig).
-_logger.propagate = False
 
 
 def set_verbosity(level: str | int) -> None:

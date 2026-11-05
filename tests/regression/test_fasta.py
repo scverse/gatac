@@ -120,6 +120,7 @@ def test_index_rejects_ragged_lines(tmp_path):
         ga.io.Fasta(tmp_path / "bad.fa")
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_index_in_memory_when_directory_is_read_only(tmp_path):
     d = tmp_path / "ro"
     d.mkdir()

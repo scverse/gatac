@@ -234,7 +234,9 @@ def test_compute_deviations_independent_of_batching(deviations):
     """``batch_size`` and ``motif_batch_size`` trade memory for speed and do not change the scores."""
     a = deviations.copy()
     ga.motif.compute_deviations(a, batch_size=37, motif_batch_size=1, key_added="small")
-    np.testing.assert_allclose(a.obsm["small"].to_numpy(), deviations.obsm["chromvar"].to_numpy(), rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(
+        a.obsm["small"].to_numpy(), deviations.obsm["chromvar"].to_numpy(), rtol=1e-5, atol=1e-5
+    )  # float32 sums in a different order
 
 
 def test_gsea_puts_the_groups_motif_on_top(deviations):

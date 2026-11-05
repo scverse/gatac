@@ -1,3 +1,7 @@
+from .._rapids import require as _require_rapids
+
+_require_rapids()
+
 from ._utils import cleanup_gpu_memory
 from .amulet import detect_doublets
 from .features import select_features

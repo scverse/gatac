@@ -1,16 +1,38 @@
 [project]
 name = "gatac"
-version = "0.1.0"
+dynamic = ["version"]
 description = "GPU-accelerated ATAC-seq fragment processing and tile matrix generation"
 readme = "README.md"
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Louis Faure" }]
 requires-python = ">=3.13"
+keywords = ["ATAC-seq", "single-cell", "chromatin accessibility", "GPU", "RAPIDS"]
+classifiers = [
+    "Environment :: GPU :: NVIDIA CUDA :: 12",
+    "Environment :: GPU :: NVIDIA CUDA :: 13",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Everything gatac imports itself, not only through scanpy; floors are scanpy's
 dependencies = [
-    "pyarrow>=22.0.0",
+    "anndata>=0.10.8",
     "duckdb>=2.0",
+    "h5py>=3.11",
+    "matplotlib>=3.10",
+    "numba>=0.60",
+    "numpy>=2",
+    "pandas>=2.3",
+    "pyarrow>=22.0.0",
     "scanpy>=1.11.5",
-    "tqdm>=4.66.0",
+    "scikit-learn>=1.6",
+    "scipy>=1.13",
+    "seaborn>=0.13.2",
     "statsmodels>=0.14",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
@@ -20,17 +42,30 @@ dependencies = [
 archr-compat = [
     "annoy>=1.17",
 ]
+# `tobias` footprint tracks written as bigWig (`FootprintResult.to_bigwig`)
+bigwig = [
+    "pyBigWig>=0.3.22",
+]
+# RAPIDS floors, not pins, so GATAC installs next to newer releases; cap one
+# here when it breaks GATAC. CuPy is used directly (and its 14.x behaviour).
 cuda12 = [
     "cudf-cu12>=26.02",
     "cuml-cu12>=26.02",
     "cugraph-cu12>=26.02",
+    "cupy-cuda12x>=14",
 ]
 cuda13 = [
     "cudf-cu13>=26.02",
     "cuml-cu13>=26.02",
     "cugraph-cu13>=26.02",
+    "cupy-cuda13x>=14",
 ]
 
+[project.urls]
+Documentation = "https://gatac.readthedocs.io"
+Source = "https://github.com/scverse/gatac"
+Issues = "https://github.com/scverse/gatac/issues"
+Changelog = "https://gatac.readthedocs.io/en/latest/changelog.html"
 
 [project.scripts]
 gatac = "gatac.cli:main"
@@ -46,7 +81,15 @@ conflicts = [
 [dependency-groups]
 test = [
     "pytest>=8",
+    "pytest-timeout>=2",
+    "pytest-xdist>=3.6",
+    "coverage>=7.10",
     "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
+]
+# Lint (ruff) and its pre-commit hook; `uv run pre-commit install` once per clone
+dev = [
+    "pre-commit>=4",
+    "ruff>=0.17",
 ]
 docs = [
     "sphinx>=9.1",  # TODO: remove conf.py monkey-patch once executablebooks/MyST-Parser#1052 is fixed
@@ -63,37 +106,61 @@ docs = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27", "hatch-vcs"]  # 1.27: SPDX license and license-files
 build-backend = "hatchling.build"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = ["--import-mode=importlib", "--strict-markers"]
+# The version is the git tag (v0.1.0 -> 0.1.0); between tags, 0.1.1.devN+g<commit>
+[tool.hatch.version]
+source = "vcs"
 
-[tool.coverage]
-run.source_pkgs = ["gatac"]
-run.omit = ["tests/*"]
-run.data_file = "test-data/coverage"
-paths.source = ["gatac", "**/site-packages/gatac"]
-report.exclude_also = [
-  "if TYPE_CHECKING:",
-]
-xml.output = "test-data/coverage.xml"
+# The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
+[tool.hatch.build.targets.sdist]
+only-include = ["gatac", "tests"]
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["notebooks", "reproducibility"]
-lint.select = [
+# The package, its tests and the docs config; not the submodules
+extend-exclude = ["reproducibility", "tutorials"]
+
+[tool.ruff.lint]
+select = [
   "E",   # pycodestyle errors
   "F",   # pyflakes
   "W",   # pycodestyle warnings
   "I",   # isort
   "UP",  # pyupgrade
+  "B",   # bugbear
 ]
-lint.ignore = [
+ignore = [
   "E501", # line too long -> the formatter handles code lines
   "E731", # lambda assignments are fine
   "E741", # I, O, l as variable names
+  "B905", # zip(strict=) on every zip is noise here: the zips pair arrays of one length
 ]
-lint.per-file-ignores."*/__init__.py" = ["F401"]
-lint.isort.known-first-party = ["gatac"]
+isort.known-first-party = ["gatac"]
+
+[tool.ruff.lint.per-file-ignores]
+"*/__init__.py" = ["F401", "E402"]
+# Imports after _require_rapids(), which names the CUDA extra to install
+"gatac/gpu.py" = ["E402"]
+# The closures of the motif scan and the background sampling read the loop's
+# variables, but each runs in the iteration that defines it
+"gatac/tobias/bindetect.py" = ["B023"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A hung GPU test fails after 2 minutes instead of holding the CI runner.
+# Four workers share the one GPU, one per vCPU of the CI runner (g4dn.xlarge);
+# more only contend for the GPU (-n 8 is no faster). Pass -n0 to run in one
+# process, e.g. for --pdb.
+addopts = ["--import-mode=importlib", "--strict-markers", "--timeout=120", "-n", "4"]
+
+[tool.coverage]
+run.source_pkgs = ["gatac"]
+paths.source = ["gatac", "**/site-packages/gatac"]
+run.patch = ["subprocess"]  # test_lsi_reproducible_across_processes runs LSI in a child process
+# Hidden: coverage combines every file named like it, and coverage.xml would be one
+run.data_file = "test-data/.coverage"
+# Numba compiles these functions: their bodies never run as Python
+report.exclude_also = ["if TYPE_CHECKING:", "@(numba\\.)?njit"]
+xml.output = "test-data/coverage.xml"

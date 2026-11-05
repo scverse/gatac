@@ -7,11 +7,15 @@ Thank you for your interest in contributing to GATAC!
 ## Development setup
 
 ```bash
-git clone https://github.com/Soldatov-Lab/gatac.git
+git clone https://github.com/scverse/gatac.git
 cd GATAC
 
-# Install in editable mode with all dev extras
-uv sync --extra cuda12
+# Install in editable mode with the CUDA extra of your driver (cuda12 or
+# cuda13), the test and lint tools
+uv sync --extra cuda12 --group test --group dev
+
+# Lint and format each commit (ruff check, ruff format)
+uv run pre-commit install
 ```
 
 ---
@@ -19,7 +23,7 @@ uv sync --extra cuda12
 ## Running tests
 
 Tests are located in `tests/` (unit tests) and in the
-[`reproducibility/`](https://github.com/Soldatov-Lab/gatac-reproducibilty)
+[`reproducibility/`](https://github.com/scverse/gatac-reproducibility)
 submodule (tracked at `reproducibility/`) for integration/benchmark tests.
 
 After cloning, initialise the submodule once:
@@ -46,19 +50,67 @@ pixi run pytest test/tile_matrix.py
 pixi run pytest test/spectral_embedding.py
 ```
 
+### GPU tests in CI
+
+GATAC imports cuDF at module level, so the whole suite needs a GPU. The
+`GPU Tests` workflow runs it on an AWS T4 through [Cirun](https://cirun.io)
+on every push to `main`. On a pull request, it runs only once a maintainer
+adds the `run-gpu-ci` label (removed again after the run); `skip-gpu-ci`
+skips it.
+
+It runs in the hatch-test environments of `hatch.toml`, all on CUDA 13:
+`stable` (Python 3.13, the oldest RAPIDS the extras allow) and `dev` (Python
+3.14, the latest RAPIDS, anndata and scanpy from git) must pass; the
+`rapids_prerelease` one (RAPIDS nightlies) may fail. Locally, the same
+environments run with hatch, e.g. `hatch run hatch-test.stable-13:run`.
+
+### On a Modal GPU
+
+Without a local GPU, `ci/modal_gpu.py` runs the workflow's required test job
+on a [Modal](https://modal.com) GPU, against your working tree as it is,
+uncommitted changes included. It reads the machine (a T4, 4 cores, 16 GiB),
+the environment and the steps from `.github/workflows/test-gpu.yml` and
+`.cirun.yml`, and the Python, CUDA extra and dependencies of the hatch-test
+environment from `hatch.toml` (`hatch-test.stable-13` by default), so it runs
+the tests as CI does. You need a Modal account (`uvx modal setup` once), then:
+
+```bash
+uvx --with pyyaml modal run ci/modal_gpu.py                 # the CI test job
+uvx --with pyyaml modal run ci/modal_gpu.py --pytest-args "tests/api/test_pp.py -x"
+uvx --with pyyaml modal run ci/modal_gpu.py --gpu L4        # another GPU
+GATAC_ENV=hatch-test.dev-13 uvx --with pyyaml modal run ci/modal_gpu.py   # another environment
+uv run --no-project --with modal --with pyyaml python ci/modal_gpu.py   # show what it read; runs nothing
+```
+
+`--pytest-args` are appended to the workflow's pytest command. The first run
+builds the image with the environment's dependencies, which takes several
+minutes; later runs reuse it until a dependency list in `pyproject.toml` or
+`hatch.toml` changes.
+The CuPy, Numba and CUDA JIT caches persist in the Modal Volume
+`gatac-gpu-tests-jit-cache`. See the script's docstring for the rest of the
+options.
+
 ---
 
 ## Code style
 
-- **Formatter**: `ruff format`
-- **Linter**: `ruff check`
+- **Linter and formatter**: `ruff check` (pycodestyle, pyflakes, isort,
+  pyupgrade and bugbear rules) and `ruff format`, 120 characters a line
+  (`[tool.ruff]` in `pyproject.toml`). The pre-commit hook runs them on each
+  commit, and [autofix.ci](https://autofix.ci) on each pull request, where it
+  commits the fixes it can make. `.git-blame-ignore-revs` lists the reformat
+  commits: `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 - **Type hints**: encouraged for all public functions
 - **Docstrings**: NumPy style
 
 ```bash
-uv run ruff format gatac/
-uv run ruff check gatac/
+uv run ruff check --fix && uv run ruff format   # or: uv run pre-commit run --all-files
 ```
+
+The *Checks* workflow builds the package (`uv build`, `twine check
+--strict`), installs the wheel without a CUDA extra, and builds the docs with
+warnings as errors. It runs on GitHub's free runners, on every pull request;
+the GPU tests need the `run-gpu-ci` label.
 
 ---
 
@@ -71,6 +123,30 @@ uv run ruff check gatac/
 
 ---
 
+## Releasing
+
+The version is the git tag (hatch-vcs): `v0.1.0` builds `0.1.0`. Publishing a
+GitHub release uploads it to PyPI through trusted publishing
+(`.github/workflows/release.yml`).
+
+Once, before the first release: on PyPI, add a *pending trusted publisher* for
+the project `gatac` (owner `scverse`, repository `gatac`, workflow
+`release.yml`, environment `pypi`), and create the `pypi` environment in the
+repository's settings, ideally with required reviewers.
+
+For each release:
+
+1. In `docs/changelog.md`, replace *unreleased* in the version's heading by
+   the date, and start a new *unreleased* section above it for the next one.
+2. Run the GPU tests on the release commit (`run-gpu-ci` label, or the Modal
+   script) and check that the *Checks* workflow passes.
+3. Tag the commit and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
+4. Create a GitHub release of the tag, with the changelog section as notes.
+   The *Release* workflow builds the sdist and wheel, checks that their
+   version is the tag's, and publishes them to PyPI.
+
+---
+
 ## Reporting issues
 
 Please open a GitHub issue with:
@@ -78,7 +154,7 @@ Please open a GitHub issue with:
 - A minimal reproducible example
 - GATAC version (`gatac --version`)
 - GPU model and CUDA version
-- Error traceback
+- Error traceback (`gatac -v <command> ...` prints it for the CLI)
 
 ---
 
@@ -87,7 +163,7 @@ Please open a GitHub issue with:
 The docs live in `docs/`.  To build locally:
 
 ```bash
-uv sync --extra docs
+uv sync --group docs
 cd docs
 make html
 # Open _build/html/index.html
@@ -105,5 +181,5 @@ when the authors are part of the sentence (it renders as "Thibodeau et al.
 summary in the API tables.
 
 Analysis notebooks live in the separate
-[`gatac-notebooks`](https://github.com/Soldatov-Lab/gatac-notebooks)
+[`gatac-tutorials`](https://github.com/scverse/gatac-tutorials)
 repository — see [Tutorials](tutorials/index.md) for details.

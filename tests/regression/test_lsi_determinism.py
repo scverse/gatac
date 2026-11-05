@@ -80,30 +80,35 @@ def test_spmv_matches_cusparse_and_repeats_bitwise():
         assert bool((_spmm(X, B) == outm).all())
 
 
-def test_lsi_is_bitwise_reproducible():
+@pytest.fixture(scope="module")
+def reference():
+    """LSI of the synthetic matrix with random_state=3: the embedding and singular values."""
+    import gatac as ga
+
+    a = _adata(_synthetic())
+    ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
+    return a.obsm["X_lsi"], a.uns["lsi"]["singular_values"]
+
+
+def test_lsi_is_bitwise_reproducible(reference):
     import cupy as cp
 
     import gatac as ga
 
     X = _synthetic()
-    runs = []
-    for i in range(3):
-        if i:  # unrelated draws must not move the result
-            np.random.default_rng(i).random(101)
-            cp.random.seed(i + 17)
-            cp.random.random(53)
+    for i in (1, 2):  # unrelated draws must not move the result
+        np.random.default_rng(i).random(101)
+        cp.random.seed(i + 17)
+        cp.random.random(53)
         a = _adata(X)
         ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
-        runs.append((a.obsm["X_lsi"], a.uns["lsi"]["singular_values"]))
-
-    for emb, sv in runs[1:]:
-        assert np.array_equal(emb, runs[0][0])
-        assert np.array_equal(sv, runs[0][1])
+        assert np.array_equal(a.obsm["X_lsi"], reference[0])
+        assert np.array_equal(a.uns["lsi"]["singular_values"], reference[1])
 
     a = _adata(X)
     ga.dr.lsi(a, 10, random_state=4, outlier_quantiles=(0.02, 0.98))
     # a different seed must actually be a different draw, or the seed is a lie
-    assert not np.array_equal(a.obsm["X_lsi"], runs[0][0])
+    assert not np.array_equal(a.obsm["X_lsi"], reference[0])
 
 
 def test_iterative_lsi_is_bitwise_reproducible():
@@ -134,7 +139,7 @@ def test_iterative_lsi_is_bitwise_reproducible():
     assert np.array_equal(out[0][2], out[1][2]), "cluster labels differ"
 
 
-def test_lsi_reproducible_across_processes():
+def test_lsi_reproducible_across_processes(reference):
     """A fresh interpreter must produce the same bytes."""
     script = textwrap.dedent("""
         import sys, numpy as np
@@ -146,24 +151,16 @@ def test_lsi_reproducible_across_processes():
         sys.stdout.buffer.write(a.obsm["X_lsi"].tobytes())
     """).format(tests=__file__.rsplit("/", 1)[0])
     out = subprocess.run([sys.executable, "-c", script], check=True, capture_output=True).stdout
-
-    import gatac as ga
-
-    a = _adata(_synthetic())
-    ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
-    assert a.obsm["X_lsi"].tobytes() == out
+    assert reference[0].tobytes() == out
 
 
-def test_deterministic_false_still_runs_and_agrees_numerically():
+def test_deterministic_false_still_runs_and_agrees_numerically(reference):
     """The escape hatch must stay usable, and stay the same algorithm."""
     import gatac as ga
 
-    X = _synthetic()
-    a = _adata(X)
-    ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
-    b = _adata(X)
+    b = _adata(_synthetic())
     ga.dr.lsi(b, 10, random_state=3, outlier_quantiles=(0.02, 0.98), deterministic=False)
-    r = np.array([abs(np.corrcoef(a.obsm["X_lsi"][:, i], b.obsm["X_lsi"][:, i])[0, 1]) for i in range(10)])
+    r = np.array([abs(np.corrcoef(reference[0][:, i], b.obsm["X_lsi"][:, i])[0, 1]) for i in range(10)])
     assert r.min() > 0.999, r
-    sa, sb = a.uns["lsi"]["singular_values"], b.uns["lsi"]["singular_values"]
+    sa, sb = reference[1], b.uns["lsi"]["singular_values"]
     assert np.abs(sa - sb).max() / sa.max() < 1e-5

@@ -119,3 +119,31 @@ def test_exact_null_matches_resampled_null():
     rs = np.random.RandomState(30)
     x = (rs.standard_normal(100 * 30) * 0.8 + 0.1).reshape(100, 30)
     assert np.array_equal(_sample_changes(30, 0.1, 0.8), (x.mean(axis=1) - 0.1) / ((x.std(axis=1) + 0.8) / 2.0))
+
+
+def test_bindetect_site_order_with_underscore_chroms():
+    """Sites ordered by motif, then by TOBIAS's "chrom_start_end" id in Python string order."""
+    from types import SimpleNamespace
+
+    from gatac.tobias.bindetect import _tobias_site_order
+
+    rng = np.random.default_rng(0)
+    chroms = ["chr1", "chr1_KI270706v1_random", "chr10", "chr2", "chrUn_GL000220v1"]
+    n = 5_000
+    sites = SimpleNamespace(
+        chroms=chroms,
+        motif=rng.integers(0, 4, n).astype(np.int32),
+        chrom=rng.integers(0, len(chroms), n).astype(np.int16),
+        start=rng.integers(0, 3_000, n).astype(np.int64),
+    )
+    sites.end = sites.start + rng.integers(5, 30, n)
+    sites.start[:200] = sites.start[200:400]  # shared starts and full ties
+    sites.end[:100], sites.chrom[:100] = sites.end[200:300], sites.chrom[200:300]
+
+    def ids(idx):
+        return [(sites.motif[i], f"{chroms[sites.chrom[i]]}_{sites.start[i]}_{sites.end[i]}") for i in idx]
+
+    expect = sorted(range(n), key=lambda i: ids([i])[0])  # sorted() is stable
+    assert _tobias_site_order(sites).tolist() == expect
+    sub = np.sort(rng.choice(n, 1_000, replace=False))
+    assert _tobias_site_order(sites, sub).tolist() == sorted(range(len(sub)), key=lambda j: ids([sub[j]])[0])

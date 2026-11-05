@@ -216,12 +216,10 @@ class ChunkedMatrix:
 
     # -- internals ---------------------------------------------------------
 
-    def _upload(self, pc: _PinnedChunk) -> cusp.csr_matrix:
+    def _upload(self, pc: _PinnedChunk) -> tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
+        """Start the copy of *pc* on the side stream; arrays are valid once it is synchronised."""
         with self._stream:
-            d_data = cp.asarray(pc.data)
-            d_indices = cp.asarray(pc.indices)
-            d_indptr = cp.asarray(pc.indptr)
-        return cusp.csr_matrix((d_data, d_indices, d_indptr), shape=pc.shape)
+            return cp.asarray(pc.data), cp.asarray(pc.indices), cp.asarray(pc.indptr)
 
     def _stream_chunks(self):
         """Yield ``(chunk, gpu_csr)`` with chunk i+1 prefetched during i."""
@@ -237,11 +235,14 @@ class ChunkedMatrix:
                 nxt_ev.record(self._stream)
 
             cur_ev.synchronize()
-            yield pc, cur_gpu
-            del cur_gpu
+            # Build the matrix only once its copies are done: CuPy >= 14.2 reads
+            # indptr in the constructor, on the default stream, which does not
+            # wait for self._stream
+            yield pc, cusp.csr_matrix(cur_gpu, shape=pc.shape)
+            cur_gpu = None  # free the chunk before the next one's copy lands
 
             if nxt_gpu is not None:
-                cur_gpu, cur_ev = nxt_gpu, nxt_ev  # noqa: F841 (read on the next iteration)
+                cur_gpu, cur_ev = nxt_gpu, nxt_ev
 
     # -- products ----------------------------------------------------------
 

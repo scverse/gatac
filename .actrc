@@ -1,0 +1,2 @@
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+-P cirun-aws-gpu-t4=catthehacker/ubuntu:act-latest

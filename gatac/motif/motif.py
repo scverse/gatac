@@ -744,100 +744,6 @@ def _snapatac2_score_thresholds(
         return np.fromiter(thresholds, dtype=np.float64, count=len(pwm_list))
 
 
-def _scan_motif_gpu(
-    encoded_seqs: cp.ndarray,
-    seq_lengths: cp.ndarray,
-    pwm_log_odds: cp.ndarray,
-    threshold: float,
-    check_rc: bool = True,
-) -> cp.ndarray:
-    """
-    Scan sequences for motif matches using GPU.
-
-    Parameters
-    ----------
-    encoded_seqs : cp.ndarray
-        Encoded sequences, shape (n_seqs, max_len)
-    seq_lengths : cp.ndarray
-        Actual lengths of each sequence
-    pwm_log_odds : cp.ndarray
-        Log-odds PWM, shape (motif_len, 4)
-    threshold : float
-        Score threshold for match
-    check_rc : bool
-        Whether to also check reverse complement
-
-    Returns
-    -------
-    cp.ndarray
-        Boolean array of shape (n_seqs,) indicating motif presence
-    """
-    n_seqs, max_len = encoded_seqs.shape
-    motif_len = pwm_log_odds.shape[0]
-
-    if max_len < motif_len:
-        return cp.zeros(n_seqs, dtype=cp.bool_)
-
-    n_positions = max_len - motif_len + 1
-
-    # Create sliding window view for efficient position processing
-    # We'll compute scores for all positions at once
-
-    # Initialize scores array
-    scores = cp.zeros((n_seqs, n_positions), dtype=cp.float32)
-    valid_mask = cp.ones((n_seqs, n_positions), dtype=cp.bool_)
-
-    # Process each position in the motif
-    for pos_in_motif in range(motif_len):
-        # Get nucleotide at this motif position for all sequences and start positions
-        # Shape: (n_seqs, n_positions)
-        nucs = encoded_seqs[:, pos_in_motif : pos_in_motif + n_positions]
-
-        # Mark invalid positions (containing N)
-        valid_mask &= nucs >= 0
-
-        # Safe indexing for PWM lookup (replace -1 with 0 temporarily)
-        nucs_safe = cp.clip(nucs, 0, 3)
-
-        # Look up scores from PWM
-        pos_scores = pwm_log_odds[pos_in_motif, nucs_safe]
-        scores += pos_scores
-
-    # Apply validity mask and check threshold
-    scores = cp.where(valid_mask, scores, -cp.inf)
-
-    # Check if sequence length is sufficient for each position
-    position_indices = cp.arange(n_positions, dtype=cp.int32)[None, :]  # (1, n_positions)
-    seq_len_mask = (position_indices + motif_len) <= seq_lengths[:, None]
-    scores = cp.where(seq_len_mask, scores, -cp.inf)
-
-    # Check forward strand
-    forward_match = (scores >= threshold).any(axis=1)
-
-    if not check_rc:
-        return forward_match
-
-    # Check reverse complement
-    rc_seqs = _reverse_complement_encoded(encoded_seqs)
-
-    rc_scores = cp.zeros((n_seqs, n_positions), dtype=cp.float32)
-    rc_valid_mask = cp.ones((n_seqs, n_positions), dtype=cp.bool_)
-
-    for pos_in_motif in range(motif_len):
-        nucs = rc_seqs[:, pos_in_motif : pos_in_motif + n_positions]
-        rc_valid_mask &= nucs >= 0
-        nucs_safe = cp.clip(nucs, 0, 3)
-        pos_scores = pwm_log_odds[pos_in_motif, nucs_safe]
-        rc_scores += pos_scores
-
-    rc_scores = cp.where(rc_valid_mask, rc_scores, -cp.inf)
-    rc_scores = cp.where(seq_len_mask, rc_scores, -cp.inf)
-
-    rc_match = (rc_scores >= threshold).any(axis=1)
-
-    return forward_match | rc_match
-
-
 def _scan_motifs_batch_gpu(
     encoded_seqs: cp.ndarray,
     seq_lengths: cp.ndarray,
@@ -875,7 +781,7 @@ def _scan_motifs_batch_gpu(
     np.ndarray
         Boolean array of shape (n_motifs, n_seqs) indicating motif presence
     """
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     n_seqs, max_len = encoded_seqs.shape
     n_motifs = len(pwm_list)
@@ -1377,7 +1283,7 @@ def enrichment(
     N_bg_arr = np.empty(total_results, dtype=np.int32)
 
     result_idx = 0
-    for group_name, group_regions in regions.items():
+    for group_name in regions:
         fg_indices = fg_indices_dict[group_name]
         total_fg = len(fg_indices)
 
@@ -1587,7 +1493,7 @@ def gsea(
 
     if backend == "gseapy":
         try:
-            import gseapy  # noqa: F401  (availability check; _run_one_gseapy imports it)
+            import gseapy  # noqa: F401  (only checks that it is installed)
         except ImportError as exc:
             raise ImportError("gseapy is required for backend='gseapy'. Install it with: pip install gseapy") from exc
     elif backend == "gpu":
@@ -1903,7 +1809,7 @@ def presence_matrix(
     --------
     enrichment_regression : consumes this through ``precomputed_hits``.
     """
-    from tqdm.auto import tqdm
+    from .._progress import tqdm
 
     if len(motifs) == 0:
         raise ValueError("no motifs supplied")
@@ -2156,7 +2062,8 @@ def enrichment_regression(
     >>> res.head()
     """
     from scipy.stats import norm
-    from tqdm.auto import tqdm
+
+    from .._progress import tqdm
 
     scores = np.asarray(scores, dtype=np.float64)
     if len(regions) != len(scores):

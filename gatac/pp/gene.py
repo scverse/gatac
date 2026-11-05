@@ -11,20 +11,18 @@ import gc
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import cudf
 import cupy as cp
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from anndata import AnnData
 
+from .._files import write_h5ad
 from .._readers import read_gtf, read_metrics
 from ._utils import async_memory_pool
-
-if TYPE_CHECKING:
-    from anndata import AnnData
-
 
 logger = logging.getLogger(__name__)
 
@@ -651,7 +649,7 @@ def make_gene_matrix(
         Minimum fragments required per barcode (default: 100)
     exclude_chroms : list, optional
         List of chromosomes to exclude. (default: None)
-    metrics : str, Path, pandas.DataFrame, cudf.DataFrame or polars.DataFrame, optional
+    metrics : str, Path, pandas.DataFrame or cudf.DataFrame, optional
         Cell metrics for filtering: the table returned by
         :func:`gatac.pp.compute_metrics`, or a CSV file of it.
     filter_query : str, optional
@@ -799,7 +797,7 @@ def make_gene_matrix(
 
     total_time = time.perf_counter() - start_time
     if output_path is not None:
-        adata.write_h5ad(str(output_path))
+        write_h5ad(adata, output_path)
         total_time = time.perf_counter() - start_time
         logger.info(
             f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)"

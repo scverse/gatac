@@ -21,6 +21,16 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 
+def _version() -> str:
+    """The installed version of gatac."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("gatac")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def setup_logging(verbose: bool = False):
     """Configure logging level."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -90,30 +100,23 @@ def convert_command(args):
         """One value for all files, or the list of one per file."""
         return values[0] if values and len(values) == 1 else values
 
-    try:
-        make_parquet_batch(
-            input_paths or None,
-            output_dir=args.output_dir,
-            workers=args.workers,
-            barcode_prefix=one_or_each(args.barcode_prefix),
-            file_prefix=one_or_each(args.file_prefix),
-            output_paths=one_or_each(args.output),
-            samples=args.samples,
-        )
-    except (ValueError, OSError) as e:
-        logging.error(str(e))
-        sys.exit(1)
+    make_parquet_batch(
+        input_paths or None,
+        output_dir=args.output_dir,
+        workers=args.workers,
+        barcode_prefix=one_or_each(args.barcode_prefix),
+        file_prefix=one_or_each(args.file_prefix),
+        output_paths=one_or_each(args.output),
+        samples=args.samples,
+        skip_invalid=args.skip_invalid,
+    )
 
 
 def rename_command(args):
     """Set the barcode prefix of a fragment Parquet file."""
     from .io.convert import set_barcode_prefix
 
-    try:
-        set_barcode_prefix(args.input, args.barcode_prefix, output_path=args.output)
-    except (ValueError, OSError) as e:
-        logging.error(str(e))
-        sys.exit(1)
+    set_barcode_prefix(args.input, args.barcode_prefix, output_path=args.output)
 
 
 def _input_files(args) -> list[Path]:
@@ -129,52 +132,47 @@ def _input_files(args) -> list[Path]:
     return input_paths
 
 
+def _genome(arg: str):
+    """A genome name (e.g. hg38), or the chromosome sizes read from a file of that path."""
+    if not Path(arg).exists():
+        return arg
+    chrom_sizes = {}
+    try:
+        with open(arg) as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    chrom_sizes[parts[0]] = int(parts[1])
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Error reading the chromosome sizes file {arg}: {e}") from e
+    return chrom_sizes
+
+
 def tile_command(args):
     """Handle 'gatac tile' subcommand."""
     from .pp.tile import make_tile_matrix
 
     input_paths = _input_files(args)
     input_path = input_paths[0]
+    genome_arg = _genome(args.genome)
 
-    # Resolve genome if it's a file
-    genome_arg = args.genome
-    if Path(genome_arg).exists():
-        chrom_sizes = {}
-        try:
-            with open(genome_arg) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        chrom_sizes[parts[0]] = int(parts[1])
-            genome_arg = chrom_sizes
-        except Exception as e:
-            logging.error(f"Error reading chromosome sizes file: {e}")
-            sys.exit(1)
+    output_path = args.output
+    if output_path is None:
+        output_path = input_path.with_suffix("").with_name(input_path.stem + "_tile_matrix.h5ad")
 
-    try:
-        output_path = args.output
-        if output_path is None:
-            output_path = input_path.with_suffix("").with_name(input_path.stem + "_tile_matrix.h5ad")
-
-        make_tile_matrix(
-            input=input_paths if len(input_paths) > 1 else input_path,
-            chrom_sizes=genome_arg,
-            output_path=output_path,
-            tile_size=args.tile_size,
-            min_fragments_per_cell=args.min_fragments,
-            exclude_chroms=args.exclude_chroms,
-            metrics=args.metrics,
-            filter_query=args.filter_query,
-            count_strategy=args.count_strategy,
-            low_memory=args.low_memory,
-            n_features=args.n_features,
-        )
-    except ValueError as e:
-        logging.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error creating tile matrix: {e}")
-        sys.exit(1)
+    make_tile_matrix(
+        input=input_paths if len(input_paths) > 1 else input_path,
+        chrom_sizes=genome_arg,
+        output_path=output_path,
+        tile_size=args.tile_size,
+        min_fragments_per_cell=args.min_fragments,
+        exclude_chroms=args.exclude_chroms,
+        metrics=args.metrics,
+        filter_query=args.filter_query,
+        count_strategy=args.count_strategy,
+        low_memory=args.low_memory,
+        n_features=args.n_features,
+    )
 
 
 def combine_command(args):
@@ -259,31 +257,24 @@ def gene_command(args):
         logging.error(f"GTF file not found: {gtf_path}")
         sys.exit(1)
 
-    try:
-        output_path = args.output
-        if output_path is None:
-            output_path = input_path.with_suffix("").with_name(input_path.stem + "_gene_matrix.h5ad")
+    output_path = args.output
+    if output_path is None:
+        output_path = input_path.with_suffix("").with_name(input_path.stem + "_gene_matrix.h5ad")
 
-        make_gene_matrix(
-            input_parquet=input_paths if len(input_paths) > 1 else input_path,
-            gene_anno=gtf_path,
-            output_path=output_path,
-            id_type=args.id_type,
-            upstream=args.upstream,
-            downstream=args.downstream,
-            include_gene_body=args.include_gene_body,
-            min_fragments_per_cell=args.min_fragments,
-            exclude_chroms=args.exclude_chroms,
-            metrics=args.metrics,
-            filter_query=args.filter_query,
-            low_memory=args.low_memory,
-        )
-    except ValueError as e:
-        logging.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error creating gene matrix: {e}")
-        sys.exit(1)
+    make_gene_matrix(
+        input_parquet=input_paths if len(input_paths) > 1 else input_path,
+        gene_anno=gtf_path,
+        output_path=output_path,
+        id_type=args.id_type,
+        upstream=args.upstream,
+        downstream=args.downstream,
+        include_gene_body=args.include_gene_body,
+        min_fragments_per_cell=args.min_fragments,
+        exclude_chroms=args.exclude_chroms,
+        metrics=args.metrics,
+        filter_query=args.filter_query,
+        low_memory=args.low_memory,
+    )
 
 
 def genescore_command(args):
@@ -297,35 +288,28 @@ def genescore_command(args):
         logging.error(f"Gene annotation file not found: {anno_path}")
         sys.exit(1)
 
-    try:
-        make_gene_score_matrix(
-            input_parquet=input_paths if len(input_paths) > 1 else input_paths[0],
-            gene_anno=anno_path,
-            output_path=args.output,
-            gene_model=args.gene_model,
-            tile_size=args.tile_size,
-            extend_upstream=tuple(args.extend_upstream),
-            extend_downstream=tuple(args.extend_downstream),
-            gene_upstream=args.gene_upstream,
-            gene_downstream=args.gene_downstream,
-            use_gene_boundaries=args.use_gene_boundaries,
-            use_tss=args.use_tss,
-            ceiling=args.ceiling,
-            gene_scale_factor=args.gene_scale_factor,
-            scale_to=args.scale_to,
-            exclude_chroms=args.exclude_chroms,
-            min_fragments_per_cell=args.min_fragments,
-            metrics=args.metrics,
-            filter_query=args.filter_query,
-            low_memory=args.low_memory,
-            cell_batch_size=args.cell_batch_size,
-        )
-    except ValueError as e:
-        logging.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error creating gene score matrix: {e}")
-        sys.exit(1)
+    make_gene_score_matrix(
+        input_parquet=input_paths if len(input_paths) > 1 else input_paths[0],
+        gene_anno=anno_path,
+        output_path=args.output,
+        gene_model=args.gene_model,
+        tile_size=args.tile_size,
+        extend_upstream=tuple(args.extend_upstream),
+        extend_downstream=tuple(args.extend_downstream),
+        gene_upstream=args.gene_upstream,
+        gene_downstream=args.gene_downstream,
+        use_gene_boundaries=args.use_gene_boundaries,
+        use_tss=args.use_tss,
+        ceiling=args.ceiling,
+        gene_scale_factor=args.gene_scale_factor,
+        scale_to=args.scale_to,
+        exclude_chroms=args.exclude_chroms,
+        min_fragments_per_cell=args.min_fragments,
+        metrics=args.metrics,
+        filter_query=args.filter_query,
+        low_memory=args.low_memory,
+        cell_batch_size=args.cell_batch_size,
+    )
 
 
 def filter_command(args):
@@ -373,23 +357,16 @@ def filter_command(args):
 
     from .pp.filter import filter_fragments
 
-    try:
-        filter_fragments(
-            input_parquet=input_paths if len(input_paths) > 1 else input_paths[0],
-            output_parquet=output_paths,
-            metrics=metrics_path,
-            min_fragments_per_cell=args.min_fragments,
-            filter_query=args.filter_query,
-            barcode_prefix=args.barcode_prefix,
-            row_groups_per_batch=args.batch_size,
-            chrom_sizes=args.genome if hasattr(args, "genome") and args.genome else None,
-        )
-    except ValueError as e:
-        logging.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error filtering fragments: {e}")
-        sys.exit(1)
+    filter_fragments(
+        input_parquet=input_paths if len(input_paths) > 1 else input_paths[0],
+        output_parquet=output_paths,
+        metrics=metrics_path,
+        min_fragments_per_cell=args.min_fragments,
+        filter_query=args.filter_query,
+        barcode_prefix=args.barcode_prefix,
+        row_groups_per_batch=args.batch_size,
+        chrom_sizes=_genome(args.genome) if args.genome else None,
+    )
 
 
 def doublets_command(args):
@@ -401,13 +378,14 @@ def doublets_command(args):
         logging.error(f"Input file not found: {input_path}")
         sys.exit(1)
 
-    output_path = Path(args.output)
-    if output_path.suffix == "":
+    if args.output:
+        output_path = Path(args.output)
+    else:
         output_path = input_path.with_name(input_path.stem + "_doublets.csv")
 
     result = detect_doublets(
         fragment_path=input_path,
-        chrom_sizes=args.genome,
+        chrom_sizes=_genome(args.genome),
         barcodes=None,
         min_fragments=args.min_fragments,
         expected_overlap=args.expected_overlap,
@@ -435,7 +413,14 @@ def main():
         description="GPU-accelerated ATAC-seq processing toolkit",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (debug) output, and the traceback of an error"
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_version()}",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -488,6 +473,12 @@ def main():
     )
     convert_parser.add_argument(
         "--overwrite", action="store_true", help="Replace existing .tsv.gz / .tsv outputs of .parquet inputs"
+    )
+    convert_parser.add_argument(
+        "--skip-invalid",
+        action="store_true",
+        help="Skip the lines that are not a fragment (other than 5 fields, a field "
+        "that is not a number, an empty field) and log how many, instead of failing",
     )
     convert_parser.set_defaults(func=convert_command)
 
@@ -593,7 +584,7 @@ def main():
     filter_parser.add_argument(
         "-g",
         "--genome",
-        help="Genome name for chromosome filtering (e.g., hg38, mm10). Matches SnapATAC2 behavior by excluding non-standard contigs.",
+        help="Genome name (e.g., hg38, mm10) or path to chromosome sizes file, to drop other contigs as SnapATAC2 does",
     )
     filter_parser.add_argument(
         "--barcode-prefix",
@@ -741,7 +732,18 @@ def main():
 
     args = parser.parse_args()
     setup_logging(args.verbose)
-    args.func(args)
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        # The message alone, or with -v the traceback, which bug reports need
+        if args.verbose:
+            logging.exception(f"gatac {args.command} failed")
+        else:
+            what = "" if isinstance(e, (ValueError, OSError)) else f"{type(e).__name__}: "
+            logging.error(f"{what}{e} (gatac -v {args.command} ... shows the traceback)")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

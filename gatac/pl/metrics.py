@@ -38,8 +38,8 @@ def qc_metrics(
     Parameters
     ----------
     metrics:
-        The table returned by :func:`gatac.pp.compute_metrics` (pandas, cuDF
-        or Polars), or a CSV file of it.
+        The table returned by :func:`gatac.pp.compute_metrics` (pandas or
+        cuDF), or a CSV file of it.
         Must contain columns ``tsse_score`` and ``n_unique``.
     tsse_threshold:
         Vertical/horizontal line drawn on plots to mark the TSSe cut-off.
@@ -110,3 +110,4 @@ def qc_metrics(
 
     sns.despine()
     plt.tight_layout()
+    return fig

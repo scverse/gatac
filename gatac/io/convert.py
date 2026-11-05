@@ -3,21 +3,19 @@ ATAC fragments TSV.GZ to Parquet conversion, and back.
 """
 
 import logging
+import multiprocessing as mp
 import os
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .fragments import NAMED_SCHEMA, FragmentFile, write_fragments
-
-if TYPE_CHECKING:
-    import pandas as pd
-
+from .fragments import NAMED_SCHEMA, FragmentFile, sql_string, write_fragments
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +81,40 @@ def _read_sample_sheet(samples) -> tuple[list[str], list[str] | None, list[str] 
     return column("fragments"), column("output"), column("barcode_prefix")
 
 
+# The fields a fragment must have; an empty count is allowed
+_REQUIRED_COLUMNS = ("chrom", "start", "end", "barcode")
+_REQUIRED = " AND ".join(f'"{c}" IS NOT NULL' for c in _REQUIRED_COLUMNS)
+
+
+def _required_mask(table: pa.Table) -> pa.Array:
+    """The rows of ``table`` that have every required field."""
+    mask = pc.is_valid(table.column(_REQUIRED_COLUMNS[0]))
+    for c in _REQUIRED_COLUMNS[1:]:
+        mask = pc.and_(mask, pc.is_valid(table.column(c)))
+    return mask
+
+
+def _invalid_line_error(input_path: Path, error: Exception) -> ValueError:
+    """The error for a line DuckDB could not read as a fragment, from DuckDB's first lines."""
+    lines = []
+    for line in str(error).splitlines():
+        if not line.strip() or line.startswith("Possible") or line.startswith("Column "):
+            break
+        lines.append(line.strip())
+    return ValueError(
+        f"{input_path.name} has a line that is not a fragment (chrom, start, end, barcode, "
+        f"count): {'; '.join(lines)}. Pass skip_invalid=True (gatac convert --skip-invalid) "
+        "to skip such lines; their number is logged"
+    )
+
+
 def make_parquet(
     input_path: str | Path,
     output_path: str | Path | None = None,
     separator: str = "\t",
     barcode_prefix: str | None = None,
     row_group_size: int = 1_000_000,
+    skip_invalid: bool = False,
 ) -> Path:
     """
     Convert an ATAC fragments TSV.GZ file to GATAC Parquet.
@@ -113,7 +139,7 @@ def make_parquet(
     separator : str
         Column separator (default: tab)
     barcode_prefix : str, optional
-        Prefix of the sample's barcodes (e.g. "sample1_"), so that cells keep
+        Prefix of the sample's barcodes (e.g. ``"sample1_"``), so that cells keep
         distinct names across samples. ``{sample}`` in it is replaced by the
         input's name without its extensions (``"{sample}_"``). It is stored
         once, in the file footer, and every reader puts it in front of the
@@ -125,11 +151,22 @@ def make_parquet(
         via cudf.read_parquet(row_groups=...).  The default is tuned for
         the gatac batch size of 64 row groups (~64 M rows/batch fits
         comfortably on a 12 GB GPU).
+    skip_invalid : bool
+        Skip the lines that are not a fragment, and log how many (default
+        False: such a line is an error, which names it). A line is invalid
+        when it has another number of fields than 5, a start, end or count
+        that is not a non-negative integer of its type, or an empty chrom,
+        start, end or barcode. Lines starting with ``#`` are comments.
 
     Returns
     -------
     Path
         Path to the created Parquet file.
+
+    Raises
+    ------
+    ValueError
+        On an invalid line, unless ``skip_invalid``.
 
     Examples
     --------
@@ -149,23 +186,16 @@ def make_parquet(
     barcode_prefix = _fill(barcode_prefix, _stem(input_path))
     logger.info(f"Converting {input_path.name} to Parquet")
 
-    query = f"""
-        SELECT
-            column0          AS chrom,
-            column1::UINTEGER AS start,
-            column2::UINTEGER AS "end",
-            column3          AS barcode,
-            column4::USMALLINT AS count
-        FROM read_csv(
-            '{input_path}',
-            delim='{separator}',
-            header=false,
-            comment='#',
-            ignore_errors=true
-        )
-        WHERE column0 IS NOT NULL AND column1 IS NOT NULL
-          AND column2 IS NOT NULL AND column3 IS NOT NULL
-    """
+    # The five columns and their types are given, so that each line is
+    # checked against them; fragment files have no quoted fields
+    read = (
+        "read_csv(?, delim=?, header=false, comment='#', quote='', escape='', "
+        "auto_detect=false, columns={'chrom': 'VARCHAR', 'start': 'UINTEGER', "
+        "'end': 'UINTEGER', 'barcode': 'VARCHAR', 'count': 'USMALLINT'}"
+        + (", store_rejects=true" if skip_invalid else "")
+        + ")"
+    )
+    params = [str(input_path), separator]
 
     # The TSV is parsed once, by a parallel COPY to a staging Parquet next to
     # the output; the barcode counts and the writer both read that file. A
@@ -174,15 +204,49 @@ def make_parquet(
     stage = output_path.with_name(output_path.name + ".stage.parquet")
     try:
         with duckdb.connect() as con:
-            con.execute(f"COPY ({query}) TO '{stage}' (FORMAT parquet, ROW_GROUP_SIZE {row_group_size})")
-            barcode_stats = con.execute(f"""
+            try:
+                con.execute(
+                    f"COPY (SELECT * FROM {read}) TO {sql_string(stage)} "
+                    f"(FORMAT parquet, ROW_GROUP_SIZE {int(row_group_size)})",
+                    params,
+                )
+            except (duckdb.InvalidInputException, duckdb.ConversionException) as e:
+                raise _invalid_line_error(input_path, e) from None
+            rejected = (
+                con.execute("SELECT count(DISTINCT line) FROM reject_errors").fetchone()[0] if skip_invalid else 0
+            )
+            missing = con.execute(
+                f"SELECT count(*) FROM read_parquet(?) WHERE NOT ({_REQUIRED})", [str(stage)]
+            ).fetchone()[0]
+            if missing and not skip_invalid:
+                line = con.execute(
+                    f"SELECT * FROM read_parquet(?) WHERE NOT ({_REQUIRED}) LIMIT 1", [str(stage)]
+                ).fetchone()
+                raise ValueError(
+                    f"{input_path.name}: {missing:,} line(s) have an empty chrom, start, end or "
+                    f"barcode, e.g. {line}. Pass skip_invalid=True (gatac convert "
+                    "--skip-invalid) to skip them"
+                )
+            if rejected or missing:
+                logger.warning(
+                    f"{input_path.name}: skipped {rejected + missing:,} invalid line(s) "
+                    f"({rejected:,} not 5 fields of the right types, {missing:,} with an "
+                    "empty chrom, start, end or barcode)"
+                )
+            barcode_stats = con.execute(
+                f"""
                 SELECT barcode, count(*)::BIGINT AS n_unique, sum(count)::BIGINT AS n_total
-                FROM read_parquet('{stage}') GROUP BY barcode
-            """).fetchdf()
+                FROM read_parquet(?) WHERE {_REQUIRED} GROUP BY barcode
+            """,
+                [str(stage)],
+            ).fetchdf()
 
         def batches():
             for b in pq.ParquetFile(stage).iter_batches(batch_size=row_group_size):
-                yield pa.Table.from_batches([b]).cast(NAMED_SCHEMA)
+                table = pa.Table.from_batches([b])
+                if missing:
+                    table = table.filter(_required_mask(table))
+                yield table.cast(NAMED_SCHEMA)
 
         write_fragments(
             batches,
@@ -208,6 +272,7 @@ def make_parquet_batch(
     file_prefix: str | Sequence[str] | None = None,
     output_paths: str | Sequence[str | Path] | None = None,
     samples: "str | Path | pd.DataFrame | None" = None,
+    skip_invalid: bool = False,
 ) -> list[Path]:
     """
     Convert multiple ATAC fragment TSV.GZ files to Parquet in parallel.
@@ -259,6 +324,9 @@ def make_parquet_batch(
         ``barcode_prefix``, which replace ``output_paths`` and
         ``barcode_prefix``. Empty cells take the defaults. Relative paths
         are relative to the working directory.
+    skip_invalid : bool
+        Skip and count the lines that are not a fragment, instead of failing
+        on them; forwarded to :func:`make_parquet`.
 
     Returns
     -------
@@ -350,7 +418,11 @@ def make_parquet_batch(
     for out in output_paths:
         out.parent.mkdir(parents=True, exist_ok=True)
     if len(input_paths) == 1:
-        return [make_parquet(input_paths[0], output_paths[0], separator, prefixes[0], row_group_size)]
+        return [
+            make_parquet(
+                input_paths[0], output_paths[0], separator, prefixes[0], row_group_size, skip_invalid=skip_invalid
+            )
+        ]
 
     n_workers = min(
         len(input_paths),
@@ -365,7 +437,10 @@ def make_parquet_batch(
 
     results: list[Path | None] = [None] * len(input_paths)
 
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+    # Spawned, not forked: the parent runs DuckDB and Arrow threads, and a
+    # fork of a multi-threaded process can deadlock in the child (Python
+    # 3.14 no longer forks by default either). Each worker imports gatac once.
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp.get_context("spawn")) as executor:
         future_to_idx = {
             executor.submit(
                 make_parquet,
@@ -374,6 +449,7 @@ def make_parquet_batch(
                 separator,
                 prefixes[i],
                 row_group_size,
+                skip_invalid=skip_invalid,
             ): i
             for i in order
         }

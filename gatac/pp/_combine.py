@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import replacing
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +54,19 @@ def _check_distinct_cells(paths: Sequence[Path], names: Sequence[str]) -> None:
     if not cells.is_unique:
         files = np.repeat(np.arange(len(paths)), [len(b) for b in barcodes])
         raise _shared_names_error(cells, files, names)
+
+
+def _feature_mismatch(got: pd.Index, ref: pd.Index, name: str, ref_name: str) -> ValueError:
+    """The error for a file whose features (``var_names``) are not those of the first file."""
+    if len(got) == len(ref) and got.sort_values().equals(ref.sort_values()):
+        i = int(np.flatnonzero(got.to_numpy() != ref.to_numpy())[0])
+        detail = f"the same {len(ref):,} features in another order (feature {i} is {got[i]!r}, not {ref[i]!r})"
+    else:
+        detail = f"{len(got):,} features, {len(got.difference(ref)):,} of them not among the {len(ref):,} of {ref_name}"
+    return ValueError(
+        f"{name} has other features than {ref_name}: {detail}. Matrices are combined "
+        "column by column, so every file must have the same features in the same order"
+    )
 
 
 def _combined_obs(obs_parts: list[pd.DataFrame], names: Sequence[str]) -> pd.DataFrame:
@@ -98,7 +113,7 @@ def combine_file_matrices(
         if var is None:
             var = part.var
         elif not part.var_names.equals(var.index):
-            raise ValueError(f"{name} has other features than {names[0]}")
+            raise _feature_mismatch(part.var_names, var.index, name, names[0])
         obs = part.obs.copy()
         obs.insert(min(1, obs.shape[1]), "source_file", name)
         obs_parts.append(obs)
@@ -112,47 +127,53 @@ def combine_file_matrices(
     import h5py
 
     output_path = Path(output_path)
-    indptr = [np.zeros(1, dtype=np.int64)]
-    n_rows = 0
-    with h5py.File(output_path, "w") as h5:
-        group = h5.create_group("X")
-        data = indices = None
-        for part, name in zip(parts, names):
-            x = rows(part, name)
-            del part
+    # Written next to the output and moved onto it once complete: an error in
+    # a later part (other features, shared cell names) leaves an existing
+    # output as it was
+    with replacing(output_path) as tmp_path:
+        indptr = [np.zeros(1, dtype=np.int64)]
+        n_rows = 0
+        with h5py.File(tmp_path, "w") as h5:
+            group = h5.create_group("X")
+            data = indices = None
+            for part, name in zip(parts, names):
+                x = rows(part, name)
+                del part
+                if data is None:
+                    grow = {"maxshape": (None,), "chunks": (1 << 20,)}
+                    data = group.create_dataset("data", shape=(0,), dtype=x.dtype, **grow)
+                    idx = np.int32 if len(var) <= np.iinfo(np.int32).max else np.int64
+                    indices = group.create_dataset("indices", shape=(0,), dtype=idx, **grow)
+                elif np.result_type(data.dtype, x.dtype) != data.dtype:
+                    data = _widen(group, "data", np.result_type(data.dtype, x.dtype))
+                pos = int(indptr[-1][-1])
+                data.resize((pos + x.nnz,))
+                data[pos:] = x.data
+                indices.resize((pos + x.nnz,))
+                indices[pos:] = x.indices
+                indptr.append(pos + x.indptr[1:].astype(np.int64))
+                n_rows += x.shape[0]
+                del x
             if data is None:
-                grow = {"maxshape": (None,), "chunks": (1 << 20,)}
-                data = group.create_dataset("data", shape=(0,), dtype=x.dtype, **grow)
-                idx = np.int32 if len(var) <= np.iinfo(np.int32).max else np.int64
-                indices = group.create_dataset("indices", shape=(0,), dtype=idx, **grow)
-            elif np.result_type(data.dtype, x.dtype) != data.dtype:
-                data = _widen(group, "data", np.result_type(data.dtype, x.dtype))
-            pos = int(indptr[-1][-1])
-            data.resize((pos + x.nnz,))
-            data[pos:] = x.data
-            indices.resize((pos + x.nnz,))
-            indices[pos:] = x.indices
-            indptr.append(pos + x.indptr[1:].astype(np.int64))
-            n_rows += x.shape[0]
-            del x
-        indptr = np.concatenate(indptr)
-        if indptr[-1] <= np.iinfo(np.int32).max:
-            indptr = indptr.astype(np.int32)
-        group.create_dataset("indptr", data=indptr)
-        group.attrs.update(
-            {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_rows, len(var)])}
-        )
+                raise ValueError("No matrices to combine")
+            indptr = np.concatenate(indptr)
+            if indptr[-1] <= np.iinfo(np.int32).max:
+                indptr = indptr.astype(np.int32)
+            group.create_dataset("indptr", data=indptr)
+            group.attrs.update(
+                {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_rows, len(var)])}
+            )
 
-    # obs, var and the file's AnnData attributes, from an AnnData without X
-    # written alongside, so that X is never rewritten
-    meta = output_path.with_name(output_path.name + ".obs.h5ad")
-    try:
-        ad.AnnData(obs=_combined_obs(obs_parts, names), var=var).write_h5ad(str(meta))
-        with h5py.File(meta, "r") as src, h5py.File(output_path, "a") as dst:
-            for key in src:
-                if key != "X":
-                    src.copy(src[key], dst, key)
-            dst.attrs.update(src.attrs)
-    finally:
-        meta.unlink(missing_ok=True)
+        # obs, var and the file's AnnData attributes, from an AnnData without X
+        # written alongside, so that X is never rewritten
+        meta = tmp_path.with_name(tmp_path.name + ".obs.h5ad")
+        try:
+            ad.AnnData(obs=_combined_obs(obs_parts, names), var=var).write_h5ad(str(meta))
+            with h5py.File(meta, "r") as src, h5py.File(tmp_path, "a") as dst:
+                for key in src:
+                    if key != "X":
+                        src.copy(src[key], dst, key)
+                dst.attrs.update(src.attrs)
+        finally:
+            meta.unlink(missing_ok=True)
     return ad.read_h5ad(output_path, backed="r")

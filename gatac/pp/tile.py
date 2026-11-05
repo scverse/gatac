@@ -11,9 +11,9 @@ once at the end and copied to the host.
 from __future__ import annotations
 
 import functools
-import gc
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import anndata as ad
@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import write_h5ad
 from .._readers import read_metrics
 from ..gpu import bincount
 from ..io.fragments import FragmentFile
@@ -37,49 +38,6 @@ _INTERVAL_FEATURE_PATTERN = r"^(?P<chrom>[^:;]+)[:;](?P<start>\d+)-(?P<end>\d+)$
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _process_batch_on_gpu(
-    batch_df: cudf.DataFrame,
-    tile_size: int,
-    chrom_offset_df: cudf.DataFrame,
-    count_strategy: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Vectorised tile-index computation and aggregation for a fragment
-    batch spanning multiple chromosomes.
-
-    Parameters
-    ----------
-    batch_df : cudf.DataFrame
-        Must contain columns: ``cell_idx`` (int32), ``chrom``, ``start``,
-        ``end``, ``count``.
-    tile_size : int
-        Bin size in base pairs.
-    chrom_offset_df : cudf.DataFrame
-        Two columns: ``chrom``, ``tile_offset`` (int32).
-    count_strategy : str
-        ``"unique"`` or ``"count"``.  The caller handles ``"binarize"``
-        by passing ``"unique"`` here and binarising the final matrix.
-
-    Returns
-    -------
-    rows, cols, data : np.ndarray
-        COO components on the host.
-    """
-    # Merge chrom → tile_offset (also filters to known chroms)
-    batch_df = batch_df.merge(chrom_offset_df, on="chrom", how="inner")
-    count = None if count_strategy == "unique" else batch_df["count"].values
-    rows, cols, data = _tile_counts_gpu(
-        batch_df["cell_idx"].values,
-        batch_df["tile_offset"].values,
-        batch_df["start"].values,
-        batch_df["end"].values,
-        count,
-        tile_size,
-    )
-    del batch_df
-    return rows, cols, data
 
 
 def _insertions_gpu(
@@ -129,50 +87,6 @@ def _insertions_gpu(
 
     del cell_idx, tile_s, tile_e, count, cross_idx
     return all_rows, all_cols, all_data
-
-
-def _tile_counts_gpu(
-    cell_idx: cp.ndarray,
-    tile_offset: cp.ndarray,
-    start: cp.ndarray,
-    end: cp.ndarray,
-    count: cp.ndarray | None,
-    tile_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Per (cell, tile) insertion counts for one batch of fragments, as COO
-    components on the host. See :func:`_insertions_gpu` for the arguments.
-    """
-    all_rows, all_cols, all_data = _insertions_gpu(
-        cell_idx,
-        tile_offset,
-        start,
-        end,
-        count,
-        tile_size,
-    )
-
-    # Aggregate per (cell, tile) on GPU
-    insertions = cudf.DataFrame(
-        {
-            "cell_idx": cudf.Series(all_rows),
-            "tile_idx": cudf.Series(all_cols),
-            "count": cudf.Series(all_data),
-        }
-    )
-    del all_rows, all_cols, all_data
-
-    agg = insertions.groupby(["cell_idx", "tile_idx"], sort=False)["count"].sum().reset_index()
-    del insertions
-
-    # Pull to host
-    rows = agg["cell_idx"].values.get().astype(np.int32)
-    cols = agg["tile_idx"].values.get().astype(np.int32)
-    data = agg["count"].values.get()
-    del agg
-    cp.get_default_memory_pool().free_all_blocks()
-
-    return rows, cols, data
 
 
 def _tile_key_counts_gpu(
@@ -452,12 +366,6 @@ def _stream_key_counts(
     return keys, counts
 
 
-def _cleanup_gpu():
-    """Free GPU memory pools."""
-    gc.collect()
-    cp.get_default_memory_pool().free_all_blocks()
-
-
 def _load_interval_adata(input_data: ad.AnnData | Path):
     """Load an interval matrix from AnnData or 10x HDF5."""
     import scanpy as sc
@@ -522,7 +430,7 @@ def _make_tile_matrix_from_interval_matrix(
     chrom_sizes: dict[str, int],
     output_path: Path | None = None,
     tile_size: int = 5000,
-    exclude_chroms: list | None = ["chrM", "chrY", "M", "Y"],
+    exclude_chroms: Sequence[str] | None = ("chrM", "chrY", "M", "Y"),
     min_fragments_per_cell: int = 100,
     metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
     filter_query: str | None = None,
@@ -654,7 +562,7 @@ def _make_tile_matrix_from_interval_matrix(
     adata.uns["tile_aggregation"] = "sum_overlapping_features"
 
     if output_path is not None:
-        adata.write_h5ad(str(output_path))
+        write_h5ad(adata, output_path)
         logger.info(
             f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles from interval matrix"
         )
@@ -666,224 +574,6 @@ def _make_tile_matrix_from_interval_matrix(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-
-def create_tile_matrix_gpu(
-    fragments_df: cudf.DataFrame,
-    chrom_sizes: dict[str, int],
-    tile_size: int = 5000,
-    exclude_chroms: list | None = ["chrM", "chrY", "M", "Y"],
-    min_fragments_per_cell: int = 100,
-    cell_metadata: cudf.DataFrame | None = None,
-    filter_query: str | None = None,
-    return_sparse: bool = True,
-    count_strategy: str = "unique",
-) -> tuple[sp.csr_matrix | np.ndarray, cudf.DataFrame, cudf.DataFrame]:
-    """
-    Generate a tile matrix from ATAC fragment data using GPU acceleration.
-
-    Chromosomes are processed one at a time to minimise peak GPU memory.
-    COO components are accumulated on the host and the final CSR matrix is
-    assembled with SciPy, so even very small tile sizes (e.g. 500 bp) do
-    not cause CUDA OOM errors.
-
-    Parameters
-    ----------
-    fragments_df : cudf.DataFrame
-        Fragment data with columns: 'chrom', 'start', 'end', 'barcode', 'count'
-    chrom_sizes : dict
-        Dictionary of chromosome names and their sizes. Used to ensure consistent
-        tile coordinates across different samples.
-    tile_size : int
-        Size of genomic bins in base pairs (default: 5000)
-    exclude_chroms : list, optional
-        List of chromosomes to exclude. (default: ["chrM", "chrY", "M", "Y"])
-    min_fragments_per_cell : int
-        Minimum fragments required per barcode to include (default: 100)
-    cell_metadata : cudf.DataFrame, optional
-        Optional cell metadata for filtering (e.g. from quality metrics).
-        If provided, fragment counting for initial filtering is skipped.
-    filter_query : str, optional
-        Additional query string for filtering cells based on cell_metadata.
-    return_sparse : bool
-        Return sparse matrix (True) or dense ndarray (False). Dense output is
-        only practical for small matrices.
-    count_strategy : str
-        Strategy for counting fragments in tiles. Options:
-        - "unique": Count each unique fragment once (SnapATAC2 default)
-        - "count": Use PCR duplicate counts from the 'count' column
-        - "binarize": Convert counts to binary (0/1) per tile
-        (default: "unique")
-
-    Returns
-    -------
-    matrix : scipy.sparse.csr_matrix or numpy.ndarray
-        Tile matrix with shape (n_cells, n_tiles)
-    cell_metadata : cudf.DataFrame
-        Metadata for cells (barcodes) with total fragment counts
-    tile_metadata : cudf.DataFrame
-        Metadata for tiles with chromosome, start, end positions
-    """
-    if hasattr(chrom_sizes, "chrom_sizes"):
-        chrom_sizes = chrom_sizes.chrom_sizes
-
-    if count_strategy not in ("unique", "count", "binarize"):
-        raise ValueError(f"Invalid count_strategy: '{count_strategy}'. Must be 'unique', 'count', or 'binarize'.")
-
-    # ------------------------------------------------------------------ #
-    # 1. Determine valid chromosomes                                       #
-    # ------------------------------------------------------------------ #
-    all_chroms = sorted(chrom_sizes.keys())
-    if exclude_chroms is not None:
-        if isinstance(exclude_chroms, str):
-            exclude_chroms = [exclude_chroms]
-        included_chroms = [c for c in all_chroms if c not in exclude_chroms]
-    else:
-        included_chroms = all_chroms
-
-    # For n_unique counting: all chroms in chrom_sizes (including chrM/chrY),
-    # matching SnapATAC2's min_num_fragments threshold behaviour.
-    fragments_for_n_unique = fragments_df[fragments_df["chrom"].isin(all_chroms)]
-
-    # ------------------------------------------------------------------ #
-    # 2. Cell filtering                                                    #
-    # ------------------------------------------------------------------ #
-    if cell_metadata is None:
-        logger.debug("Filtering cells by unique fragment count")
-        barcode_counts = fragments_for_n_unique.groupby("barcode", observed=True).agg({"count": ["sum", "size"]})
-        barcode_counts.columns = ["n_total", "n_unique"]
-        barcode_counts = barcode_counts.reset_index()
-        cell_metadata = barcode_counts[barcode_counts["n_unique"] >= min_fragments_per_cell]
-    else:
-        logger.debug("Using provided cell metadata for filtering")
-        if filter_query:
-            cell_metadata = cell_metadata.query(filter_query)
-
-        # Always recompute n_unique from fragments restricted to included_chroms
-        # (metrics n_unique may include non-standard contigs, causing too many
-        # cells to pass min_fragments_per_cell compared to filter_fragments).
-        # Cast to string to avoid cudf categorical isin mismatches when the two
-        # series have different category sets.
-        metadata_barcodes = cell_metadata["barcode"].astype("str")
-        subset_frags = fragments_for_n_unique[fragments_for_n_unique["barcode"].astype("str").isin(metadata_barcodes)]
-        barcode_counts = subset_frags.groupby("barcode", observed=True).agg({"count": ["sum", "size"]})
-        barcode_counts.columns = ["n_total", "n_unique"]
-        barcode_counts = barcode_counts.reset_index()
-
-        valid_bc = barcode_counts[barcode_counts["n_unique"] >= min_fragments_per_cell]["barcode"].astype("str")
-        cell_metadata = cell_metadata[cell_metadata["barcode"].astype("str").isin(valid_bc)]
-        if "n_unique" in cell_metadata.columns:
-            cell_metadata = cell_metadata.drop(columns=["n_unique"])
-        # barcode_counts still has the original categorical barcode; merge on str
-        barcode_counts["barcode"] = barcode_counts["barcode"].astype("str")
-        cell_metadata["barcode"] = cell_metadata["barcode"].astype("str")
-        cell_metadata = cell_metadata.merge(barcode_counts[["barcode", "n_unique"]], on="barcode", how="left")
-
-    valid_barcodes = cell_metadata["barcode"]
-    logger.debug(f"Retained {len(valid_barcodes)} cells")
-
-    # ------------------------------------------------------------------ #
-    # 3. Restrict fragments to valid cells and included chromosomes        #
-    # ------------------------------------------------------------------ #
-    fragments_df = fragments_df[
-        fragments_df["barcode"].isin(valid_barcodes) & fragments_df["chrom"].isin(included_chroms)
-    ]
-
-    # ------------------------------------------------------------------ #
-    # 4. Build barcode → integer index mapping                            #
-    # ------------------------------------------------------------------ #
-    unique_barcodes = fragments_df["barcode"].unique().reset_index(drop=True)
-    barcode_to_idx = cudf.DataFrame(
-        {
-            "barcode": unique_barcodes,
-            "cell_idx": cp.arange(len(unique_barcodes), dtype=cp.int32),
-        }
-    )
-    n_cells = int(len(unique_barcodes))
-
-    fragments_df = fragments_df.merge(barcode_to_idx, on="barcode", how="left")
-
-    # ------------------------------------------------------------------ #
-    # 5. Build tile metadata & chrom-offset lookup                        #
-    # ------------------------------------------------------------------ #
-    logger.debug("Creating genomic tiles")
-    tile_metadata, chrom_offset_df, n_tiles_total = _build_tile_metadata_and_offsets(
-        included_chroms, chrom_sizes, tile_size
-    )
-    logger.debug(f"Created {n_tiles_total:,} tiles across {len(included_chroms)} chromosomes")
-
-    # ------------------------------------------------------------------ #
-    # 6. Vectorised processing: single groupby across all chromosomes     #
-    # ------------------------------------------------------------------ #
-    logger.debug("Building sparse matrix (vectorised)")
-    effective_strategy = "unique" if count_strategy == "binarize" else count_strategy
-    rows, cols, data = _process_batch_on_gpu(
-        fragments_df[["cell_idx", "chrom", "start", "end", "count"]],
-        tile_size,
-        chrom_offset_df,
-        effective_strategy,
-    )
-
-    # ------------------------------------------------------------------ #
-    # 7. Assemble final sparse matrix (GPU COO → CSR for speed)           #
-    # ------------------------------------------------------------------ #
-    if len(rows) > 0:
-        try:
-            coo_gpu = cusp.coo_matrix(
-                (
-                    cp.asarray(data.astype(np.float32)),
-                    (cp.asarray(rows), cp.asarray(cols)),
-                ),
-                shape=(n_cells, n_tiles_total),
-            )
-            csr_gpu = coo_gpu.tocsr()
-            del coo_gpu
-
-            if count_strategy == "binarize":
-                csr_gpu.data[:] = 1.0
-
-            if return_sparse:
-                matrix = sp.csr_matrix(
-                    (
-                        csr_gpu.data.get().astype(np.uint16),
-                        csr_gpu.indices.get(),
-                        csr_gpu.indptr.get(),
-                    ),
-                    shape=csr_gpu.shape,
-                )
-            else:
-                matrix = cusp.coo_matrix(csr_gpu).toarray().get()
-            del csr_gpu
-            _cleanup_gpu()
-        except (MemoryError, RuntimeError):
-            _cleanup_gpu()
-            coo = sp.coo_matrix(
-                (data.astype(np.float32), (rows, cols)),
-                shape=(n_cells, n_tiles_total),
-                dtype=np.float32,
-            )
-            if count_strategy == "binarize":
-                coo.data[:] = 1.0
-            matrix = coo.tocsr() if return_sparse else coo.toarray()
-            del coo
-    else:
-        matrix = (
-            sp.csr_matrix((n_cells, n_tiles_total), dtype=np.float32)
-            if return_sparse
-            else np.zeros((n_cells, n_tiles_total), dtype=np.float32)
-        )
-    del rows, cols, data
-
-    # ------------------------------------------------------------------ #
-    # 8. Finalise cell metadata                                           #
-    # ------------------------------------------------------------------ #
-    cell_metadata = barcode_to_idx.merge(cell_metadata, on="barcode", how="left")
-    cell_metadata = cell_metadata.sort_values("cell_idx").reset_index(drop=True)
-
-    if cell_metadata["barcode"].dtype != "object":
-        cell_metadata["barcode"] = cell_metadata["barcode"].astype(str)
-
-    return matrix, cell_metadata, tile_metadata
 
 
 def tile_matrix_to_anndata(
@@ -958,7 +648,7 @@ def make_tile_matrix(
     output_path: str | Path | None = None,
     tile_size: int = 5000,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: list | None = ["chrM", "chrY", "M", "Y"],
+    exclude_chroms: Sequence[str] | None = ("chrM", "chrY", "M", "Y"),
     metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
     filter_query: str | None = None,
     count_strategy: str = "unique",
@@ -1004,7 +694,7 @@ def make_tile_matrix(
         Minimum fragments required per barcode (default: 100)
     exclude_chroms : list, optional
         List of chromosomes to exclude. (default: ["chrM", "chrY", "M", "Y"])
-    metrics : str, Path, pandas.DataFrame, cudf.DataFrame or polars.DataFrame, optional
+    metrics : str, Path, pandas.DataFrame or cudf.DataFrame, optional
         Cell metrics for filtering: the table returned by
         :func:`gatac.pp.compute_metrics`, or a CSV file of it.
     filter_query : str, optional
@@ -1218,7 +908,7 @@ def _make_tile_matrix_one(
 
     # Save
     if resolved_output_path is not None:
-        adata.write_h5ad(str(resolved_output_path))
+        write_h5ad(adata, resolved_output_path)
         total_time = time.perf_counter() - start_time
         logger.info(
             f"Created {resolved_output_path.name}: {adata.shape[0]:,} cells × "

@@ -12,6 +12,7 @@ import cupyx.scipy.sparse as cusp
 import numpy as np
 import scipy.sparse as sp
 
+from .._files import write_h5ad
 from ..gpu import bincount
 
 logger = logging.getLogger(__name__)
@@ -301,7 +302,7 @@ def select_features(
 
     if output_path:
         output_path = Path(output_path)
-        adata.write_h5ad(str(output_path))
+        write_h5ad(adata, output_path)
         logger.info(f"Saved to {output_path.name}")
 
     logger.info(f"Selected {n_selected:,} features")

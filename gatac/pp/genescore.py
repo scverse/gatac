@@ -33,7 +33,6 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import cudf
 import cupy as cp
@@ -41,12 +40,10 @@ import cupyx.scipy.sparse as cusp
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from anndata import AnnData
 
+from .._files import write_h5ad
 from .._readers import read_gtf, read_metrics
-
-if TYPE_CHECKING:
-    from anndata import AnnData
-
 
 logger = logging.getLogger(__name__)
 
@@ -614,7 +611,7 @@ def make_gene_score_matrix(
         Build the model on the 1bp TSS rather than the gene body.
     metrics
         Cell metrics for filtering: the table returned by
-        :func:`gatac.pp.compute_metrics` (pandas, cuDF or Polars), or a CSV
+        :func:`gatac.pp.compute_metrics` (pandas or cuDF), or a CSV
         file of it.
     filter_query
         Query on ``metrics`` selecting the cells (e.g. ``"tsse_score > 5"``).
@@ -704,7 +701,7 @@ def make_gene_score_matrix(
         output_path = Path(output_path)
 
     adata = _score(input_parquet)
-    adata.write_h5ad(str(output_path))
+    write_h5ad(adata, output_path)
     logger.info(
         f"Created {output_path.name}: {adata.shape[0]:,} cells x {adata.shape[1]:,} genes "
         f"({time.perf_counter() - start:.1f}s)"

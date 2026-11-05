@@ -42,7 +42,7 @@ def test_extension_namespace(ext):
     assert gatac.demo.hello() == "hi"
     assert gatac.io.__name__ == "gatac.io"  # core names win
     with pytest.raises(AttributeError):
-        gatac.nothing_here
+        _ = gatac.nothing_here
 
 
 def test_extension_command(ext, monkeypatch, capsys):

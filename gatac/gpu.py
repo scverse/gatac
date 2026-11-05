@@ -18,6 +18,10 @@ leave nothing behind.
 
 from __future__ import annotations
 
+from ._rapids import require as _require_rapids
+
+_require_rapids()
+
 import cupy as cp
 import numpy as np
 

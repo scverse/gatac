@@ -347,11 +347,6 @@ def _scan_device(seq_d: cp.ndarray, mats: list[np.ndarray], orders: list[np.ndar
         cap = nh
 
 
-def _scan(seq: np.ndarray, mats: list[np.ndarray], orders: list[np.ndarray], thr: np.ndarray):
-    """``_scan_device`` on a host sequence, returning host arrays."""
-    return tuple(a.get() for a in _scan_device(cp.asarray(seq), mats, orders, thr))
-
-
 def _short_run_hits(
     seq: np.ndarray,
     mats: list[np.ndarray],

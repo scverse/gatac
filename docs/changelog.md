@@ -1,9 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — *unreleased*
+
+First public version of GATAC. Added lists what it provides; Changed and
+Fixed, the changes made while it was developed, before this first release.
 
 ### Added
 
+- `gatac[bigwig]` extra, for `FootprintResult.to_bigwig` (pyBigWig).
 - Extensions: packages that declare a `gatac.ext` entry point are reached as
   `gatac.<name>` (imported on first use, listed by `gatac.extensions()`), and
   a `gatac.cli` entry point adds their commands to `gatac`. The new
@@ -131,6 +135,37 @@
 
 ### Changed
 
+- The submodules (`gatac.pp`, `gatac.io`, ...) are imported on first use:
+  `import gatac` takes milliseconds instead of seconds, and `gatac --help` /
+  `--version` work without RAPIDS. Without RAPIDS, the error naming the CUDA
+  extras comes from the first submodule used instead of `import gatac`.
+- The default `exclude_chroms` of the tile and metrics functions and
+  `bg_columns` of `motif.sample_bg_peaks` are tuples instead of lists shared
+  between calls; the return type hints of the gene matrices and the
+  `AnnData` hints of the peak functions resolve (`typing.get_type_hints`,
+  the API docs).
+- CLI errors: every command reports an error the same way, as one line and
+  exit status 1, and `gatac -v` adds its traceback (several commands caught
+  every exception and only logged its message, even with `-v`). `gatac
+  --version` prints the version.
+- `import gatac` no longer sets `TQDM_DISABLE` for the whole process, which
+  turned off the progress bars of every library, in notebooks too. GATAC
+  decides for its own bars when it shows one: in a terminal or a Jupyter
+  kernel, not in logs (e.g. Snakemake), and never with `TQDM_DISABLE` set.
+- GATAC's logger propagates to the root logger: its INFO messages are still
+  shown by default, but once the application configures logging (e.g.
+  `logging.basicConfig`) they go through its handlers only, and pytest's
+  `caplog` sees them. `set_verbosity` sets the level as before.
+- Packaging for PyPI: the version comes from the git tag (hatch-vcs); the
+  `cuda12` / `cuda13` extras require RAPIDS `>=26.02` instead of pinning
+  `26.02.*`, and CuPy `>=14` directly; the libraries GATAC imports itself
+  (NumPy, pandas, SciPy, AnnData, Matplotlib, seaborn, Numba, h5py,
+  scikit-learn) are declared instead of coming only through scanpy; the sdist
+  holds only the package and its tests. `import gatac` without RAPIDS says
+  which extra to install.
+- Removed `pp.tile.create_tile_matrix_gpu`, an older tile-matrix builder that
+  `make_tile_matrix` no longer called and `gatac.pp` did not export, and four
+  unused private helpers.
 - `filter_fragments` runs on the GPU: cells are matched by barcode id instead
   of by name, and the kept fragments are read, renumbered, encoded and
   ZSTD-compressed by cuDF into the same file layout. Several files are
@@ -213,7 +248,7 @@
   format, like every other reader.
 - Every function that takes `metrics` (`make_tile_matrix`, `make_gene_matrix`,
   `make_gene_score_matrix`, `filter_fragments`, `pl.qc_metrics`) accepts the
-  same inputs: a CSV path, or a pandas, cuDF or Polars DataFrame. A metrics
+  same inputs: a CSV path, or a pandas or cuDF DataFrame. A metrics
   path that does not exist raises `FileNotFoundError`; `make_tile_matrix`,
   `make_gene_matrix` and `make_gene_score_matrix` used to warn and keep every
   barcode, skipping `filter_query`.
@@ -222,7 +257,8 @@
   DuckDB reader for `compute_metrics`, `make_gene_matrix` and
   `make_gene_score_matrix`: as fast as Polars on GENCODE v44 (1.7 s) with
   0.5 GB of host memory instead of 5.1 GB. `compute_metrics(tss_source=)`
-  takes a pandas DataFrame (cuDF and Polars ones are converted).
+  takes a pandas DataFrame (a cuDF one is converted). Polars DataFrames are
+  no longer accepted as `metrics` or `tss_source`: convert with `.to_pandas()`.
 - Tied rows now keep a defined order where Polars left an arbitrary one:
   annotation rows keep the file order, and `peak.markers` lists features with
   equal FDR and |log2FC| in `var` order. On PBMC 5k this moves at most 2 of
@@ -288,6 +324,41 @@
 
 ### Fixed
 
+- `pp.combine` / `gatac combine` stacked the files' columns by position and
+  only checked their number, so files whose features were in another order,
+  or other features of the same count, were combined into wrong counts
+  without an error. Every file must now have the same features in the same
+  order, checked before anything is written. `pp.combine` is now built on the
+  streaming writer of the multi-file matrices: one file is held at a time,
+  the `barcode` column of `obs` is kept, and `source_file` is categorical.
+- `make_parquet` / `gatac convert` skipped the lines it could not read
+  (another number of fields, a field that is not a number, an empty field)
+  without saying so. Such a line is now an error naming it, and
+  `skip_invalid=True` / `--skip-invalid` skips them and logs how many. File
+  names with a quote (`patient's.tsv.gz`) failed with a SQL error; the paths
+  are now bound parameters or quoted.
+- `make_parquet_batch` / `gatac convert` with several files forked its
+  workers from a multi-threaded process, which can deadlock; they are now
+  spawned.
+- An `.h5ad` output (`pp.combine`, `build_tile_matrix`, the multi-file tile
+  and gene matrices, and every other `output_path`) is written next to the
+  target and moved onto it once complete: an error midway, e.g. on a file of
+  other features, no longer truncates an existing output or leaves a partial
+  file.
+- RAPIDS 26.10: `filter_fragments` used `Series.values_host` and
+  `read_fragments_parquet` a private cuDF constructor, both removed (now
+  `to_numpy()` and `CategoricalIndex.from_codes`); and KvikIO 26.10's direct-I/O
+  file writes, which cuDF's `to_csv` / `to_parquet` use, fail with an illegal
+  memory access on some systems (WSL2), so `import gatac` defaults
+  `KVIKIO_AUTO_DIRECT_IO_WRITE` to `OFF`.
+- `pl.qc_metrics` returned `None` instead of the figure.
+- `gatac doublets` without `-o` failed instead of writing
+  `<input>_doublets.csv`, and `gatac doublets` / `gatac filter` took a genome
+  name only, although `-g` was documented to accept a chromosome sizes file as
+  for `gatac tile`.
+- `dr.lsi(chunk_size=...)` and the streamed `dr.spectral` failed under CuPy
+  14.2 with "index pointer should start with 0": each chunk's CSR matrix was
+  built before its copy to the GPU had finished.
 - `peak.call` and `peak.make_matrix` given a directory found none of the
   files of a tile matrix built from several fragment files, whose
   `source_file` holds the Parquet file name: they looked for
@@ -366,9 +437,3 @@
 - FDR computation no longer upcasts the whole null distribution once per feature
   set, which dominated runtime for large feature-set collections (37s of a 38s
   run at 5000 sets). Results are bit-identical.
-
----
-
-## 0.1.0 — *initial release*
-
-First public version of GATAC.

@@ -10,6 +10,7 @@ pytest.importorskip("cupy")
 pytest.importorskip("cudf")
 
 import anndata as ad  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
 
 import gatac as ga  # noqa: E402
 
@@ -65,7 +66,7 @@ def inputs(tmp_path_factory):
     # Two groups of cells: fragments in and around the peaks, the rest spread over the genome
     cells = {g: [f"{g}{i:03d}-1" for i in range(40)] for g in ("a", "b")}
     rows = []
-    for g, bcs in cells.items():
+    for bcs in cells.values():
         for _ in range(60_000):
             if rng.random() < 0.6:
                 p = peaks.iloc[rng.integers(len(peaks))]
@@ -141,8 +142,13 @@ def test_load_cuts_matches_unique_rows(tmp_path, deduplicate, read_length):
             assert fwd.dtype == np.int64 and rev.dtype == np.int64
 
 
-def test_bindetect_site_table_and_log2fc(inputs):
-    res = ga.tobias.bindetect(inputs["tracks"], inputs["meme"], verbose=False)
+@pytest.fixture(scope="module")
+def bindetect_res(inputs):
+    return ga.tobias.bindetect(inputs["tracks"], inputs["meme"], verbose=False)
+
+
+def test_bindetect_site_table_and_log2fc(bindetect_res):
+    res = bindetect_res
     assert res.comparisons == [("a", "b")]
     assert len(res.results) == len(MOTIFS) and len(res.sites) > 0
     cols = list(res.sites.columns)
@@ -161,11 +167,28 @@ def test_bindetect_site_table_and_log2fc(inputs):
         res.site_log2fc("a", "c")
 
 
-def test_bindetect_results_do_not_depend_on_return_sites(inputs):
+def test_bindetect_results_do_not_depend_on_return_sites(inputs, bindetect_res):
+    """Precomputed sites without the site table give the results of a run from the motif file."""
     sites = ga.tobias.bindetect_sites(inputs["tracks"], inputs["meme"], verbose=False)
-    full = ga.tobias.bindetect(inputs["tracks"], sites=sites, verbose=False)
     lean = ga.tobias.bindetect(inputs["tracks"], sites=sites, return_sites=False, verbose=False)
     assert lean.sites is None
-    pd.testing.assert_frame_equal(full.results, lean.results, check_exact=True)
+    pd.testing.assert_frame_equal(bindetect_res.results, lean.results, check_exact=True)
     with pytest.raises(ValueError):
         lean.site_log2fc("a", "b")
+
+
+def test_plots(inputs, bindetect_res):
+    ax = ga.pl.bindetect_volcano(bindetect_res)
+    assert len(ax.collections) == 3  # not highlighted, up, down
+    ax = ga.pl.footprint_aggregate(inputs["tracks"], bindetect_res, "AP1")
+    assert [line.get_label() for line in ax.get_lines()][:2] == ["a", "b"]
+    plt.close("all")
+
+
+def test_merge_quirk():
+    from gatac.tobias.footprint import _merge
+
+    iv = np.array([[0, 100], [10, 50], [40, 60], [200, 300]])
+    # TOBIAS: the fused end is the current end, so [10, 50] shortens [0, 100]
+    assert _merge(iv, tobias_compat=True).tolist() == [[0, 60], [200, 300]]
+    assert _merge(iv, tobias_compat=False).tolist() == [[0, 100], [200, 300]]
