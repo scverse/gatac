@@ -2,17 +2,20 @@ from .._rapids import require as _require_rapids
 
 _require_rapids()
 
-from .process import combine
-from .tile import make_tile_matrix
-from .tile_scan import scan_tiles, build_tile_matrix
+from ._utils import cleanup_gpu_memory
+from .amulet import detect_doublets
+from .features import select_features
+from .filter import filter_fragments
 from .gene import make_gene_matrix
 from .genescore import make_gene_score_matrix
-from .features import select_features
+from .genome import HG19 as _HG19
+from .genome import HG38 as _HG38
+from .genome import MM10 as _MM10
+from .genome import MM39 as _MM39
 from .metrics import compute_metrics
-from .filter import filter_fragments
-from .amulet import detect_doublets
-from ._utils import cleanup_gpu_memory
-from .genome import HG38 as _HG38, HG19 as _HG19, MM10 as _MM10, MM39 as _MM39
+from .process import combine
+from .tile import make_tile_matrix
+from .tile_scan import build_tile_matrix, scan_tiles
 
 #: GRCh38 / hg38 chromosome sizes.
 HG38 = _HG38

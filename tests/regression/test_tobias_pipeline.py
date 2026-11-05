@@ -179,7 +179,7 @@ def test_bindetect_results_do_not_depend_on_return_sites(inputs, bindetect_res):
 
 def test_plots(inputs, bindetect_res):
     ax = ga.pl.bindetect_volcano(bindetect_res)
-    assert len(ax.collections) == 3                          # not highlighted, up, down
+    assert len(ax.collections) == 3  # not highlighted, up, down
     ax = ga.pl.footprint_aggregate(inputs["tracks"], bindetect_res, "AP1")
     assert [line.get_label() for line in ax.get_lines()][:2] == ["a", "b"]
     plt.close("all")
@@ -187,6 +187,7 @@ def test_plots(inputs, bindetect_res):
 
 def test_merge_quirk():
     from gatac.tobias.footprint import _merge
+
     iv = np.array([[0, 100], [10, 50], [40, 60], [200, 300]])
     # TOBIAS: the fused end is the current end, so [10, 50] shortens [0, 100]
     assert _merge(iv, tobias_compat=True).tolist() == [[0, 60], [200, 300]]

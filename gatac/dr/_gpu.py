@@ -103,9 +103,7 @@ def _to_gpu_csr(X) -> cusp.csr_matrix:
         if X.dtype == cp.float32:
             return X
         # Convert only the data array; share indices/indptr
-        return cusp.csr_matrix(
-            (X.data.astype(cp.float32), X.indices, X.indptr), shape=X.shape
-        )
+        return cusp.csr_matrix((X.data.astype(cp.float32), X.indices, X.indptr), shape=X.shape)
     if isinstance(X, cusp.spmatrix):
         return _to_gpu_csr(X.tocsr())
     if sp.issparse(X):
@@ -115,11 +113,7 @@ def _to_gpu_csr(X) -> cusp.csr_matrix:
         # Build a scipy CSR with float32 data sharing index arrays — avoids a
         # full-matrix float conversion on the CPU before the GPU upload.
         data_f32 = X_csr.data.astype(np.float32)
-        return cusp.csr_matrix(
-            sp.csr_matrix(
-                (data_f32, X_csr.indices, X_csr.indptr), shape=X_csr.shape
-            )
-        )
+        return cusp.csr_matrix(sp.csr_matrix((data_f32, X_csr.indices, X_csr.indptr), shape=X_csr.shape))
     raise TypeError(f"Unsupported matrix type: {type(X)}")
 
 
@@ -147,15 +141,15 @@ class _PinnedChunk:
     __slots__ = ("data", "indices", "indptr", "shape", "row_start", "row_end", "_pins")
 
     def __init__(self, csr: sp.csr_matrix, row_start: int, row_end: int) -> None:
-        self.shape     = csr.shape
+        self.shape = csr.shape
         self.row_start = row_start
-        self.row_end   = row_end
+        self.row_end = row_end
         self._pins: list = []
 
         for name, src in (
-            ("data",    csr.data.astype(np.float32, copy=False)),
-            ("indices", csr.indices.astype(np.int32,   copy=False)),
-            ("indptr",  csr.indptr.astype(np.int32,    copy=False)),
+            ("data", csr.data.astype(np.float32, copy=False)),
+            ("indices", csr.indices.astype(np.int32, copy=False)),
+            ("indptr", csr.indptr.astype(np.int32, copy=False)),
         ):
             # PinnedMemory → cudaMallocHost (no pool cap).
             # PinnedMemoryPointer exposes the buffer protocol for np.frombuffer.
@@ -208,9 +202,7 @@ class ChunkedMatrix:
     def __init__(self, X: sp.csr_matrix, chunk_size: int) -> None:
         X = X.tocsr()
         if X.dtype != np.float32:
-            X = sp.csr_matrix(
-                (X.data.astype(np.float32), X.indices, X.indptr), shape=X.shape
-            )
+            X = sp.csr_matrix((X.data.astype(np.float32), X.indices, X.indptr), shape=X.shape)
         self.shape = X.shape
         self.dtype = cp.float32
         n_rows = X.shape[0]
@@ -219,10 +211,7 @@ class ChunkedMatrix:
         for start in range(0, n_rows, chunk_size):
             end = min(start + chunk_size, n_rows)
             self.chunks.append(_PinnedChunk(X[start:end], start, end))
-        logger.info(
-            f"ChunkedMatrix: {n_rows:,} rows in {len(self.chunks)} pinned "
-            f"chunks of <= {chunk_size:,}"
-        )
+        logger.info(f"ChunkedMatrix: {n_rows:,} rows in {len(self.chunks)} pinned chunks of <= {chunk_size:,}")
         self._stream = cp.cuda.Stream(non_blocking=True)
 
     # -- internals ---------------------------------------------------------
@@ -315,9 +304,7 @@ class ChunkedMatrix:
             return y.reshape(-1, 1) if len(shp) == 2 else y
 
         n = self.shape[0]
-        return cusla.LinearOperator(
-            shape=(n, n), matvec=matvec, dtype=cp.float32
-        )
+        return cusla.LinearOperator(shape=(n, n), matvec=matvec, dtype=cp.float32)
 
 
 def chunked_operator(

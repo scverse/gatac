@@ -12,7 +12,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import cupy as cp
 import numpy as np
@@ -45,7 +45,7 @@ def _ordered_unique_regions(region_groups: list[list[str]]) -> list[str]:
 
 def _fetch_region_sequences(
     regions: list[str],
-    genome_fasta: Union[str, Path],
+    genome_fasta: str | Path,
 ) -> list[str]:
     """Fetch region sequences from a FASTA file."""
     logger.info(f"Fetching {len(regions)} sequences...")
@@ -71,7 +71,7 @@ def _compute_gc_content_from_sequences(sequences: list[str]) -> np.ndarray:
 
 def _compute_region_gc_content(
     regions: list[str],
-    genome_fasta: Union[str, Path],
+    genome_fasta: str | Path,
 ) -> np.ndarray:
     """Compute GC fraction for a list of genomic regions."""
     sequences = _fetch_region_sequences(regions, genome_fasta)
@@ -100,7 +100,7 @@ def _compute_bg_probs_from_sequences(
 
 
 def _resolve_bg_probs(
-    bg_probs: Union[str, tuple[float, float, float, float]],
+    bg_probs: str | tuple[float, float, float, float],
     sequences: list[str],
 ) -> tuple[float, float, float, float]:
     """Resolve string background modes to explicit nucleotide probabilities."""
@@ -115,16 +115,10 @@ def _resolve_bg_probs(
             return resolved
         if bg_probs == "even":
             return (0.25, 0.25, 0.25, 0.25)
-        raise ValueError(
-            f"Unknown bg mode: {bg_probs}. "
-            "Use 'auto', 'subject', 'even', or a tuple of 4 floats."
-        )
+        raise ValueError(f"Unknown bg mode: {bg_probs}. Use 'auto', 'subject', 'even', or a tuple of 4 floats.")
 
     if len(bg_probs) != 4:
-        raise ValueError(
-            "Background nucleotide probabilities must contain exactly 4 values "
-            "for (A, C, G, T)."
-        )
+        raise ValueError("Background nucleotide probabilities must contain exactly 4 values for (A, C, G, T).")
 
     probs = tuple(float(x) for x in bg_probs)
     total = sum(probs)
@@ -132,7 +126,6 @@ def _resolve_bg_probs(
         raise ValueError("Background nucleotide probabilities must sum to a positive value.")
 
     return tuple(x / total for x in probs)
-
 
 
 # =============================================================================
@@ -143,7 +136,7 @@ def _resolve_bg_probs(
 class DNAMotif:
     """
     DNA motif represented as a position weight matrix (PWM).
-    
+
     Attributes
     ----------
     id : str
@@ -170,18 +163,18 @@ class DNAMotif:
     4
     >>> motif.info_content()  # total bits of information
     """
-    
+
     def __init__(
         self,
         id: str,
         pwm: np.ndarray,
-        name: Optional[str] = None,
-        family: Optional[str] = None,
-        pfm: Optional[np.ndarray] = None,
+        name: str | None = None,
+        family: str | None = None,
+        pfm: np.ndarray | None = None,
     ):
         """
         Initialize a DNAMotif.
-        
+
         Parameters
         ----------
         id : str
@@ -201,34 +194,32 @@ class DNAMotif:
         self.id = id
         self.name = name
         self.family = family
-        
+
         # Ensure PWM is 2D with shape (length, 4)
         pwm = np.asarray(pwm, dtype=np.float64)
         if pwm.ndim != 2 or pwm.shape[1] != 4:
             raise ValueError(f"PWM must have shape (length, 4), got {pwm.shape}")
-        
+
         # Add pseudocount to avoid log(0)
         pwm = np.clip(pwm, 1e-10, 1.0)
         # Normalize rows to sum to 1
         pwm = pwm / pwm.sum(axis=1, keepdims=True)
         self.pwm = pwm
-        
+
         # Store raw count matrix for MOODS-compatible pseudocount handling
         if pfm is not None:
             pfm = np.asarray(pfm, dtype=np.float64)
             if pfm.shape != self.pwm.shape:
-                raise ValueError(
-                    f"PFM shape {pfm.shape} must match PWM shape {self.pwm.shape}"
-                )
+                raise ValueError(f"PFM shape {pfm.shape} must match PWM shape {self.pwm.shape}")
         self.pfm = pfm
-    
+
     def __repr__(self) -> str:
         name_str = f", name={self.name}" if self.name else ""
         return f"DNAMotif(id={self.id}{name_str}, length={len(self)})"
-    
+
     def __len__(self) -> int:
         return self.pwm.shape[0]
-    
+
     def info_content(self) -> float:
         """Compute total information content of the motif in bits."""
         ic = 0.0
@@ -236,16 +227,16 @@ class DNAMotif:
             entropy = -np.sum(row * np.log2(row + 1e-10))
             ic += 2.0 - entropy
         return ic
-    
+
     def to_log_odds(
-        self, 
+        self,
         bg_probs: tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25),
         mode: Literal["gatac", "motifmatchr", "snapatac2"] = "gatac",
         pseudocount: float = 0.8,
     ) -> np.ndarray:
         """
         Convert PWM to log-odds scores.
-        
+
         Parameters
         ----------
         bg_probs : tuple
@@ -262,14 +253,14 @@ class DNAMotif:
             Pseudocount multiplier used in motifmatchr mode when raw counts
             (``self.pfm``) are available.  Ignored for probability-only motifs
             (e.g. from MEME files where the pseudocount is already baked in).
-            
+
         Returns
         -------
         np.ndarray
             Log-odds matrix of shape (length, 4)
         """
         bg = np.array(bg_probs, dtype=np.float64)
-        
+
         if mode == "motifmatchr":
             if self.pfm is not None:
                 # MOODS-compatible log-odds from raw counts with pseudocount.
@@ -280,7 +271,7 @@ class DNAMotif:
             else:
                 # PPM input (e.g. MEME): pseudocount already baked in
                 prob = self.pwm
-            
+
             even = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float64)
             log_odds = np.log2(prob / even)
             adj = np.log2(bg) - np.log2(even)
@@ -295,11 +286,11 @@ class DNAMotif:
         else:
             # Original GATAC mode: simple natural log-odds
             return np.log(self.pwm / bg)
-    
-    def reverse_complement(self) -> "DNAMotif":
+
+    def reverse_complement(self) -> DNAMotif:
         """
         Return reverse complement of this motif.
-        
+
         Returns
         -------
         DNAMotif
@@ -322,7 +313,7 @@ class DNAMotif:
 # =============================================================================
 
 
-def read(filename: Union[str, Path], unique: bool = True) -> list[DNAMotif]:
+def read(filename: str | Path, unique: bool = True) -> list[DNAMotif]:
     """
     Read motifs from a MEME format file.
 
@@ -349,15 +340,15 @@ def read(filename: Union[str, Path], unique: bool = True) -> list[DNAMotif]:
     """
 
     path = Path(filename)
-    with open(path, 'r') as f:
+    with open(path) as f:
         content = f.read()
-    
+
     motifs = parse_meme(content)
-    
+
     # Extract TF name from motif ID (format: TF_NAME+MOTIF_ID+D)
     for motif in motifs:
-        motif.name = motif.id.split('+')[0]
-    
+        motif.name = motif.id.split("+")[0]
+
     if unique:
         # Keep only motif with highest information content per TF name
         unique_motifs = {}
@@ -366,7 +357,7 @@ def read(filename: Union[str, Path], unique: bool = True) -> list[DNAMotif]:
             if name not in unique_motifs or unique_motifs[name].info_content() < motif.info_content():
                 unique_motifs[name] = motif
         motifs = list(unique_motifs.values())
-    
+
     return motifs
 
 
@@ -393,21 +384,21 @@ def parse_meme(content: str) -> list[DNAMotif]:
     """
 
     motifs = []
-    
+
     # Split by MOTIF keyword
     parts = content.split("MOTIF")
-    
+
     for part in parts[1:]:  # Skip header before first MOTIF
         lines = part.strip().split("\n")
         if not lines:
             continue
-        
+
         # First line contains motif ID (and optionally name)
         id_line = lines[0].strip()
         id_parts = id_line.split()
         motif_id = id_parts[0] if id_parts else "unknown"
         motif_name = id_parts[1] if len(id_parts) > 1 else None
-        
+
         # Find the letter-probability matrix line
         pwm_start = None
         motif_length = None
@@ -416,22 +407,23 @@ def parse_meme(content: str) -> list[DNAMotif]:
                 # Parse w= parameter for motif length
                 # Handle formats like "w=10" or "w= 10"
                 import re
-                w_match = re.search(r'w\s*=\s*(\d+)', line)
+
+                w_match = re.search(r"w\s*=\s*(\d+)", line)
                 if w_match:
                     motif_length = int(w_match.group(1))
                 pwm_start = i + 1
                 break
-        
+
         if pwm_start is None:
             continue
-        
+
         # Parse PWM rows
         pwm_rows = []
         for i in range(pwm_start, len(lines)):
             line = lines[i].strip()
             if not line or line.startswith("URL") or line.startswith("MOTIF"):
                 break
-            
+
             values = line.split()
             if len(values) >= 4:
                 try:
@@ -439,14 +431,14 @@ def parse_meme(content: str) -> list[DNAMotif]:
                     pwm_rows.append(row)
                 except ValueError:
                     break
-            
+
             if motif_length and len(pwm_rows) >= motif_length:
                 break
-        
+
         if pwm_rows:
             pwm = np.array(pwm_rows, dtype=np.float64)
             motifs.append(DNAMotif(id=motif_id, pwm=pwm, name=motif_name))
-    
+
     return motifs
 
 
@@ -457,31 +449,31 @@ def parse_meme(content: str) -> list[DNAMotif]:
 
 # Nucleotide to integer mapping: A=0, C=1, G=2, T=3, other=-1
 _NUC_TO_INT = np.full(256, -1, dtype=np.int8)
-_NUC_TO_INT[ord('A')] = 0
-_NUC_TO_INT[ord('a')] = 0
-_NUC_TO_INT[ord('C')] = 1
-_NUC_TO_INT[ord('c')] = 1
-_NUC_TO_INT[ord('G')] = 2
-_NUC_TO_INT[ord('g')] = 2
-_NUC_TO_INT[ord('T')] = 3
-_NUC_TO_INT[ord('t')] = 3
+_NUC_TO_INT[ord("A")] = 0
+_NUC_TO_INT[ord("a")] = 0
+_NUC_TO_INT[ord("C")] = 1
+_NUC_TO_INT[ord("c")] = 1
+_NUC_TO_INT[ord("G")] = 2
+_NUC_TO_INT[ord("g")] = 2
+_NUC_TO_INT[ord("T")] = 3
+_NUC_TO_INT[ord("t")] = 3
 
 
 def _encode_sequence(seq: str) -> np.ndarray:
     """Encode a DNA sequence to integer array."""
-    seq_bytes = np.frombuffer(seq.encode('ascii'), dtype=np.uint8)
+    seq_bytes = np.frombuffer(seq.encode("ascii"), dtype=np.uint8)
     return _NUC_TO_INT[seq_bytes]
 
 
 def _encode_sequences_batch(sequences: list[str]) -> tuple[cp.ndarray, cp.ndarray]:
     """
     Batch encode DNA sequences for GPU processing.
-    
+
     Parameters
     ----------
     sequences : list[str]
         List of DNA sequences
-        
+
     Returns
     -------
     tuple[cp.ndarray, cp.ndarray]
@@ -490,28 +482,28 @@ def _encode_sequences_batch(sequences: list[str]) -> tuple[cp.ndarray, cp.ndarra
     """
     if not sequences:
         return cp.zeros((0, 0), dtype=cp.int8), cp.zeros(0, dtype=cp.int32)
-    
+
     lengths = np.array([len(s) for s in sequences], dtype=np.int32)
     max_len = lengths.max()
     n_seqs = len(sequences)
-    
+
     # Create padded array on CPU
     encoded = np.full((n_seqs, max_len), -1, dtype=np.int8)
     for i, seq in enumerate(sequences):
-        encoded[i, :len(seq)] = _encode_sequence(seq)
-    
+        encoded[i, : len(seq)] = _encode_sequence(seq)
+
     return cp.asarray(encoded), cp.asarray(lengths)
 
 
 def _reverse_complement_encoded(encoded: cp.ndarray) -> cp.ndarray:
     """
     Compute reverse complement of encoded sequences.
-    
+
     Parameters
     ----------
     encoded : cp.ndarray
         Encoded sequences with A=0, C=1, G=2, T=3, N=-1
-        
+
     Returns
     -------
     cp.ndarray
@@ -539,16 +531,16 @@ def _compute_score_threshold_jit(
 ) -> float:
     """
     Numba JIT-compiled score threshold computation.
-    
+
     This is the performance-critical inner function that uses dynamic programming
     to compute the score distribution and find the threshold for a given p-value.
     """
     motif_len = pwm_log_odds.shape[0]
-    
+
     # Compute score range
     min_scores = np.empty(motif_len, dtype=np.float64)
     max_scores = np.empty(motif_len, dtype=np.float64)
-    
+
     for i in range(motif_len):
         min_val = pwm_log_odds[i, 0]
         max_val = pwm_log_odds[i, 0]
@@ -559,36 +551,36 @@ def _compute_score_threshold_jit(
                 max_val = pwm_log_odds[i, j]
         min_scores[i] = min_val
         max_scores[i] = max_val
-    
+
     total_min = 0.0
     total_max = 0.0
     for i in range(motif_len):
         total_min += min_scores[i]
         total_max += max_scores[i]
-    
+
     if total_min >= total_max:
         return 0.0
-    
+
     # Create score bins
     num_bins_float = (total_max - total_min) / precision
     num_bins = int(num_bins_float + 0.999999)  # ceil
     if num_bins > 100000:
         num_bins = 100000
     step = (total_max - total_min) / num_bins
-    
+
     # Initialize probability distribution
     accum = np.zeros(num_bins + 1, dtype=np.float64)
     accum[0] = 1.0
     new_accum = np.zeros(num_bins + 1, dtype=np.float64)
-    
+
     # Process each position
     for pos in range(motif_len):
         # Reset new_accum
         for i in range(num_bins + 1):
             new_accum[i] = 0.0
-        
+
         pos_min = min_scores[pos]
-        
+
         # For each nucleotide
         for j in range(4):
             score_diff = pwm_log_odds[pos, j] - pos_min
@@ -597,9 +589,9 @@ def _compute_score_threshold_jit(
                 shift = 0
             elif shift > num_bins:
                 shift = num_bins
-            
+
             weight = bg[j]
-            
+
             if shift == 0:
                 for i in range(num_bins + 1):
                     new_accum[i] += accum[i] * weight
@@ -607,10 +599,10 @@ def _compute_score_threshold_jit(
                 # Shift probabilities
                 for i in range(shift, num_bins + 1):
                     new_accum[i] += accum[i - shift] * weight
-        
+
         # Swap accumulators
         accum, new_accum = new_accum, accum
-    
+
     # Compute min_delta: smallest gap between max and second-max log-odds
     # at any position (used by MOODS when P(max_score) > pvalue)
     min_delta = np.inf
@@ -660,7 +652,7 @@ def _compute_score_threshold(
 ) -> float:
     """
     Compute score threshold for given p-value using optimized JIT DP.
-    
+
     Parameters
     ----------
     pwm_log_odds : np.ndarray
@@ -671,7 +663,7 @@ def _compute_score_threshold(
         Desired p-value threshold
     precision : float
         Precision for score binning (larger = faster but less accurate)
-        
+
     Returns
     -------
     float
@@ -757,16 +749,16 @@ def _scan_motifs_batch_gpu(
     seq_lengths: cp.ndarray,
     pwm_list: list[np.ndarray],
     thresholds: np.ndarray,
-    rc_seqs: Optional[cp.ndarray] = None,
+    rc_seqs: cp.ndarray | None = None,
     motif_batch_size: int = 32,
     show_progress: bool = True,
 ) -> np.ndarray:
     """
     Batch scan multiple motifs on GPU for improved throughput.
-    
+
     Groups motifs by length and processes them together to minimize
     memory allocations and maximize GPU utilization.
-    
+
     Parameters
     ----------
     encoded_seqs : cp.ndarray
@@ -783,20 +775,20 @@ def _scan_motifs_batch_gpu(
         Number of motifs to process together per length group
     show_progress : bool
         Whether to show progress bar
-        
+
     Returns
     -------
     np.ndarray
         Boolean array of shape (n_motifs, n_seqs) indicating motif presence
     """
     from .._progress import tqdm
-    
+
     n_seqs, max_len = encoded_seqs.shape
     n_motifs = len(pwm_list)
-    
+
     # Pre-allocate result array
     all_bound = np.zeros((n_motifs, n_seqs), dtype=np.bool_)
-    
+
     # Group motifs by length for efficient batch processing
     length_to_motifs = {}
     for i, pwm in enumerate(pwm_list):
@@ -804,34 +796,34 @@ def _scan_motifs_batch_gpu(
         if motif_len not in length_to_motifs:
             length_to_motifs[motif_len] = []
         length_to_motifs[motif_len].append(i)
-    
+
     # Create progress bar for motif processing
     pbar = tqdm(total=n_motifs, desc="Motifs", disable=not show_progress)
-    
+
     # Process each length group
     for motif_len, motif_indices in length_to_motifs.items():
         if max_len < motif_len:
             pbar.update(len(motif_indices))
             continue
-        
+
         n_positions = max_len - motif_len + 1
-        
+
         # Precompute position indices and length mask for this motif length
         position_indices = cp.arange(n_positions, dtype=cp.int32)[None, :]
         seq_len_mask = (position_indices + motif_len) <= seq_lengths[:, None]
-        
+
         # Precompute valid nucleotide masks and safe nucleotide slices for forward strand
         fw_valid_mask = cp.ones((n_seqs, n_positions), dtype=cp.bool_)
         fw_nucs_safe_list = []
         for pos_in_motif in range(motif_len):
-            nucs = encoded_seqs[:, pos_in_motif:pos_in_motif + n_positions]
-            fw_valid_mask &= (nucs >= 0)
+            nucs = encoded_seqs[:, pos_in_motif : pos_in_motif + n_positions]
+            fw_valid_mask &= nucs >= 0
             fw_nucs_safe_list.append(cp.clip(nucs, 0, 3))
-        
+
         # Combine masks once
         fw_combined_mask = fw_valid_mask & seq_len_mask
         del fw_valid_mask
-        
+
         # Precompute for reverse complement
         rc_nucs_safe_list = None
         rc_combined_mask = None
@@ -839,27 +831,27 @@ def _scan_motifs_batch_gpu(
             rc_valid_mask = cp.ones((n_seqs, n_positions), dtype=cp.bool_)
             rc_nucs_safe_list = []
             for pos_in_motif in range(motif_len):
-                nucs = rc_seqs[:, pos_in_motif:pos_in_motif + n_positions]
-                rc_valid_mask &= (nucs >= 0)
+                nucs = rc_seqs[:, pos_in_motif : pos_in_motif + n_positions]
+                rc_valid_mask &= nucs >= 0
                 rc_nucs_safe_list.append(cp.clip(nucs, 0, 3))
             rc_combined_mask = rc_valid_mask & seq_len_mask
             del rc_valid_mask
-        
+
         # Process motifs in batches within this length group
         for batch_start in range(0, len(motif_indices), motif_batch_size):
             batch_end = min(batch_start + motif_batch_size, len(motif_indices))
             batch_motif_indices = motif_indices[batch_start:batch_end]
             batch_size = len(batch_motif_indices)
-            
+
             # Stack PWMs for this batch - shape: (batch_size, motif_len, 4)
             batch_pwms = np.stack([pwm_list[i] for i in batch_motif_indices])
             batch_pwms_gpu = cp.asarray(batch_pwms, dtype=cp.float32)
             batch_thresholds = cp.asarray(thresholds[batch_motif_indices], dtype=cp.float32)
-            
+
             # Forward scan - compute scores for all motifs in batch
             # Shape: (batch_size, n_seqs, n_positions)
             fw_scores = cp.zeros((batch_size, n_seqs, n_positions), dtype=cp.float32)
-            
+
             for pos_in_motif in range(motif_len):
                 nucs_safe = fw_nucs_safe_list[pos_in_motif]
                 # batch_pwms_gpu[:, pos_in_motif, :] has shape (batch_size, 4)
@@ -867,48 +859,47 @@ def _scan_motifs_batch_gpu(
                 # Use advanced indexing for vectorized lookup
                 pos_scores = batch_pwms_gpu[:, pos_in_motif, :][:, nucs_safe]
                 fw_scores += pos_scores
-            
+
             # Apply masks
             fw_scores = cp.where(fw_combined_mask[None, :, :], fw_scores, -cp.inf)
-            
+
             # Check threshold - shape: (batch_size, n_seqs)
             fw_match = (fw_scores >= batch_thresholds[:, None, None]).any(axis=2)
-            
+
             if rc_seqs is not None:
                 # Reverse complement scan
                 rc_scores = cp.zeros((batch_size, n_seqs, n_positions), dtype=cp.float32)
-                
+
                 for pos_in_motif in range(motif_len):
                     nucs_safe = rc_nucs_safe_list[pos_in_motif]
                     pos_scores = batch_pwms_gpu[:, pos_in_motif, :][:, nucs_safe]
                     rc_scores += pos_scores
-                
+
                 rc_scores = cp.where(rc_combined_mask[None, :, :], rc_scores, -cp.inf)
                 rc_match = (rc_scores >= batch_thresholds[:, None, None]).any(axis=2)
-                
+
                 batch_bound = fw_match | rc_match
                 del rc_scores, rc_match
             else:
                 batch_bound = fw_match
-            
+
             # Transfer batch results to CPU
             batch_bound_cpu = cp.asnumpy(batch_bound)
             for local_idx, global_idx in enumerate(batch_motif_indices):
                 all_bound[global_idx] = batch_bound_cpu[local_idx]
-            
+
             # Update progress bar
             pbar.update(batch_size)
-            
+
             del batch_pwms_gpu, fw_scores, fw_match, batch_bound
-        
+
         # Free memory after processing this length group
         del fw_nucs_safe_list, fw_combined_mask
         if rc_nucs_safe_list is not None:
             del rc_nucs_safe_list, rc_combined_mask
-    
+
     pbar.close()
     return all_bound
-
 
 
 # =============================================================================
@@ -919,12 +910,12 @@ def _scan_motifs_batch_gpu(
 def _p_adjust_bh(p_values: np.ndarray) -> np.ndarray:
     """
     Benjamini-Hochberg p-value correction for multiple testing.
-    
+
     Parameters
     ----------
     p_values : np.ndarray
         Array of p-values
-        
+
     Returns
     -------
     np.ndarray
@@ -933,19 +924,19 @@ def _p_adjust_bh(p_values: np.ndarray) -> np.ndarray:
     n = len(p_values)
     if n == 0:
         return p_values.copy()
-    
+
     # Sort p-values
     sorted_idx = np.argsort(p_values)
     sorted_p = p_values[sorted_idx]
-    
+
     # Compute BH adjusted values
     rank = np.arange(1, n + 1)
     adjusted = sorted_p * n / rank
-    
+
     # Ensure monotonicity (cumulative minimum from right)
     adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
     adjusted = np.clip(adjusted, 0, 1)
-    
+
     # Restore original order
     result = np.empty(n)
     result[sorted_idx] = adjusted
@@ -954,8 +945,8 @@ def _p_adjust_bh(p_values: np.ndarray) -> np.ndarray:
 
 def _normalize_background_groups(
     regions: dict[str, list[str]],
-    background: Optional[Union[list[str], dict[str, list[str]]]],
-) -> Optional[dict[str, list[str]]]:
+    background: list[str] | dict[str, list[str]] | None,
+) -> dict[str, list[str]] | None:
     """Normalize shared or per-group backgrounds to a per-group mapping."""
     if background is None:
         return None
@@ -969,20 +960,14 @@ def _normalize_background_groups(
                 problems.append(f"missing keys: {missing}")
             if extra:
                 problems.append(f"unexpected keys: {extra}")
-            raise ValueError(
-                "When 'background' is a dict, its keys must match 'regions'. "
-                + "; ".join(problems)
-            )
+            raise ValueError("When 'background' is a dict, its keys must match 'regions'. " + "; ".join(problems))
         background_groups = {group: list(background[group]) for group in regions}
     else:
         background_groups = {group: list(background) for group in regions}
 
     empty_groups = [group for group, group_background in background_groups.items() if len(group_background) == 0]
     if empty_groups:
-        raise ValueError(
-            "Background regions must be non-empty for every group. "
-            f"Empty groups: {empty_groups}"
-        )
+        raise ValueError(f"Background regions must be non-empty for every group. Empty groups: {empty_groups}")
 
     return background_groups
 
@@ -992,7 +977,7 @@ def _sample_gc_matched_background_single(
     background_pool: list[str],
     gc_by_region: dict[str, float],
     *,
-    n_background: Optional[int],
+    n_background: int | None,
     n_bins: int,
     replace: bool,
     rng: np.random.Generator,
@@ -1004,10 +989,7 @@ def _sample_gc_matched_background_single(
     target_set = set(target_regions)
     unique_pool = [region for region in _ordered_unique_regions([background_pool]) if region not in target_set]
     if len(unique_pool) == 0:
-        raise ValueError(
-            "Background pool is empty after removing target regions. "
-            "Provide a larger background pool."
-        )
+        raise ValueError("Background pool is empty after removing target regions. Provide a larger background pool.")
 
     target_size = len(target_regions) if n_background is None else int(n_background)
     if target_size < 1:
@@ -1028,15 +1010,15 @@ def _sample_gc_matched_background_single(
 
 
 def sample_gc_matched_background(
-    regions: Union[list[str], dict[str, list[str]]],
-    genome_fasta: Union[str, Path],
+    regions: list[str] | dict[str, list[str]],
+    genome_fasta: str | Path,
     *,
-    background_pool: Union[list[str], dict[str, list[str]]],
-    n_background: Optional[int] = None,
+    background_pool: list[str] | dict[str, list[str]],
+    n_background: int | None = None,
     n_bins: int = 50,
     replace: bool = True,
-    random_state: Optional[int] = 0,
-) -> Union[list[str], dict[str, list[str]]]:
+    random_state: int | None = 0,
+) -> list[str] | dict[str, list[str]]:
     """
     Sample background peaks whose GC-content distribution matches target peaks.
 
@@ -1091,14 +1073,9 @@ def sample_gc_matched_background(
         else:
             background_groups = {group: list(background_pool) for group in regions}
 
-        gc_regions = _ordered_unique_regions(
-            list(regions.values()) + list(background_groups.values())
-        )
+        gc_regions = _ordered_unique_regions(list(regions.values()) + list(background_groups.values()))
         gc_values = _compute_region_gc_content(gc_regions, genome_fasta)
-        gc_by_region = {
-            region: float(gc)
-            for region, gc in zip(gc_regions, gc_values, strict=False)
-        }
+        gc_by_region = {region: float(gc) for region, gc in zip(gc_regions, gc_values, strict=False)}
 
         return {
             group: _sample_gc_matched_background_single(
@@ -1114,16 +1091,11 @@ def sample_gc_matched_background(
         }
 
     if isinstance(background_pool, dict):
-        raise ValueError(
-            "When 'regions' is a list, 'background_pool' must also be a list."
-        )
+        raise ValueError("When 'regions' is a list, 'background_pool' must also be a list.")
 
     gc_regions = _ordered_unique_regions([list(regions), list(background_pool)])
     gc_values = _compute_region_gc_content(gc_regions, genome_fasta)
-    gc_by_region = {
-        region: float(gc)
-        for region, gc in zip(gc_regions, gc_values, strict=False)
-    }
+    gc_by_region = {region: float(gc) for region, gc in zip(gc_regions, gc_values, strict=False)}
 
     return _sample_gc_matched_background_single(
         list(regions),
@@ -1144,23 +1116,20 @@ def sample_gc_matched_background(
 def enrichment(
     motifs: list[DNAMotif],
     regions: dict[str, list[str]],
-    genome_fasta: Union[str, Path],
-    background: Optional[Union[list[str], dict[str, list[str]]]] = None,
-    method: Optional[Literal["binomial", "hypergeometric"]] = None,
+    genome_fasta: str | Path,
+    background: list[str] | dict[str, list[str]] | None = None,
+    method: Literal["binomial", "hypergeometric"] | None = None,
     pvalue: float = 1e-5,
     check_rc: bool = True,
-    bg_probs: Union[
-        Literal["auto", "subject", "even"],
-        tuple[float, float, float, float],
-    ] = (0.25, 0.25, 0.25, 0.25),
+    bg_probs: Literal["auto", "subject", "even"] | tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25),
     motif_batch_size: int = 16,
 ) -> dict[str, pd.DataFrame]:
     """
     Identify enriched transcription factor motifs using GPU acceleration.
-    
+
     This function scans genomic regions for motif matches and performs
     statistical enrichment testing against a background set.
-    
+
     Parameters
     ----------
     motifs : list[DNAMotif]
@@ -1196,7 +1165,7 @@ def enrichment(
     motif_batch_size : int, default 16
         Number of motifs of the same length to process together on GPU.
         Higher values increase GPU parallelism but use more memory.
-        
+
     Returns
     -------
     dict[str, pd.DataFrame]
@@ -1207,7 +1176,7 @@ def enrichment(
         - log2(fold change): Log2 fold enrichment
         - p-value: Raw p-value
         - adjusted p-value: BH-corrected p-value
-        
+
     Examples
     --------
     >>> import gatac
@@ -1234,13 +1203,13 @@ def enrichment(
     ... )
     """
     from scipy.stats import binom, hypergeom
-    
+
     # Determine method
     if method is None:
         method = "hypergeometric" if background is None else "binomial"
 
     background_groups = _normalize_background_groups(regions, background)
-    
+
     # Collect all unique regions
     all_region_groups = list(regions.values())
     if background_groups is not None:
@@ -1249,63 +1218,58 @@ def enrichment(
     region_to_idx = {r: i for i, r in enumerate(all_regions)}
 
     sequences = _fetch_region_sequences(all_regions, genome_fasta)
-    
+
     # OPTIMIZATION: Encode sequences ONCE upfront and keep on GPU
     logger.info("Encoding sequences for GPU...")
     encoded_seqs, seq_lengths = _encode_sequences_batch(sequences)
-    
+
     # Precompute reverse complement if needed
     if check_rc:
         rc_seqs = _reverse_complement_encoded(encoded_seqs)
     else:
         rc_seqs = None
-    
+
     fg_indices_dict = {}
     for group_name, group_regions in regions.items():
-        fg_indices_dict[group_name] = np.array(
-            [region_to_idx[r] for r in group_regions], dtype=np.int32
-        )
+        fg_indices_dict[group_name] = np.array([region_to_idx[r] for r in group_regions], dtype=np.int32)
 
     bg_indices_dict = None
     if background_groups is not None:
         bg_indices_dict = {}
         for group_name, group_background in background_groups.items():
-            bg_indices_dict[group_name] = np.array(
-                [region_to_idx[r] for r in group_background], dtype=np.int32
-            )
-    
+            bg_indices_dict[group_name] = np.array([region_to_idx[r] for r in group_background], dtype=np.int32)
+
     resolved_bg_probs = _resolve_bg_probs(bg_probs, sequences)
 
     # Scores and thresholds as snap.tl.motif_enrichment computes them, so the
     # same motifs match the same regions
     logger.info("Precomputing score thresholds for all motifs...")
-    
+
     pwm_list = [motif.to_log_odds(resolved_bg_probs, mode="snapatac2") for motif in motifs]
     bg_array = np.array(resolved_bg_probs, dtype=np.float64)
-    
+
     thresholds = _snapatac2_score_thresholds(pwm_list, bg_array, pvalue)
-    
+
     logger.info(f"Scanning {len(motifs)} motifs across {len(all_regions)} regions...")
-    
+
     # OPTIMIZATION: Batch scan all motifs at once using GPU
     # This reduces GPU memory transfers and enables better parallelism
     # Larger batch size = more GPU parallelism but more memory usage
     all_bound = _scan_motifs_batch_gpu(
-        encoded_seqs, seq_lengths, pwm_list, thresholds, rc_seqs,
-        motif_batch_size=motif_batch_size
+        encoded_seqs, seq_lengths, pwm_list, thresholds, rc_seqs, motif_batch_size=motif_batch_size
     )
-    
+
     # Free GPU memory after scanning
     del encoded_seqs, seq_lengths, rc_seqs
     mempool.free_all_blocks()
-    
+
     # Compute statistics for all motifs at once using vectorized operations
     n_motifs = len(motifs)
     n_groups = len(regions)
     n_seqs = all_bound.shape[1]
 
     default_bound_bg = all_bound.sum(axis=1) if background_groups is None else None
-    
+
     # Preallocate result arrays
     total_results = n_motifs * n_groups
     motif_ids = []
@@ -1317,7 +1281,7 @@ def enrichment(
     N_fg_arr = np.empty(total_results, dtype=np.int32)
     n_bg_arr = np.empty(total_results, dtype=np.int32)
     N_bg_arr = np.empty(total_results, dtype=np.int32)
-    
+
     result_idx = 0
     for group_name in regions:
         fg_indices = fg_indices_dict[group_name]
@@ -1330,14 +1294,14 @@ def enrichment(
             bg_indices = bg_indices_dict[group_name]
             total_bg = len(bg_indices)
             bound_bg = all_bound[:, bg_indices].sum(axis=1)
-        
+
         # Vectorized foreground computation for all motifs
         bound_fg = all_bound[:, fg_indices].sum(axis=1)  # Shape: (n_motifs,)
-        
+
         for i, motif in enumerate(motifs):
             bf = bound_fg[i]
             bb = bound_bg[i]
-            
+
             # Compute fold change
             if bf == 0:
                 log_fc = 0.0 if bb == 0 else float("-inf")
@@ -1346,7 +1310,7 @@ def enrichment(
             else:
                 fc = (bf / total_fg) / (bb / total_bg)
                 log_fc = np.log2(fc) if fc > 0 else float("-inf")
-            
+
             motif_ids.append(motif.id)
             motif_names.append(motif.name)
             motif_families.append(motif.family)
@@ -1357,13 +1321,13 @@ def enrichment(
             n_bg_arr[result_idx] = int(bb)
             N_bg_arr[result_idx] = total_bg
             result_idx += 1
-    
+
     # Compute p-values (vectorized)
     p_values = np.zeros(total_results)
-    
+
     up_idx = fold_changes >= 0
     down_idx = fold_changes < 0
-    
+
     if method == "binomial":
         # Binomial test
         bg_prob = np.clip(n_bg_arr / N_bg_arr, 1e-10, 1 - 1e-10)
@@ -1371,36 +1335,36 @@ def enrichment(
         p_values[down_idx] = binom.cdf(n_fg_arr[down_idx], N_fg_arr[down_idx], bg_prob[down_idx])
     elif method == "hypergeometric":
         # Hypergeometric test
-        p_values[up_idx] = hypergeom.sf(
-            n_fg_arr[up_idx] - 1, N_bg_arr[up_idx], n_bg_arr[up_idx], N_fg_arr[up_idx]
-        )
+        p_values[up_idx] = hypergeom.sf(n_fg_arr[up_idx] - 1, N_bg_arr[up_idx], n_bg_arr[up_idx], N_fg_arr[up_idx])
         p_values[down_idx] = hypergeom.cdf(
             n_fg_arr[down_idx], N_bg_arr[down_idx], n_bg_arr[down_idx], N_fg_arr[down_idx]
         )
     else:
         raise ValueError(f"Unknown method: {method}. Use 'binomial' or 'hypergeometric'")
-    
+
     p_values = np.clip(p_values, 1e-300, 1.0)
-    
+
     # Organize results by group
     result = {}
     unique_groups = list(regions.keys())
-    
+
     for group in unique_groups:
         group_mask = np.array([g == group for g in group_names_list])
         group_pvals = p_values[group_mask]
         adjusted_pvals = _p_adjust_bh(group_pvals)
-        
-        group_df = pd.DataFrame({
-            "id": [motif_ids[i] for i, m in enumerate(group_mask) if m],
-            "name": [motif_names[i] for i, m in enumerate(group_mask) if m],
-            "family": [motif_families[i] for i, m in enumerate(group_mask) if m],
-            "log2(fold change)": fold_changes[group_mask].tolist(),
-            "p-value": group_pvals.tolist(),
-            "adjusted p-value": adjusted_pvals.tolist(),
-        })
+
+        group_df = pd.DataFrame(
+            {
+                "id": [motif_ids[i] for i, m in enumerate(group_mask) if m],
+                "name": [motif_names[i] for i, m in enumerate(group_mask) if m],
+                "family": [motif_families[i] for i, m in enumerate(group_mask) if m],
+                "log2(fold change)": fold_changes[group_mask].tolist(),
+                "p-value": group_pvals.tolist(),
+                "adjusted p-value": adjusted_pvals.tolist(),
+            }
+        )
         result[group] = group_df
-    
+
     logger.info("Motif enrichment analysis complete")
     return result
 
@@ -1412,7 +1376,7 @@ def enrichment(
 
 def gsea(
     adata,
-    rankings: "Union[pd.DataFrame, dict[str, pd.DataFrame]]",
+    rankings: pd.DataFrame | dict[str, pd.DataFrame],
     logfc_col: str = "log2fc",
     *,
     motif_key: str = "motif_match",
@@ -1423,7 +1387,7 @@ def gsea(
     threads: int = 1,
     backend: Literal["gpu", "gseapy"] = "gpu",
     gs_batch_size: int = 128,
-) -> "Union[pd.DataFrame, dict[str, pd.DataFrame]]":
+) -> pd.DataFrame | dict[str, pd.DataFrame]:
     """
     Run preranked GSEA to identify enriched TF motifs from a LogFC-ranked peak list.
 
@@ -1531,10 +1495,7 @@ def gsea(
         try:
             import gseapy  # noqa: F401  (only checks that it is installed)
         except ImportError as exc:
-            raise ImportError(
-                "gseapy is required for backend='gseapy'. "
-                "Install it with: pip install gseapy"
-            ) from exc
+            raise ImportError("gseapy is required for backend='gseapy'. Install it with: pip install gseapy") from exc
     elif backend == "gpu":
         from gatac.motif._gsea import prerank_gpu
     else:
@@ -1545,11 +1506,10 @@ def gsea(
     # ------------------------------------------------------------------
     if motif_key not in adata.varm:
         raise KeyError(
-            f"'{motif_key}' not found in adata.varm. "
-            "Run ga.motif.scan first to populate the motif match matrix."
+            f"'{motif_key}' not found in adata.varm. Run ga.motif.scan first to populate the motif match matrix."
         )
 
-    motif_match = adata.varm[motif_key]   # peaks × motifs  (sparse bool)
+    motif_match = adata.varm[motif_key]  # peaks × motifs  (sparse bool)
     motif_names_list = list(adata.uns["motif_name"])
     peak_names = adata.var_names
 
@@ -1570,10 +1530,7 @@ def gsea(
             "Try lowering min_size or re-scanning with a more lenient pvalue."
         )
 
-    logger.info(
-        f"Built {len(feature_sets):,} motif feature sets "
-        f"(≥{min_size} peaks; filter to ≥{min_size})"
-    )
+    logger.info(f"Built {len(feature_sets):,} motif feature sets (≥{min_size} peaks; filter to ≥{min_size})")
 
     # ------------------------------------------------------------------
     # Internal helpers: run GSEA for a single ranked DataFrame
@@ -1602,16 +1559,16 @@ def gsea(
             verbose=False,
         )
 
-        raw = res.res2d.rename(columns={
-            "Term": "motif",
-            "NOM p-val": "pval",
-            "FDR q-val": "fdr",
-            "Lead_genes": "lead_edge",
-        })
-
-        raw["lead_edge_n"] = raw["lead_edge"].apply(
-            lambda x: len(x.split(";")) if isinstance(x, str) and x else 0
+        raw = res.res2d.rename(
+            columns={
+                "Term": "motif",
+                "NOM p-val": "pval",
+                "FDR q-val": "fdr",
+                "Lead_genes": "lead_edge",
+            }
         )
+
+        raw["lead_edge_n"] = raw["lead_edge"].apply(lambda x: len(x.split(";")) if isinstance(x, str) and x else 0)
         raw["set_size"] = raw["motif"].map(lambda m: len(feature_sets.get(m, [])))
         raw["lead_edge_frac"] = raw.apply(
             lambda row: row["lead_edge_n"] / row["set_size"] if row["set_size"] > 0 else 0.0,
@@ -1649,28 +1606,29 @@ def gsea(
         )
 
         if not results:
-            return pd.DataFrame({
-                "motif": [],
-                "NES": [],
-                "pval": [],
-                "fdr": [],
-                "lead_edge_n": [],
-                "set_size": [],
-                "lead_edge_frac": [],
-            })
+            return pd.DataFrame(
+                {
+                    "motif": [],
+                    "NES": [],
+                    "pval": [],
+                    "fdr": [],
+                    "lead_edge_n": [],
+                    "set_size": [],
+                    "lead_edge_frac": [],
+                }
+            )
 
-        result_df = pd.DataFrame({
-            "motif": [r["term"] for r in results],
-            "NES": [r["nes"] for r in results],
-            "pval": [r["pval"] for r in results],
-            "fdr": [r["fdr"] for r in results],
-            "lead_edge_n": [r["lead_edge_n"] for r in results],
-            "set_size": [len(r["hits"]) for r in results],
-            "lead_edge_frac": [
-                r["lead_edge_n"] / len(r["hits"]) if len(r["hits"]) > 0 else 0.0
-                for r in results
-            ],
-        }).sort_values("NES", ascending=False, kind="stable", ignore_index=True)
+        result_df = pd.DataFrame(
+            {
+                "motif": [r["term"] for r in results],
+                "NES": [r["nes"] for r in results],
+                "pval": [r["pval"] for r in results],
+                "fdr": [r["fdr"] for r in results],
+                "lead_edge_n": [r["lead_edge_n"] for r in results],
+                "set_size": [len(r["hits"]) for r in results],
+                "lead_edge_frac": [r["lead_edge_n"] / len(r["hits"]) if len(r["hits"]) > 0 else 0.0 for r in results],
+            }
+        ).sort_values("NES", ascending=False, kind="stable", ignore_index=True)
 
         return result_df
 
@@ -1741,16 +1699,16 @@ def _design_products(X: cp.ndarray) -> tuple[cp.ndarray, np.ndarray, np.ndarray]
 # and the slowest part of an iteration. Clamps are comparisons, not fmin/fmax,
 # so a NaN eta propagates to the outputs exactly as it does through cp.clip.
 _logistic_residual_weight_kernel = cp.ElementwiseKernel(
-    'float64 eta, float64 y',
-    'float64 resid, float64 w',
-    '''
+    "float64 eta, float64 y",
+    "float64 resid, float64 w",
+    """
     double t = eta > 30.0 ? 30.0 : (eta < -30.0 ? -30.0 : eta);
     double mu = 1.0 / (1.0 + exp(-t));
     double v = mu * (1.0 - mu);
     resid = y - mu;
     w = v < 1e-10 ? 1e-10 : v;
-    ''',
-    'logistic_residual_weight_kernel'
+    """,
+    "logistic_residual_weight_kernel",
 )
 
 
@@ -1761,7 +1719,7 @@ def _fit_logistic_batch(
     max_iter: int,
     tol: float,
     ridge: float,
-    products: Optional[tuple[cp.ndarray, np.ndarray, np.ndarray]] = None,
+    products: tuple[cp.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Newton-Raphson (IRLS) logistic fits sharing one design matrix.
@@ -1814,14 +1772,11 @@ def _fit_logistic_batch(
 def presence_matrix(
     motifs: list[DNAMotif],
     regions: list[str],
-    genome_fasta: Union[str, Path],
+    genome_fasta: str | Path,
     *,
     pvalue: float = 1e-5,
     check_rc: bool = True,
-    bg_probs: Union[
-        Literal["auto", "subject", "even"],
-        tuple[float, float, float, float],
-    ] = (0.25, 0.25, 0.25, 0.25),
+    bg_probs: Literal["auto", "subject", "even"] | tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25),
     motif_batch_size: int = 16,
     region_chunk_size: int = 64_000,
     dinucleotide: bool = True,
@@ -1866,9 +1821,7 @@ def presence_matrix(
     resolved_bg_probs = bg_probs
     if isinstance(bg_probs, str):
         logger.info("Resolving background base frequencies from all sequences...")
-        resolved_bg_probs = _resolve_bg_probs(
-            bg_probs, _fetch_region_sequences(regions, genome_fasta)
-        )
+        resolved_bg_probs = _resolve_bg_probs(bg_probs, _fetch_region_sequences(regions, genome_fasta))
 
     logger.info(f"Computing thresholds for {n_motifs} motifs...")
     pwm_list = [m.to_log_odds(resolved_bg_probs) for m in motifs]
@@ -1880,21 +1833,21 @@ def presence_matrix(
 
     presence = np.zeros((n_motifs, n_regions), dtype=bool)
     dinuc = np.zeros((n_regions, 16), dtype=np.float32) if dinucleotide else None
-    logger.info(
-        f"Scanning {n_motifs} motifs across {n_regions} regions "
-        f"in chunks of {region_chunk_size}..."
-    )
+    logger.info(f"Scanning {n_motifs} motifs across {n_regions} regions in chunks of {region_chunk_size}...")
     n_chunks = (n_regions + region_chunk_size - 1) // region_chunk_size
-    for start in tqdm(
-        range(0, n_regions, region_chunk_size), total=n_chunks, desc="Scanning"
-    ):
+    for start in tqdm(range(0, n_regions, region_chunk_size), total=n_chunks, desc="Scanning"):
         stop = min(start + region_chunk_size, n_regions)
         sequences = _fetch_region_sequences(regions[start:stop], genome_fasta)
         encoded, lengths = _encode_sequences_batch(sequences)
         rc = _reverse_complement_encoded(encoded) if check_rc else None
         presence[:, start:stop] = _scan_motifs_batch_gpu(
-            encoded, lengths, pwm_list, thresholds, rc,
-            motif_batch_size=motif_batch_size, show_progress=False,
+            encoded,
+            lengths,
+            pwm_list,
+            thresholds,
+            rc,
+            motif_batch_size=motif_batch_size,
+            show_progress=False,
         )
         if dinuc is not None:
             dinuc[start:stop] = _dinucleotide_frequencies(encoded)
@@ -1908,14 +1861,12 @@ def presence_matrix(
         "regions": regions,
         "pvalue": float(pvalue),
         "check_rc": bool(check_rc),
-        "bg_probs_request": bg_probs if isinstance(bg_probs, str) else tuple(
-            float(v) for v in bg_probs),
+        "bg_probs_request": bg_probs if isinstance(bg_probs, str) else tuple(float(v) for v in bg_probs),
         "bg_probs": tuple(float(v) for v in resolved_bg_probs),
     }
 
 
-def _validated_hits(hits, motifs, regions, pvalue, check_rc, bg_probs,
-                    need_dinucleotide):
+def _validated_hits(hits, motifs, regions, pvalue, check_rc, bg_probs, need_dinucleotide):
     """The cached scan, or a refusal naming what does not match.
 
     Every field is checked. A presence matrix built for a different threshold,
@@ -1935,18 +1886,18 @@ def _validated_hits(hits, motifs, regions, pvalue, check_rc, bg_probs,
 
     problems = []
     if presence.shape != (len(motifs), len(regions)):
-        problems.append(
-            f"presence is {presence.shape}, expected "
-            f"{(len(motifs), len(regions))} (motifs x regions)")
+        problems.append(f"presence is {presence.shape}, expected {(len(motifs), len(regions))} (motifs x regions)")
     if cached_ids != [m.id for m in motifs]:
         shared = len(set(cached_ids) & {m.id for m in motifs})
         problems.append(
             f"motif ids differ ({shared} of {len(motifs)} ids in common; order "
-            "matters because presence rows are positional)")
+            "matters because presence rows are positional)"
+        )
     if cached_regions != list(regions):
         problems.append(
             f"regions differ ({len(cached_regions)} cached vs {len(regions)} "
-            "passed; order matters because presence columns are positional)")
+            "passed; order matters because presence columns are positional)"
+        )
     if float(hits.get("pvalue", pvalue)) != float(pvalue):
         problems.append(f"pvalue {hits.get('pvalue')} vs {pvalue}")
     if bool(hits.get("check_rc", check_rc)) != bool(check_rc):
@@ -1958,7 +1909,8 @@ def _validated_hits(hits, motifs, regions, pvalue, check_rc, bg_probs,
     elif "bg_probs" not in hits:
         problems.append(
             f"bg_probs={bg_probs!r} has to be resolved from the sequences and "
-            "the cache does not carry the resolved value")
+            "the cache does not carry the resolved value"
+        )
     dinuc = hits.get("dinucleotide")
     dinuc = None if dinuc is None else np.asarray(dinuc)
     if need_dinucleotide:
@@ -1966,13 +1918,12 @@ def _validated_hits(hits, motifs, regions, pvalue, check_rc, bg_probs,
             problems.append(
                 "dinucleotide frequencies are missing and the requested "
                 "covariates need them; rebuild with dinucleotide=True or pass "
-                "covariates='none' or your own array")
+                "covariates='none' or your own array"
+            )
         elif dinuc.shape != (len(regions), 16):
-            problems.append(
-                f"dinucleotide is {dinuc.shape}, expected {(len(regions), 16)}")
+            problems.append(f"dinucleotide is {dinuc.shape}, expected {(len(regions), 16)}")
     if problems:
-        raise ValueError(
-            "precomputed_hits does not match this call: " + "; ".join(problems))
+        raise ValueError("precomputed_hits does not match this call: " + "; ".join(problems))
     resolved = tuple(float(v) for v in hits.get("bg_probs", bg_probs))
     return presence, dinuc, resolved
 
@@ -1981,22 +1932,17 @@ def enrichment_regression(
     motifs: list[DNAMotif],
     regions: list[str],
     scores: np.ndarray,
-    genome_fasta: Union[str, Path],
-    covariates: Union[
-        Literal["dinucleotide", "gc", "none"], np.ndarray, None
-    ] = "dinucleotide",
+    genome_fasta: str | Path,
+    covariates: Literal["dinucleotide", "gc", "none"] | np.ndarray | None = "dinucleotide",
     pvalue: float = 1e-5,
     check_rc: bool = True,
-    bg_probs: Union[
-        Literal["auto", "subject", "even"],
-        tuple[float, float, float, float],
-    ] = (0.25, 0.25, 0.25, 0.25),
+    bg_probs: Literal["auto", "subject", "even"] | tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25),
     motif_batch_size: int = 16,
     region_chunk_size: int = 64_000,
     fit_batch_size: int = 24,
     max_iter: int = 50,
     tol: float = 1e-8,
-    precomputed_hits: Optional[dict] = None,
+    precomputed_hits: dict | None = None,
 ) -> pd.DataFrame:
     """
     Motif enrichment as logistic regression on a continuous score (MEIRLOP-style).
@@ -2116,14 +2062,12 @@ def enrichment_regression(
     >>> res.head()
     """
     from scipy.stats import norm
+
     from .._progress import tqdm
 
     scores = np.asarray(scores, dtype=np.float64)
     if len(regions) != len(scores):
-        raise ValueError(
-            f"regions and scores must be the same length; got {len(regions)} "
-            f"and {len(scores)}"
-        )
+        raise ValueError(f"regions and scores must be the same length; got {len(regions)} and {len(scores)}")
     if len(motifs) == 0:
         raise ValueError("no motifs supplied")
 
@@ -2131,18 +2075,12 @@ def enrichment_regression(
     if isinstance(covariates, np.ndarray):
         user_covariates = np.asarray(covariates, dtype=np.float64)
         if user_covariates.ndim != 2 or len(user_covariates) != len(regions):
-            raise ValueError(
-                "covariates array must have shape (n_regions, k); got "
-                f"{user_covariates.shape}"
-            )
+            raise ValueError(f"covariates array must have shape (n_regions, k); got {user_covariates.shape}")
         covariate_mode = "user"
     else:
         covariate_mode = "none" if covariates in (None, "none") else str(covariates)
         if covariate_mode not in ("dinucleotide", "gc", "none"):
-            raise ValueError(
-                "covariates must be 'dinucleotide', 'gc', 'none', or an array; "
-                f"got {covariates!r}"
-            )
+            raise ValueError(f"covariates must be 'dinucleotide', 'gc', 'none', or an array; got {covariates!r}")
 
     finite = np.isfinite(scores)
     if not finite.any():
@@ -2162,29 +2100,32 @@ def enrichment_regression(
         # indexed by the question asked, not by whichever scores happen to be
         # finite in this particular call.
         presence, dinuc, resolved_bg_probs = _validated_hits(
-            precomputed_hits, motifs, regions, pvalue, check_rc, bg_probs,
-            need_dinucleotide)
+            precomputed_hits, motifs, regions, pvalue, check_rc, bg_probs, need_dinucleotide
+        )
         logger.info(
             f"Reusing a cached scan of {len(regions)} regions "
             f"({n_regions} with finite scores) at background "
             f"{tuple(round(v, 4) for v in resolved_bg_probs)}; "
-            "no sequence is fetched")
+            "no sequence is fetched"
+        )
         if len(kept_idx) != len(regions):
             presence = presence[:, kept_idx]
             dinuc = None if dinuc is None else dinuc[kept_idx]
         presence = np.ascontiguousarray(presence, dtype=bool)
     else:
         scan = presence_matrix(
-            motifs, kept_regions, genome_fasta, pvalue=pvalue,
-            check_rc=check_rc, bg_probs=bg_probs,
+            motifs,
+            kept_regions,
+            genome_fasta,
+            pvalue=pvalue,
+            check_rc=check_rc,
+            bg_probs=bg_probs,
             motif_batch_size=motif_batch_size,
             region_chunk_size=region_chunk_size,
             dinucleotide=need_dinucleotide,
         )
         presence, dinuc = scan["presence"], scan["dinucleotide"]
-        logger.info(
-            "Scanned at background "
-            f"{tuple(round(v, 4) for v in scan['bg_probs'])}")
+        logger.info(f"Scanned at background {tuple(round(v, 4) for v in scan['bg_probs'])}")
 
     def _standardise(a: np.ndarray) -> np.ndarray:
         sd = a.std(axis=0)
@@ -2196,7 +2137,7 @@ def enrichment_regression(
         n_cov = 15
     elif covariate_mode == "gc":
         gc = dinuc[:, [5, 6, 9, 10]].sum(axis=1).astype(np.float64)  # CC CG GC GG
-        cg = dinuc[:, 6].astype(np.float64)                          # CpG
+        cg = dinuc[:, 6].astype(np.float64)  # CpG
         c_plus_g = np.clip(gc, 1e-9, None)
         design.append(_standardise(np.column_stack([gc, cg / c_plus_g])))
         n_cov = 2
@@ -2212,14 +2153,10 @@ def enrichment_regression(
         logger.info(f"Dropping {int((~usable).sum())} regions with non-finite design")
         X_np = X_np[usable]
         presence = presence[:, usable]
-    logger.info(
-        f"Design {X_np.shape}: intercept + score"
-        + (f" + {n_cov} covariates" if n_cov else "")
-    )
+    logger.info(f"Design {X_np.shape}: intercept + score" + (f" + {n_cov} covariates" if n_cov else ""))
     if np.linalg.matrix_rank(X_np) < X_np.shape[1]:
         raise ValueError(
-            "design matrix is rank-deficient -- covariates are collinear with the "
-            "intercept or with each other"
+            "design matrix is rank-deficient -- covariates are collinear with the intercept or with each other"
         )
 
     X = cp.asarray(X_np)
@@ -2230,14 +2167,11 @@ def enrichment_regression(
 
     logger.info(f"Fitting {n_motifs} logistic models...")
     n_batches = (n_motifs + fit_batch_size - 1) // fit_batch_size
-    for start in tqdm(
-        range(0, n_motifs, fit_batch_size), total=n_batches, desc="Fitting"
-    ):
+    for start in tqdm(range(0, n_motifs, fit_batch_size), total=n_batches, desc="Fitting"):
         stop = min(start + fit_batch_size, n_motifs)
         Y = cp.asarray(presence[start:stop].astype(np.float64))
-        coefs[start:stop], ses[start:stop], converged[start:stop] = (
-            _fit_logistic_batch(X, Y, 1, max_iter, tol, ridge=1e-8,
-                                products=products)
+        coefs[start:stop], ses[start:stop], converged[start:stop] = _fit_logistic_batch(
+            X, Y, 1, max_iter, tol, ridge=1e-8, products=products
         )
         del Y
         mempool.free_all_blocks()
@@ -2253,21 +2187,22 @@ def enrichment_regression(
     n_failed = int((~ok).sum())
     if n_failed:
         logger.warning(
-            f"{n_failed} motif(s) failed to converge and are reported with "
-            "p-value 1.0; inspect the 'converged' column"
+            f"{n_failed} motif(s) failed to converge and are reported with p-value 1.0; inspect the 'converged' column"
         )
 
-    result = pd.DataFrame({
-        "id": [m.id for m in motifs],
-        "name": [m.name for m in motifs],
-        "family": [m.family for m in motifs],
-        "coefficient": coefs,
-        "std error": ses,
-        "z": z,
-        "p-value": p,
-        "adjusted p-value": _p_adjust_bh(p),
-        "n regions with motif": presence.sum(axis=1).astype(np.int64),
-        "fraction with motif": presence.mean(axis=1),
-        "converged": ok,
-    })
+    result = pd.DataFrame(
+        {
+            "id": [m.id for m in motifs],
+            "name": [m.name for m in motifs],
+            "family": [m.family for m in motifs],
+            "coefficient": coefs,
+            "std error": ses,
+            "z": z,
+            "p-value": p,
+            "adjusted p-value": _p_adjust_bh(p),
+            "n regions with motif": presence.sum(axis=1).astype(np.int64),
+            "fraction with motif": presence.mean(axis=1),
+            "converged": ok,
+        }
+    )
     return result.sort_values("z", ascending=False).reset_index(drop=True)

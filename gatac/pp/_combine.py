@@ -2,11 +2,12 @@
 One matrix of several fragment files: the cells of each file in turn, named
 and tagged with their file as :func:`~gatac.pp.make_tile_matrix` does.
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
 
 import anndata as ad
 import numpy as np
@@ -18,7 +19,7 @@ from .._files import replacing
 logger = logging.getLogger(__name__)
 
 
-def _file_names(paths: Sequence[Path]) -> List[str]:
+def _file_names(paths: Sequence[Path]) -> list[str]:
     """The files' names, which must be distinct: they identify each cell's file."""
     if not paths:
         raise ValueError("No fragment files given")
@@ -59,18 +60,16 @@ def _feature_mismatch(got: pd.Index, ref: pd.Index, name: str, ref_name: str) ->
     """The error for a file whose features (``var_names``) are not those of the first file."""
     if len(got) == len(ref) and got.sort_values().equals(ref.sort_values()):
         i = int(np.flatnonzero(got.to_numpy() != ref.to_numpy())[0])
-        detail = (f"the same {len(ref):,} features in another order (feature {i} is "
-                  f"{got[i]!r}, not {ref[i]!r})")
+        detail = f"the same {len(ref):,} features in another order (feature {i} is {got[i]!r}, not {ref[i]!r})"
     else:
-        detail = (f"{len(got):,} features, {len(got.difference(ref)):,} of them not among the "
-                  f"{len(ref):,} of {ref_name}")
+        detail = f"{len(got):,} features, {len(got.difference(ref)):,} of them not among the {len(ref):,} of {ref_name}"
     return ValueError(
         f"{name} has other features than {ref_name}: {detail}. Matrices are combined "
         "column by column, so every file must have the same features in the same order"
     )
 
 
-def _combined_obs(obs_parts: List[pd.DataFrame], names: Sequence[str]) -> pd.DataFrame:
+def _combined_obs(obs_parts: list[pd.DataFrame], names: Sequence[str]) -> pd.DataFrame:
     """The files' obs in order, with ``source_file`` categorical; cell names must be distinct."""
     obs = pd.concat(obs_parts)
     if not obs.index.is_unique:
@@ -83,11 +82,10 @@ def _combined_obs(obs_parts: List[pd.DataFrame], names: Sequence[str]) -> pd.Dat
 def _widen(group, key: str, dtype) -> object:
     """Replace the 1-D dataset ``group[key]`` by a copy of it in ``dtype``."""
     old = group[key]
-    new = group.create_dataset(key + "_wide", shape=old.shape, dtype=dtype,
-                               maxshape=(None,), chunks=old.chunks)
+    new = group.create_dataset(key + "_wide", shape=old.shape, dtype=dtype, maxshape=(None,), chunks=old.chunks)
     step = 1 << 24
     for i in range(0, old.shape[0], step):
-        new[i:i + step] = old[i:i + step]
+        new[i : i + step] = old[i : i + step]
     del group[key]
     group.move(key + "_wide", key)
     return group[key]
@@ -96,7 +94,7 @@ def _widen(group, key: str, dtype) -> object:
 def combine_file_matrices(
     parts: Iterable[ad.AnnData],
     names: Sequence[str],
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
 ) -> ad.AnnData:
     """
     One AnnData of the per-file matrices ``parts``, cells of the same features.
@@ -107,8 +105,8 @@ def combine_file_matrices(
     rows are written to the ``.h5ad`` as it comes, so only one part is held,
     and the result is opened from the file in backed mode.
     """
-    obs_parts: List[pd.DataFrame] = []
-    var: Optional[pd.DataFrame] = None
+    obs_parts: list[pd.DataFrame] = []
+    var: pd.DataFrame | None = None
 
     def rows(part: ad.AnnData, name: str) -> sp.csr_matrix:
         nonlocal var
@@ -162,8 +160,9 @@ def combine_file_matrices(
             if indptr[-1] <= np.iinfo(np.int32).max:
                 indptr = indptr.astype(np.int32)
             group.create_dataset("indptr", data=indptr)
-            group.attrs.update({"encoding-type": "csr_matrix", "encoding-version": "0.1.0",
-                                "shape": np.array([n_rows, len(var)])})
+            group.attrs.update(
+                {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_rows, len(var)])}
+            )
 
         # obs, var and the file's AnnData attributes, from an AnnData without X
         # written alongside, so that X is never rewritten

@@ -88,10 +88,12 @@ def dependencies(extras: list[str], groups: list[str]) -> list[str]:
         for dep in project["dependency-groups"][name]:
             yield from group(dep["include-group"]) if isinstance(dep, dict) else [dep]
 
-    return (project["project"]["dependencies"]
-            + [d for e in extras for d in project["project"]["optional-dependencies"][e]]
-            + [d for g in groups for d in group(g)]
-            + project["build-system"]["requires"])
+    return (
+        project["project"]["dependencies"]
+        + [d for e in extras for d in project["project"]["optional-dependencies"][e]]
+        + [d for g in groups for d in group(g)]
+        + project["build-system"]["requires"]
+    )
 
 
 def read_workflow(cuda: str | None = None) -> dict:
@@ -131,12 +133,14 @@ def read_workflow(cuda: str | None = None) -> dict:
             skipped.append((name, "calls git, and .git is not mounted"))
             continue
         condition = str(step.get("if", ""))
-        steps.append({
-            "name": name,
-            "run": script.replace("uv run --no-sync ", ""),
-            "always": "always()" in condition or "!cancelled()" in condition,
-            "env": {k: expand(v, values) for k, v in step.get("env", {}).items()},
-        })
+        steps.append(
+            {
+                "name": name,
+                "run": script.replace("uv run --no-sync ", ""),
+                "always": "always()" in condition or "!cancelled()" in condition,
+                "env": {k: expand(v, values) for k, v in step.get("env", {}).items()},
+            }
+        )
 
     cuda = matrix["cuda"]
     return {
@@ -165,8 +169,10 @@ def with_pytest_args(steps: list[dict], args: str) -> list[dict]:
 
 
 def describe(ci: dict) -> None:
-    print(f"{WORKFLOW.relative_to(ROOT)}, job {JOB!r}, {ci['cuda']}, Python {ci['python']}: "
-          f"{ci['gpu']}, {ci['cpu']} cores, {ci['memory']} MiB, {ci['timeout'] // 60} min")
+    print(
+        f"{WORKFLOW.relative_to(ROOT)}, job {JOB!r}, {ci['cuda']}, Python {ci['python']}: "
+        f"{ci['gpu']}, {ci['cpu']} cores, {ci['memory']} MiB, {ci['timeout'] // 60} min"
+    )
     for name, why in ci["skipped"]:
         print(f"  skip  {name} ({why})")
     for step in ci["steps"]:
@@ -177,19 +183,23 @@ def describe(ci: dict) -> None:
 # /root/modal_gpu.py and ROOT is "/": the workflow is read and the image defined locally only.
 CI = read_workflow(os.environ.get("GATAC_CUDA")) if modal.is_local() else None
 image = (
-    modal.Image.from_registry(CI["base_image"], add_python=CI["python"])
-    .uv_pip_install(*CI["dependencies"])
-    # hatchling's editable build needs it, and --no-build-isolation does not
-    # install it; a layer of its own, so the one above stays cached
-    .uv_pip_install("editables")
-    .run_commands(f"useradd --create-home --uid 1001 {USER}")  # the uid of GitHub's runner user
-    .add_local_file(ROOT / "pyproject.toml", f"{SRC}/pyproject.toml")
-    # the package metadata names these, and hatchling checks they exist
-    .add_local_file(ROOT / "README.md", f"{SRC}/README.md")
-    .add_local_file(ROOT / "LICENSE", f"{SRC}/LICENSE")
-    .add_local_dir(ROOT / "gatac", f"{SRC}/gatac", ignore=IGNORE)
-    .add_local_dir(ROOT / "tests", f"{SRC}/tests", ignore=IGNORE)
-) if CI else modal.Image.debian_slim()
+    (
+        modal.Image.from_registry(CI["base_image"], add_python=CI["python"])
+        .uv_pip_install(*CI["dependencies"])
+        # hatchling's editable build needs it, and --no-build-isolation does not
+        # install it; a layer of its own, so the one above stays cached
+        .uv_pip_install("editables")
+        .run_commands(f"useradd --create-home --uid 1001 {USER}")  # the uid of GitHub's runner user
+        .add_local_file(ROOT / "pyproject.toml", f"{SRC}/pyproject.toml")
+        # the package metadata names these, and hatchling checks they exist
+        .add_local_file(ROOT / "README.md", f"{SRC}/README.md")
+        .add_local_file(ROOT / "LICENSE", f"{SRC}/LICENSE")
+        .add_local_dir(ROOT / "gatac", f"{SRC}/gatac", ignore=IGNORE)
+        .add_local_dir(ROOT / "tests", f"{SRC}/tests", ignore=IGNORE)
+    )
+    if CI
+    else modal.Image.debian_slim()
+)
 
 app = modal.App("gatac-gpu-tests", image=image)
 jit_cache = modal.Volume.from_name("gatac-gpu-tests-jit-cache", create_if_missing=True)
@@ -197,15 +207,17 @@ jit_cache = modal.Volume.from_name("gatac-gpu-tests-jit-cache", create_if_missin
 
 # The machine and timeout are the workflow's, set with with_options in main
 @app.function(gpu="T4", volumes={CACHE: jit_cache})
-def job(steps: list[dict], env: dict[str, str], mtimes: dict[str, float], cuda: str,
-        started: modal.Queue | None = None) -> int:
+def job(
+    steps: list[dict], env: dict[str, str], mtimes: dict[str, float], cuda: str, started: modal.Queue | None = None
+) -> int:
     import shutil
     import subprocess
 
     if started is not None:
         started.put(True)
-    subprocess.run("echo \"$(nproc) cores visible: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)\"",
-                   shell=True, check=False)
+    subprocess.run(
+        "echo \"$(nproc) cores visible: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)\"", shell=True, check=False
+    )
 
     # Checkout: a writable copy, with the local mtimes on which Numba's cache is keyed
     shutil.copytree(SRC, WORK)
@@ -222,15 +234,26 @@ def job(steps: list[dict], env: dict[str, str], mtimes: dict[str, float], cuda: 
     summary.touch()
 
     home = f"/home/{USER}"
-    env = {**os.environ, **env, "CI": "true", "GITHUB_WORKSPACE": WORK,
-           "GITHUB_STEP_SUMMARY": str(summary), "HOME": home, "USER": USER, "LOGNAME": USER,
-           "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}"}
+    env = {
+        **os.environ,
+        **env,
+        "CI": "true",
+        "GITHUB_WORKSPACE": WORK,
+        "GITHUB_STEP_SUMMARY": str(summary),
+        "HOME": home,
+        "USER": USER,
+        "LOGNAME": USER,
+        "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}",
+    }
     env.pop("PYTHONPATH", None)  # Modal's runtime, in /pkg, which only root can read
     # Editable, as uv sync installs it: gatac is imported from WORK, where
     # Numba's cache and coverage expect it. .git is not mounted, so hatch-vcs
     # gets the version from the environment. As root, into the image's Python.
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--no-build-isolation",
-                    "-e", WORK], env=env | {"SETUPTOOLS_SCM_PRETEND_VERSION": "0.0.0+modal"}, check=True)
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--no-build-isolation", "-e", WORK],
+        env=env | {"SETUPTOOLS_SCM_PRETEND_VERSION": "0.0.0+modal"},
+        check=True,
+    )
     subprocess.run(["chown", "-R", f"{USER}:{USER}", f"{home}/work"], check=True)
 
     rc = 0
@@ -239,9 +262,15 @@ def job(steps: list[dict], env: dict[str, str], mtimes: dict[str, float], cuda: 
             print(f"\n=== {step['name']}: skipped after the failure", flush=True)
             continue
         print(f"\n=== {step['name']}", flush=True)
-        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
-                                cwd=WORK, env=env | step["env"], user=USER, group=USER, extra_groups=[],
-                                check=False)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+            cwd=WORK,
+            env=env | step["env"],
+            user=USER,
+            group=USER,
+            extra_groups=[],
+            check=False,
+        )
         if result.returncode:
             print(f"=== {step['name']}: failed with exit code {result.returncode}", flush=True)
             rc = rc or result.returncode
@@ -262,8 +291,7 @@ def build():
 
 
 @app.local_entrypoint()
-def main(pytest_args: str = "", gpu: str = "", cpu: float = 0, memory: int = 0,
-         startup_deadline: int = 300):
+def main(pytest_args: str = "", gpu: str = "", cpu: float = 0, memory: int = 0, startup_deadline: int = 300):
     """gpu, cpu and memory (MiB) default to the workflow's runner."""
     import queue
 
@@ -274,15 +302,20 @@ def main(pytest_args: str = "", gpu: str = "", cpu: float = 0, memory: int = 0,
 
     with modal.Queue.ephemeral() as started:
         call = job.with_options(
-            gpu=ci["gpu"], cpu=ci["cpu"], memory=(ci["memory"], ci["memory"]), timeout=ci["timeout"],
+            gpu=ci["gpu"],
+            cpu=ci["cpu"],
+            memory=(ci["memory"], ci["memory"]),
+            timeout=ci["timeout"],
         ).spawn(steps, ci["env"], mtimes, ci["cuda"], started)
         try:
             started.get(timeout=startup_deadline)
         except queue.Empty:
             call.cancel(terminate_containers=True)
-            sys.exit(f"No container started within {startup_deadline} s, so the run was "
-                     "cancelled; the logs above show why (raise --startup-deadline if "
-                     "a GPU was only slow to come up).")
+            sys.exit(
+                f"No container started within {startup_deadline} s, so the run was "
+                "cancelled; the logs above show why (raise --startup-deadline if "
+                "a GPU was only slow to come up)."
+            )
         rc = call.get()
     if rc:
         sys.exit(rc)
@@ -293,5 +326,7 @@ if __name__ == "__main__":
     print("\nenv:", *(f"  {k}={v}" for k, v in CI["env"].items()), sep="\n")
     for step in CI["steps"]:
         print(f"\n--- {step['name']}\n{step['run'].rstrip()}")
-    print(f"\nimage: {CI['base_image']} + Python {CI['python']}, {len(CI['dependencies'])} requirements:",
-          *CI["dependencies"])
+    print(
+        f"\nimage: {CI['base_image']} + Python {CI['python']}, {len(CI['dependencies'])} requirements:",
+        *CI["dependencies"],
+    )

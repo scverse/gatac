@@ -12,12 +12,13 @@ A tile matrix of one file takes about a second to compute on the GPU, much
 less than writing it to disk and reading it back, so neither pass keeps
 per-sample matrices.
 """
+
 from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
 
 import anndata as ad
 import cupy as cp
@@ -25,10 +26,10 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .._files import replacing, write_h5ad
 from ..gpu import bincount
 from ..io.fragments import FragmentFile
 from ._combine import _check_distinct_cells, _combined_obs, _file_names
-from .._files import replacing, write_h5ad
 from ._utils import async_memory_pool, cleanup_gpu_memory
 from .tile import (
     _add_tile_stats,
@@ -43,19 +44,20 @@ from .tile import (
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
+
 
 def scan_tiles(
-    fragments: PathLike | List[PathLike],
+    fragments: PathLike | list[PathLike],
     chrom_sizes: dict[str, int] | str,
     tile_size: int = 5000,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
+    exclude_chroms: Sequence[str] | None = ("chrM", "chrY", "M", "Y"),
     metrics=None,
-    filter_query: Optional[str] = None,
+    filter_query: str | None = None,
     count_strategy: str = "unique",
     row_groups_per_batch: int = 64,
-    output_path: Optional[PathLike] = None,
+    output_path: PathLike | None = None,
 ) -> ad.AnnData:
     """
     Cells and tiles of the combined tile matrix of several fragment files,
@@ -127,7 +129,9 @@ def scan_tiles(
 
     all_chroms, included_chroms = _included_chroms(chrom_sizes, exclude_chroms)
     tile_metadata, chrom_offset_df, n_tiles = _cached_tile_metadata(
-        tuple(included_chroms), tuple(chrom_sizes[c] for c in included_chroms), tile_size,
+        tuple(included_chroms),
+        tuple(chrom_sizes[c] for c in included_chroms),
+        tile_size,
     )
     tile_offsets = chrom_offset_df["tile_offset"].values
     cell_meta_extra = _load_metrics_dataframe(metrics, filter_query)
@@ -140,8 +144,14 @@ def scan_tiles(
             fragments_file = FragmentFile(path)
             cells = _tile_cells(fragments_file, all_chroms, cell_meta_extra, min_fragments_per_cell)
             keys, counts = _stream_key_counts(
-                fragments_file, list(cells["barcode"]), included_chroms, tile_offsets,
-                n_tiles, tile_size, count_strategy, row_groups_per_batch,
+                fragments_file,
+                list(cells["barcode"]),
+                included_chroms,
+                tile_offsets,
+                n_tiles,
+                tile_size,
+                count_strategy,
+                row_groups_per_batch,
             )
             for _, _, _, cols, data in _iter_slabs(keys, counts, len(cells), n_tiles):
                 _add_tile_stats(stats, cols, data, n_tiles, count_strategy == "binarize")
@@ -175,8 +185,8 @@ def scan_tiles(
 
 def build_tile_matrix(
     tiles: ad.AnnData | PathLike,
-    output_path: Optional[PathLike] = None,
-    features: Optional[str | np.ndarray] = "selected",
+    output_path: PathLike | None = None,
+    features: str | np.ndarray | None = "selected",
     row_groups_per_batch: int = 64,
 ) -> ad.AnnData:
     """
@@ -218,7 +228,9 @@ def build_tile_matrix(
     tile_size = int(scan["tile_size"])
     chroms = list(scan["chroms"])
     tile_metadata, chrom_offset_df, n_tiles = _cached_tile_metadata(
-        tuple(chroms), tuple(int(s) for s in scan["chrom_sizes"]), tile_size,
+        tuple(chroms),
+        tuple(int(s) for s in scan["chrom_sizes"]),
+        tile_size,
     )
     tile_offsets = chrom_offset_df["tile_offset"].values
 
@@ -227,8 +239,7 @@ def build_tile_matrix(
     elif isinstance(features, str):
         if features not in tiles.var.columns:
             raise KeyError(
-                f"Column '{features}' not found in var. Call `pp.select_features` first "
-                "or set `features=None`."
+                f"Column '{features}' not found in var. Call `pp.select_features` first or set `features=None`."
             )
         mask = tiles.var[features].to_numpy().astype(bool)
     else:
@@ -262,8 +273,14 @@ def build_tile_matrix(
             fragments_file = FragmentFile(files[name])
             barcodes = list(obs["barcode"].iloc[r0:r1])
             keys, counts = _stream_key_counts(
-                fragments_file, barcodes, chroms, tile_offsets, n_tiles, tile_size,
-                count_strategy, row_groups_per_batch,
+                fragments_file,
+                barcodes,
+                chroms,
+                tile_offsets,
+                n_tiles,
+                tile_size,
+                count_strategy,
+                row_groups_per_batch,
             )
             row_nnz = np.zeros(r1 - r0, dtype=np.int64)
             cols_parts, data_parts = [], []
@@ -274,14 +291,16 @@ def build_tile_matrix(
                 cols_parts.append(new_col[keep].get())
                 kept = data[keep]
                 data_parts.append(
-                    np.ones(len(kept), dtype=np.uint16) if count_strategy == "binarize"
+                    np.ones(len(kept), dtype=np.uint16)
+                    if count_strategy == "binarize"
                     else kept.astype(cp.uint16).get()
                 )
                 del new_col, keep, kept
             del keys, counts
             logger.info(f"Built {name}: {r1 - r0:,} cells")
             yield (
-                r0, row_nnz,
+                r0,
+                row_nnz,
                 np.concatenate(cols_parts) if cols_parts else np.zeros(0, np.int32),
                 np.concatenate(data_parts) if data_parts else np.zeros(0, np.uint16),
             )
@@ -299,16 +318,16 @@ def build_tile_matrix(
         indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
         np.cumsum(row_nnz, out=indptr[1:])
         X = sp.csr_matrix(
-            (np.concatenate([p[3] for p in parts]),
-             np.concatenate([p[2] for p in parts]).astype(idx_dtype, copy=False), indptr),
+            (
+                np.concatenate([p[3] for p in parts]),
+                np.concatenate([p[2] for p in parts]).astype(idx_dtype, copy=False),
+                indptr,
+            ),
             shape=(n_cells, n_kept),
         )
         del parts
         out = ad.AnnData(X=X, obs=obs.copy(), var=var, uns=uns)
-        logger.info(
-            f"Built {n_cells:,} cells × {n_kept:,} tiles "
-            f"({time.perf_counter() - start_time:.1f}s)"
-        )
+        logger.info(f"Built {n_cells:,} cells × {n_kept:,} tiles ({time.perf_counter() - start_time:.1f}s)")
         return out
 
     # Written as it is built, into datasets sized from the tile statistics:
@@ -328,17 +347,18 @@ def build_tile_matrix(
         shrink = {} if exact else {"maxshape": (None,), "chunks": (1 << 22,)}
         with async_memory_pool(), h5py.File(tmp_path, "a") as h5:
             group = h5.create_group("X")
-            group.attrs.update({"encoding-type": "csr_matrix", "encoding-version": "0.1.0",
-                                "shape": np.array([n_cells, n_kept])})
+            group.attrs.update(
+                {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_cells, n_kept])}
+            )
             out_data = group.create_dataset("data", shape=(upper,), dtype=np.uint16, **shrink)
             out_indices = group.create_dataset("indices", shape=(upper,), dtype=idx_dtype, **shrink)
             indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
             pos = 0
             for r0, row_nnz, cols, data in file_parts():
                 k = len(cols)
-                out_data[pos:pos + k] = data
-                out_indices[pos:pos + k] = cols
-                indptr[r0 + 1:r0 + 1 + len(row_nnz)] = pos + np.cumsum(row_nnz)
+                out_data[pos : pos + k] = data
+                out_indices[pos : pos + k] = cols
+                indptr[r0 + 1 : r0 + 1 + len(row_nnz)] = pos + np.cumsum(row_nnz)
                 pos += k
             if exact and pos != upper:
                 raise RuntimeError(f"Wrote {pos:,} entries, expected {upper:,}")
@@ -348,8 +368,6 @@ def build_tile_matrix(
             group.create_dataset("indptr", data=indptr)
     cleanup_gpu_memory()
     logger.info(
-        f"Wrote {output_path.name}: {n_cells:,} cells × {n_kept:,} tiles "
-        f"({time.perf_counter() - start_time:.1f}s)"
+        f"Wrote {output_path.name}: {n_cells:,} cells × {n_kept:,} tiles ({time.perf_counter() - start_time:.1f}s)"
     )
     return ad.read_h5ad(output_path, backed="r")
-

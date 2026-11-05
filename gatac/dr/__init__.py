@@ -7,14 +7,14 @@ from .._rapids import require as _require_rapids
 
 _require_rapids()
 
-from .spectral import spectral
 from .lsi import (
-    lsi,
-    iterative_lsi,
-    project_lsi,
-    model_from_adata,
     LSIModel,
+    iterative_lsi,
+    lsi,
+    model_from_adata,
+    project_lsi,
 )
+from .spectral import spectral
 
 __all__ = [
     "spectral",

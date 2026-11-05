@@ -1,4 +1,5 @@
 """What ``import gatac`` does to the process: logging and progress bars."""
+
 import logging
 import subprocess
 import sys
@@ -12,8 +13,7 @@ LOG = "import logging, os, sys\n{config}\nimport gatac\nlogging.getLogger('gatac
 def _stderr(config: str) -> str:
     """stderr of a fresh process that imports gatac after ``config`` and logs one INFO message."""
     code = LOG.format(config=config)
-    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                          check=True).stderr
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stderr
 
 
 def test_info_shown_once_and_through_the_applications_logging():
@@ -45,11 +45,13 @@ def _run(code: str) -> subprocess.CompletedProcess:
 
 
 def test_submodules_are_imported_on_first_use():
-    out = _run("import sys, gatac\n"
-               "assert 'gatac.pp' not in sys.modules and 'cudf' not in sys.modules\n"
-               "from gatac import io\n"
-               "assert gatac.pp.combine and 'gatac.pp' in sys.modules and io is gatac.io\n"
-               "assert {'io', 'pp', 'gpu'} <= set(dir(gatac))")
+    out = _run(
+        "import sys, gatac\n"
+        "assert 'gatac.pp' not in sys.modules and 'cudf' not in sys.modules\n"
+        "from gatac import io\n"
+        "assert gatac.pp.combine and 'gatac.pp' in sys.modules and io is gatac.io\n"
+        "assert {'io', 'pp', 'gpu'} <= set(dir(gatac))"
+    )
     assert out.returncode == 0, out.stderr
 
 

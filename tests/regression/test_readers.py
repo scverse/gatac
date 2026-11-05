@@ -1,4 +1,5 @@
 """The shared metrics, BED and GTF readers, and the functions that use them."""
+
 import gzip
 import re
 
@@ -13,6 +14,7 @@ from gatac._readers import read_bed, read_gtf, read_metrics
 
 def _chrom_sizes(world):
     from pyfaidx import Fasta
+
     return {c: len(seq) for c, seq in Fasta(str(world["fasta"])).items()}
 
 
@@ -54,8 +56,12 @@ def test_read_metrics_rejects_other_types():
 def test_make_tile_matrix_missing_metrics_raises(world, tmp_path):
     """A mistyped metrics path must not silently skip the cell filter."""
     with pytest.raises(FileNotFoundError, match="Metrics file not found"):
-        ga.pp.make_tile_matrix(world["parquet"], chrom_sizes=_chrom_sizes(world),
-                               metrics=tmp_path / "typo.csv", filter_query="n_unique >= 100")
+        ga.pp.make_tile_matrix(
+            world["parquet"],
+            chrom_sizes=_chrom_sizes(world),
+            metrics=tmp_path / "typo.csv",
+            filter_query="n_unique >= 100",
+        )
 
 
 @pytest.mark.parametrize("kind", ["pandas", "csv"])
@@ -76,11 +82,9 @@ def test_make_tile_matrix_metrics_inputs(kind, world, tmp_path):
 
 @pytest.mark.parametrize("gz", [False, True])
 def test_read_bed(gz, tmp_path):
-    text = ("track name=peaks\n"
-            "browser position chr1:1-100\n"
-            "# a comment\n"
-            "1\t100\t200\tpeak1\t5\n"
-            "chrX\t300\t450\tpeak2\t7\n")
+    text = (
+        "track name=peaks\nbrowser position chr1:1-100\n# a comment\n1\t100\t200\tpeak1\t5\nchrX\t300\t450\tpeak2\t7\n"
+    )
     path = tmp_path / ("peaks.bed.gz" if gz else "peaks.bed")
     if gz:
         with gzip.open(path, "wt") as f:
@@ -89,7 +93,7 @@ def test_read_bed(gz, tmp_path):
         path.write_text(text)
     got = read_bed(path)
     assert list(got.columns) == ["chrom", "start", "end"]
-    assert got["chrom"].tolist() == ["1", "chrX"]       # numeric names stay strings
+    assert got["chrom"].tolist() == ["1", "chrX"]  # numeric names stay strings
     assert got["start"].tolist() == [100, 300] and got["end"].tolist() == [200, 450]
     assert got["start"].dtype == np.int64 and got["end"].dtype == np.int64
 
@@ -107,7 +111,7 @@ GTF = (
 @pytest.mark.parametrize("fmt", ["gtf", "gtf.gz", "gff3"])
 def test_read_gtf(fmt, tmp_path):
     text = GTF
-    if fmt == "gff3":   # same records with key=value; attributes
+    if fmt == "gff3":  # same records with key=value; attributes
         text = re.sub(r'(\w+) "([^"]*)"; ?', r"\1=\2;", text)
     path = tmp_path / f"genes.{fmt}"
     if fmt.endswith(".gz"):
@@ -117,7 +121,7 @@ def test_read_gtf(fmt, tmp_path):
         path.write_text(text)
     got = read_gtf(path, "transcript", {"name": "gene_name", "tid": "transcript_id"})
     assert list(got.columns) == ["chrom", "start", "end", "strand", "name", "tid"]
-    assert got["tid"].tolist() == ["T1", "T2", "T3"]                  # file order
+    assert got["tid"].tolist() == ["T1", "T2", "T3"]  # file order
     assert got["start"].tolist() == [100, 300, 50] and got["end"].tolist() == [500, 900, 80]
-    assert got["name"].tolist()[0::2] == ["A", "B"] and pd.isna(got["name"][1])   # absent key: null
+    assert got["name"].tolist()[0::2] == ["A", "B"] and pd.isna(got["name"][1])  # absent key: null
     assert got["start"].dtype == np.int64

@@ -68,15 +68,22 @@ def test_combine_concatenates_files_and_rejects_duplicate_barcodes(split_h5ad, t
 def _one_cell(path, cell, features, values):
     import anndata as ad
     import scipy.sparse as sp
-    ad.AnnData(sp.csr_matrix(np.array([values], dtype=np.float32)),
-               obs=pd.DataFrame(index=[cell]), var=pd.DataFrame(index=features)).write_h5ad(path)
+
+    ad.AnnData(
+        sp.csr_matrix(np.array([values], dtype=np.float32)),
+        obs=pd.DataFrame(index=[cell]),
+        var=pd.DataFrame(index=features),
+    ).write_h5ad(path)
     return path
 
 
-@pytest.mark.parametrize("features_b, match", [
-    (["geneB", "geneA"], "same 2 features in another order"),
-    (["geneA", "geneC"], "1 of them not among the 2"),
-])
+@pytest.mark.parametrize(
+    "features_b, match",
+    [
+        (["geneB", "geneA"], "same 2 features in another order"),
+        (["geneA", "geneC"], "1 of them not among the 2"),
+    ],
+)
 def test_combine_rejects_other_features_and_keeps_the_output(tmp_path, features_b, match):
     """Columns are stacked by position: files whose features differ, even only in order, are refused
     before the existing output is touched."""
@@ -96,8 +103,7 @@ def test_tile_matrix_from_interval_matrix_sums_overlapping_features(peaks, world
     peaks.write_h5ad(tmp_path / "peaks.h5ad")
     with ga.io.Fasta(world["fasta"]) as fa:
         sizes = fa.chrom_sizes
-    got = ga.pp.make_tile_matrix(tmp_path / "peaks.h5ad", chrom_sizes=sizes, tile_size=5_000,
-                                 min_fragments_per_cell=0)
+    got = ga.pp.make_tile_matrix(tmp_path / "peaks.h5ad", chrom_sizes=sizes, tile_size=5_000, min_fragments_per_cell=0)
     assert list(got.obs_names) == list(peaks.obs_names)
     tile = {(c, int(s)): j for j, (c, s) in enumerate(zip(got.var["chrom"], got.var["start"]))}
     X = peaks.X.toarray().astype(np.int64)

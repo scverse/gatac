@@ -7,8 +7,8 @@ from .._rapids import require as _require_rapids
 
 _require_rapids()
 
-from .footprint import footprint, FootprintTracks, TrackLayout
-from .bindetect import bindetect, bindetect_sites, BINDetectResult, SiteSet
+from .bindetect import BINDetectResult, SiteSet, bindetect, bindetect_sites
+from .footprint import FootprintTracks, TrackLayout, footprint
 
 __all__ = [
     "footprint",

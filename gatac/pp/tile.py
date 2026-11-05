@@ -7,13 +7,14 @@ tile insertions are computed for *all* chromosomes at once and summed per
 (cell, tile); the sums stay on the GPU, where the CSR matrix is built
 once at the end and copied to the host.
 """
+
 from __future__ import annotations
 
 import functools
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
 
 import anndata as ad
 import cudf
@@ -24,8 +25,8 @@ import pandas as pd
 import scipy.sparse as sp
 
 from .._files import write_h5ad
-from ..gpu import bincount
 from .._readers import read_metrics
+from ..gpu import bincount
 from ..io.fragments import FragmentFile
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
@@ -38,14 +39,15 @@ _INTERVAL_FEATURE_PATTERN = r"^(?P<chrom>[^:;]+)[:;](?P<start>\d+)-(?P<end>\d+)$
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _insertions_gpu(
     cell_idx: cp.ndarray,
     tile_offset: cp.ndarray,
     start: cp.ndarray,
     end: cp.ndarray,
-    count: Optional[cp.ndarray],
+    count: cp.ndarray | None,
     tile_size: int,
-) -> Tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
+) -> tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
     """
     One (cell, tile, count) triplet per Tn5 insertion of a batch of fragments.
 
@@ -92,10 +94,10 @@ def _tile_key_counts_gpu(
     tile_offset: cp.ndarray,
     start: cp.ndarray,
     end: cp.ndarray,
-    count: Optional[cp.ndarray],
+    count: cp.ndarray | None,
     tile_size: int,
     n_tiles: int,
-) -> Tuple[cp.ndarray, cp.ndarray]:
+) -> tuple[cp.ndarray, cp.ndarray]:
     """
     Per (cell, tile) insertion counts for one batch of fragments, kept on the
     GPU as sorted int64 keys ``cell * n_tiles + tile`` and int32 counts.
@@ -103,17 +105,13 @@ def _tile_key_counts_gpu(
     rows, cols, data = _insertions_gpu(cell_idx, tile_offset, start, end, count, tile_size)
     key = rows.astype(cp.int64) * n_tiles + cols
     del rows, cols
-    agg = (
-        cudf.DataFrame({"key": key, "count": data.astype(cp.int32)})
-        .groupby("key", sort=True)["count"]
-        .sum()
-    )
+    agg = cudf.DataFrame({"key": key, "count": data.astype(cp.int32)}).groupby("key", sort=True)["count"].sum()
     return agg.index.values, agg.values.astype(cp.int32, copy=False)
 
 
 def _iter_slabs(
-    keys: List[cp.ndarray],
-    counts: List[cp.ndarray],
+    keys: list[cp.ndarray],
+    counts: list[cp.ndarray],
     n_cells: int,
     n_tiles: int,
     slab_entries: int = 1 << 25,
@@ -134,14 +132,16 @@ def _iter_slabs(
     cuts = [cp.searchsorted(k, cp.asarray(bounds * n_tiles)).get() for k in keys]
     for s in range(n_slabs):
         r0, r1 = int(bounds[s]), int(bounds[s + 1])
-        key = cp.concatenate([k[c[s]:c[s + 1]] for k, c in zip(keys, cuts)])
+        key = cp.concatenate([k[c[s] : c[s + 1]] for k, c in zip(keys, cuts)])
         if len(key) == 0:
             continue
         agg = (
-            cudf.DataFrame({
-                "key": key,
-                "count": cp.concatenate([v[c[s]:c[s + 1]] for v, c in zip(counts, cuts)]),
-            })
+            cudf.DataFrame(
+                {
+                    "key": key,
+                    "count": cp.concatenate([v[c[s] : c[s + 1]] for v, c in zip(counts, cuts)]),
+                }
+            )
             .groupby("key", sort=True)["count"]
             .sum()
         )
@@ -183,11 +183,11 @@ def _set_tile_stats(adata: ad.AnnData, stats: dict, n_obs: int) -> None:
 
 
 def _csr_from_key_counts(
-    keys: List[cp.ndarray],
-    counts: List[cp.ndarray],
+    keys: list[cp.ndarray],
+    counts: list[cp.ndarray],
     n_cells: int,
     n_tiles: int,
-    stats: Optional[dict] = None,
+    stats: dict | None = None,
     binarize: bool = False,
 ) -> sp.csr_matrix:
     """
@@ -218,24 +218,26 @@ def _csr_from_key_counts(
 
 @functools.lru_cache(maxsize=4)
 def _cached_tile_metadata(
-    included_chroms: Tuple[str, ...],
-    sizes: Tuple[int, ...],
+    included_chroms: tuple[str, ...],
+    sizes: tuple[int, ...],
     tile_size: int,
-) -> Tuple[pd.DataFrame, cudf.DataFrame, int]:
+) -> tuple[pd.DataFrame, cudf.DataFrame, int]:
     """:func:`_build_tile_metadata_and_offsets`, built once per genome and tile size.
 
     Callers must not modify the returned tables.
     """
     return _build_tile_metadata_and_offsets(
-        list(included_chroms), dict(zip(included_chroms, sizes)), tile_size,
+        list(included_chroms),
+        dict(zip(included_chroms, sizes)),
+        tile_size,
     )
 
 
 def _build_tile_metadata_and_offsets(
-    included_chroms: List[str],
+    included_chroms: list[str],
     chrom_sizes: dict,
     tile_size: int,
-) -> Tuple[pd.DataFrame, cudf.DataFrame, int]:
+) -> tuple[pd.DataFrame, cudf.DataFrame, int]:
     """Return (tile_metadata_pd, chrom_offset_df_gpu, n_tiles_total).
 
     tile_metadata is built directly as pandas to avoid an expensive
@@ -261,28 +263,28 @@ def _build_tile_metadata_and_offsets(
     all_starts = np.concatenate(start_list)
     all_ends = np.concatenate(end_list)
 
-    tile_metadata = pd.DataFrame({
-        'chrom': all_chroms_arr,
-        'start': all_starts,
-        'end': all_ends,
-    })
+    tile_metadata = pd.DataFrame(
+        {
+            "chrom": all_chroms_arr,
+            "start": all_starts,
+            "end": all_ends,
+        }
+    )
     # Pre-build the var index (avoids doing it later in tile_matrix_to_anndata)
     tile_metadata.index = pd.Index(
-        all_chroms_arr.astype(str)
-        + ':'
-        + all_starts.astype(str)
-        + '-'
-        + all_ends.astype(str)
+        all_chroms_arr.astype(str) + ":" + all_starts.astype(str) + "-" + all_ends.astype(str)
     )
 
-    chrom_offset_df = cudf.DataFrame({
-        'chrom': list(offsets.keys()),
-        'tile_offset': np.array(list(offsets.values()), dtype=np.int32),
-    })
+    chrom_offset_df = cudf.DataFrame(
+        {
+            "chrom": list(offsets.keys()),
+            "tile_offset": np.array(list(offsets.values()), dtype=np.int32),
+        }
+    )
     return tile_metadata, chrom_offset_df, offset
 
 
-def _included_chroms(chrom_sizes: dict, exclude_chroms) -> Tuple[List[str], List[str]]:
+def _included_chroms(chrom_sizes: dict, exclude_chroms) -> tuple[list[str], list[str]]:
     """All chromosomes of ``chrom_sizes``, sorted, and those not excluded."""
     all_chroms = sorted(chrom_sizes.keys())
     if not exclude_chroms:
@@ -294,8 +296,8 @@ def _included_chroms(chrom_sizes: dict, exclude_chroms) -> Tuple[List[str], List
 
 def _tile_cells(
     fragments: FragmentFile,
-    all_chroms: List[str],
-    cell_meta_extra: Optional[pd.DataFrame],
+    all_chroms: list[str],
+    cell_meta_extra: pd.DataFrame | None,
     min_fragments_per_cell: int,
 ) -> pd.DataFrame:
     """
@@ -304,58 +306,57 @@ def _tile_cells(
     metrics' barcodes when given, with ``n_unique`` and the metrics' other
     columns.
     """
-    barcode_counts = fragments.barcode_counts(chroms=all_chroms)[['barcode', 'n_unique']]
+    barcode_counts = fragments.barcode_counts(chroms=all_chroms)[["barcode", "n_unique"]]
     if cell_meta_extra is not None:
         # Restrict to candidate barcodes
-        barcode_counts = barcode_counts[
-            barcode_counts['barcode'].isin(set(cell_meta_extra['barcode']))
-        ]
-    barcode_counts = barcode_counts[barcode_counts['n_unique'] >= int(min_fragments_per_cell)]
+        barcode_counts = barcode_counts[barcode_counts["barcode"].isin(set(cell_meta_extra["barcode"]))]
+    barcode_counts = barcode_counts[barcode_counts["n_unique"] >= int(min_fragments_per_cell)]
     if len(barcode_counts) == 0:
-        raise ValueError(
-            f"No cells passed the min_fragments_per_cell filter in {fragments.path.name}."
-        )
-    cells = barcode_counts.sort_values('barcode').reset_index(drop=True)
+        raise ValueError(f"No cells passed the min_fragments_per_cell filter in {fragments.path.name}.")
+    cells = barcode_counts.sort_values("barcode").reset_index(drop=True)
     if cell_meta_extra is not None:
         # Merge extra columns from provided metrics
-        extra_cols = [c for c in cell_meta_extra.columns if c not in ('barcode', 'n_unique')]
+        extra_cols = [c for c in cell_meta_extra.columns if c not in ("barcode", "n_unique")]
         if extra_cols:
-            cells = cells.merge(cell_meta_extra[['barcode'] + extra_cols], on='barcode', how='left')
+            cells = cells.merge(cell_meta_extra[["barcode"] + extra_cols], on="barcode", how="left")
     return cells
 
 
 def _stream_key_counts(
     fragments: FragmentFile,
-    cells: List[str],
-    included_chroms: List[str],
+    cells: list[str],
+    included_chroms: list[str],
     tile_offsets: cp.ndarray,
     n_tiles: int,
     tile_size: int,
     count_strategy: str,
     row_groups_per_batch: int,
-) -> Tuple[List[cp.ndarray], List[cp.ndarray]]:
+) -> tuple[list[cp.ndarray], list[cp.ndarray]]:
     """
     Per (cell, tile) counts of each batch of row groups, kept on the GPU,
     the cell being the index in ``cells``. See :func:`_tile_key_counts_gpu`.
     """
-    effective_strategy = 'unique' if count_strategy == 'binarize' else count_strategy
-    frag_columns = ['chrom', 'start', 'end']
-    if effective_strategy == 'count':
-        frag_columns.append('count')
+    effective_strategy = "unique" if count_strategy == "binarize" else count_strategy
+    frag_columns = ["chrom", "start", "end"]
+    if effective_strategy == "count":
+        frag_columns.append("count")
 
     keys: list[cp.ndarray] = []
     counts: list[cp.ndarray] = []
     for batch in fragments.iter_batches(
-        frag_columns, row_groups_per_batch, chroms=included_chroms, cells=cells,
+        frag_columns,
+        row_groups_per_batch,
+        chroms=included_chroms,
+        cells=cells,
     ):
         if len(batch) == 0:
             continue
         key, count = _tile_key_counts_gpu(
-            batch['cell'].values,
-            tile_offsets[batch['chrom'].values],
-            batch['start'].values,
-            batch['end'].values,
-            batch['count'].values if effective_strategy == 'count' else None,
+            batch["cell"].values,
+            tile_offsets[batch["chrom"].values],
+            batch["start"].values,
+            batch["end"].values,
+            batch["count"].values if effective_strategy == "count" else None,
             tile_size,
             n_tiles,
         )
@@ -374,15 +375,12 @@ def _load_interval_adata(input_data: ad.AnnData | Path):
 
     input_path = Path(input_data)
     suffix = input_path.suffix.lower()
-    if suffix == '.h5ad':
+    if suffix == ".h5ad":
         return sc.read_h5ad(str(input_path))
-    if suffix == '.h5':
+    if suffix == ".h5":
         return sc.read_10x_h5(str(input_path), gex_only=False)
 
-    raise ValueError(
-        f"Unsupported interval-matrix format: '{input_path.suffix}'. "
-        "Expected '.h5ad' or 10x '.h5'."
-    )
+    raise ValueError(f"Unsupported interval-matrix format: '{input_path.suffix}'. Expected '.h5ad' or 10x '.h5'.")
 
 
 def _extract_interval_features(var_names: pd.Index) -> pd.DataFrame:
@@ -390,39 +388,34 @@ def _extract_interval_features(var_names: pd.Index) -> pd.DataFrame:
     feature_names = pd.Index(var_names).astype(str)
     parsed = feature_names.to_series(
         index=np.arange(len(feature_names)),
-        name='feature_name',
+        name="feature_name",
     ).str.extract(_INTERVAL_FEATURE_PATTERN)
 
     parsed = parsed[parsed.notna().all(axis=1)].copy()
     if parsed.empty:
-        raise ValueError(
-            "No interval-like features found in var_names. "
-            "Expected names like 'chr1:100-200'."
-        )
+        raise ValueError("No interval-like features found in var_names. Expected names like 'chr1:100-200'.")
 
-    parsed['start'] = parsed['start'].astype(np.int64)
-    parsed['end'] = parsed['end'].astype(np.int64)
-    parsed = parsed[parsed['end'] > parsed['start']]
+    parsed["start"] = parsed["start"].astype(np.int64)
+    parsed["end"] = parsed["end"].astype(np.int64)
+    parsed = parsed[parsed["end"] > parsed["start"]]
     if parsed.empty:
-        raise ValueError(
-            "No interval-like features with end > start were found in var_names."
-        )
+        raise ValueError("No interval-like features with end > start were found in var_names.")
 
-    parsed.insert(0, 'feature_idx', parsed.index.to_numpy(dtype=np.int32))
-    parsed.insert(1, 'feature_name', feature_names[parsed['feature_idx']].to_numpy())
+    parsed.insert(0, "feature_idx", parsed.index.to_numpy(dtype=np.int32))
+    parsed.insert(1, "feature_name", feature_names[parsed["feature_idx"]].to_numpy())
     return parsed.reset_index(drop=True)
 
 
-def _load_metrics_dataframe(metrics, filter_query: Optional[str]) -> Optional[pd.DataFrame]:
+def _load_metrics_dataframe(metrics, filter_query: str | None) -> pd.DataFrame | None:
     """Load cell metrics (see :func:`gatac._readers.read_metrics`) and optionally apply a pandas query."""
     metrics_df = read_metrics(metrics)
     if metrics_df is None:
         return None
 
-    if 'barcode' not in metrics_df.columns:
+    if "barcode" not in metrics_df.columns:
         raise ValueError("Metrics table must contain a 'barcode' column.")
 
-    metrics_df['barcode'] = metrics_df['barcode'].astype(str)
+    metrics_df["barcode"] = metrics_df["barcode"].astype(str)
     if filter_query:
         try:
             metrics_df = metrics_df.query(filter_query)
@@ -435,22 +428,19 @@ def _load_metrics_dataframe(metrics, filter_query: Optional[str]) -> Optional[pd
 def _make_tile_matrix_from_interval_matrix(
     input_data: ad.AnnData | Path,
     chrom_sizes: dict[str, int],
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     tile_size: int = 5000,
-    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
+    exclude_chroms: Sequence[str] | None = ("chrM", "chrY", "M", "Y"),
     min_fragments_per_cell: int = 100,
-    metrics: Optional[str | Path | pd.DataFrame | cudf.DataFrame] = None,
-    filter_query: Optional[str] = None,
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
+    filter_query: str | None = None,
     count_strategy: str = "unique",
 ):
     """Aggregate interval-like matrix features into fixed genomic tiles."""
     adata = _load_interval_adata(input_data)
     interval_features = _extract_interval_features(adata.var_names)
     input_label = input_data.name if isinstance(input_data, Path) else "AnnData object"
-    logger.info(
-        f"Loaded {input_label}: found {len(interval_features):,} "
-        "interval-like features in var_names"
-    )
+    logger.info(f"Loaded {input_label}: found {len(interval_features):,} interval-like features in var_names")
 
     all_chroms = sorted(chrom_sizes.keys())
     if exclude_chroms is not None:
@@ -460,15 +450,11 @@ def _make_tile_matrix_from_interval_matrix(
     else:
         included_chroms = all_chroms
 
-    interval_features = interval_features[
-        interval_features['chrom'].isin(included_chroms)
-    ].reset_index(drop=True)
+    interval_features = interval_features[interval_features["chrom"].isin(included_chroms)].reset_index(drop=True)
     if interval_features.empty:
-        raise ValueError(
-            "No interval-like features remained after chromosome filtering."
-        )
+        raise ValueError("No interval-like features remained after chromosome filtering.")
 
-    feature_indices = interval_features['feature_idx'].to_numpy(dtype=np.int32)
+    feature_indices = interval_features["feature_idx"].to_numpy(dtype=np.int32)
     interval_adata = adata[:, feature_indices]
     matrix = interval_adata.X
     if sp.issparse(matrix):
@@ -478,24 +464,24 @@ def _make_tile_matrix_from_interval_matrix(
 
     obs = interval_adata.obs.copy()
     obs.index = obs.index.astype(str)
-    obs['barcode'] = obs.index
-    obs['row_idx'] = np.arange(matrix.shape[0], dtype=np.int64)
-    obs['n_interval_counts'] = np.asarray(matrix.sum(axis=1)).ravel()
+    obs["barcode"] = obs.index
+    obs["row_idx"] = np.arange(matrix.shape[0], dtype=np.int64)
+    obs["n_interval_counts"] = np.asarray(matrix.sum(axis=1)).ravel()
 
-    if 'n_unique' not in obs.columns:
-        if 'n_fragment' in obs.columns:
-            obs['n_unique'] = np.asarray(obs['n_fragment'])
+    if "n_unique" not in obs.columns:
+        if "n_fragment" in obs.columns:
+            obs["n_unique"] = np.asarray(obs["n_fragment"])
         else:
-            obs['n_unique'] = obs['n_interval_counts']
+            obs["n_unique"] = obs["n_interval_counts"]
 
     metrics_df = _load_metrics_dataframe(metrics, filter_query)
     if metrics_df is not None:
-        extra_cols = [column for column in metrics_df.columns if column != 'barcode']
+        extra_cols = [column for column in metrics_df.columns if column != "barcode"]
         obs = obs.merge(
-            metrics_df[['barcode'] + extra_cols],
-            on='barcode',
-            how='inner',
-            suffixes=('', '_metrics'),
+            metrics_df[["barcode"] + extra_cols],
+            on="barcode",
+            how="inner",
+            suffixes=("", "_metrics"),
         )
         if obs.empty:
             raise ValueError("No cells remained after applying metrics filtering.")
@@ -503,7 +489,7 @@ def _make_tile_matrix_from_interval_matrix(
     count_column = next(
         (
             column
-            for column in ('n_unique_metrics', 'n_unique', 'n_fragment', 'n_interval_counts')
+            for column in ("n_unique_metrics", "n_unique", "n_fragment", "n_interval_counts")
             if column in obs.columns
         ),
         None,
@@ -515,14 +501,13 @@ def _make_tile_matrix_from_interval_matrix(
     if obs.empty:
         raise ValueError("No cells passed the min_fragments_per_cell filter.")
 
-    row_indices = obs.pop('row_idx').to_numpy(dtype=np.int64)
+    row_indices = obs.pop("row_idx").to_numpy(dtype=np.int64)
     matrix = matrix[row_indices]
     obs.reset_index(drop=True, inplace=True)
 
-    if count_strategy in ('unique', 'count'):
+    if count_strategy in ("unique", "count"):
         logger.info(
-            "Interval-matrix input detected: preserving input matrix values "
-            "and summing overlapping features per tile."
+            "Interval-matrix input detected: preserving input matrix values and summing overlapping features per tile."
         )
 
     tile_metadata, chrom_offset_df, n_tiles_total = _build_tile_metadata_and_offsets(
@@ -532,14 +517,14 @@ def _make_tile_matrix_from_interval_matrix(
     )
     chrom_offsets = dict(
         zip(
-            chrom_offset_df['chrom'].to_pandas(),
-            chrom_offset_df['tile_offset'].to_pandas(),
+            chrom_offset_df["chrom"].to_pandas(),
+            chrom_offset_df["tile_offset"].to_pandas(),
         )
     )
 
-    start = interval_features['start'].to_numpy(dtype=np.int64)
-    end = interval_features['end'].to_numpy(dtype=np.int64)
-    chrom = interval_features['chrom'].to_numpy(dtype=object)
+    start = interval_features["start"].to_numpy(dtype=np.int64)
+    end = interval_features["end"].to_numpy(dtype=np.int64)
+    chrom = interval_features["chrom"].to_numpy(dtype=object)
     tile_start = np.array([chrom_offsets[c] for c in chrom], dtype=np.int32)
     tile_start += (start // tile_size).astype(np.int32)
     tile_end = np.array([chrom_offsets[c] for c in chrom], dtype=np.int32)
@@ -551,10 +536,7 @@ def _make_tile_matrix_from_interval_matrix(
         tiles_per_feature,
     )
     map_cols = np.concatenate(
-        [
-            np.arange(start_idx, end_idx + 1, dtype=np.int32)
-            for start_idx, end_idx in zip(tile_start, tile_end)
-        ]
+        [np.arange(start_idx, end_idx + 1, dtype=np.int32) for start_idx, end_idx in zip(tile_start, tile_end)]
     )
     feature_to_tile = sp.csr_matrix(
         (
@@ -569,27 +551,23 @@ def _make_tile_matrix_from_interval_matrix(
     if not isinstance(tile_matrix, sp.csr_matrix):
         tile_matrix = tile_matrix.tocsr()
 
-    if count_strategy == 'binarize':
+    if count_strategy == "binarize":
         tile_matrix.data[:] = 1
 
     adata = tile_matrix_to_anndata(tile_matrix, obs, tile_metadata)
     stats: dict = {}
     _add_tile_stats(stats, adata.X.indices, adata.X.data, adata.n_vars)
     _set_tile_stats(adata, stats, adata.n_obs)
-    adata.uns['tile_input_kind'] = 'interval_matrix'
-    adata.uns['tile_aggregation'] = 'sum_overlapping_features'
+    adata.uns["tile_input_kind"] = "interval_matrix"
+    adata.uns["tile_aggregation"] = "sum_overlapping_features"
 
     if output_path is not None:
         write_h5ad(adata, output_path)
         logger.info(
-            f"Created {output_path.name}: {adata.shape[0]:,} cells × "
-            f"{adata.shape[1]:,} tiles from interval matrix"
+            f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles from interval matrix"
         )
     else:
-        logger.info(
-            f"Created interval-matrix tile AnnData: {adata.shape[0]:,} cells × "
-            f"{adata.shape[1]:,} tiles"
-        )
+        logger.info(f"Created interval-matrix tile AnnData: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles")
     return adata
 
 
@@ -597,8 +575,9 @@ def _make_tile_matrix_from_interval_matrix(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def tile_matrix_to_anndata(
-    matrix: Union[sp.csr_matrix, cusp.csr_matrix, np.ndarray],
+    matrix: sp.csr_matrix | cusp.csr_matrix | np.ndarray,
     cell_metadata: cudf.DataFrame,
     tile_metadata: cudf.DataFrame,
 ):
@@ -644,22 +623,18 @@ def tile_matrix_to_anndata(
             matrix_cpu = matrix_cpu.tocsr()
     else:
         # Dense numpy or cupy array
-        if hasattr(matrix, 'get'):
+        if hasattr(matrix, "get"):
             matrix = matrix.get()
         matrix_cpu = sp.csr_matrix(matrix.astype(np.uint16))
 
-    obs = cell_metadata.to_pandas() if hasattr(cell_metadata, 'to_pandas') else cell_metadata.copy()
-    obs.index = obs['barcode'].values
+    obs = cell_metadata.to_pandas() if hasattr(cell_metadata, "to_pandas") else cell_metadata.copy()
+    obs.index = obs["barcode"].values
 
-    var = tile_metadata.to_pandas() if hasattr(tile_metadata, 'to_pandas') else tile_metadata.copy()
-    if var.index.dtype == object and ':' in str(var.index[0]):
+    var = tile_metadata.to_pandas() if hasattr(tile_metadata, "to_pandas") else tile_metadata.copy()
+    if var.index.dtype == object and ":" in str(var.index[0]):
         pass  # index already set (e.g. from _build_tile_metadata_and_offsets)
     else:
-        var.index = (
-            var['chrom'].astype(str) + ':' +
-            var['start'].astype(str) + '-' +
-            var['end'].astype(str)
-        )
+        var.index = var["chrom"].astype(str) + ":" + var["start"].astype(str) + "-" + var["end"].astype(str)
 
     adata = sc.AnnData(X=matrix_cpu, obs=obs, var=var)
     logger.debug(f"Created AnnData: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles")
@@ -668,18 +643,18 @@ def tile_matrix_to_anndata(
 
 
 def make_tile_matrix(
-    input: str | Path | ad.AnnData | List[str | Path],
+    input: str | Path | ad.AnnData | list[str | Path],
     chrom_sizes: dict[str, int] | str,
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
     tile_size: int = 5000,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: Optional[Sequence[str]] = ("chrM", "chrY", "M", "Y"),
-    metrics: Optional[str | Path | pd.DataFrame | cudf.DataFrame] = None,
-    filter_query: Optional[str] = None,
+    exclude_chroms: Sequence[str] | None = ("chrM", "chrY", "M", "Y"),
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
+    filter_query: str | None = None,
     count_strategy: str = "unique",
     low_memory: bool = False,
     row_groups_per_batch: int = 64,
-    n_features: Optional[int] = None,
+    n_features: int | None = None,
 ) -> ad.AnnData:
     """
     Generate a tile matrix from fragments or interval-like feature matrices.
@@ -779,38 +754,50 @@ def make_tile_matrix(
     """
 
     from .genome import get_chrom_sizes
+
     if isinstance(chrom_sizes, str):
         chrom_sizes = get_chrom_sizes(chrom_sizes)
 
     combined = isinstance(input, (list, tuple))
     if combined or n_features is not None:
-        if not combined and (isinstance(input, ad.AnnData) or Path(input).suffix.lower() in {'.h5ad', '.h5'}):
-            raise ValueError(
-                "n_features applies to fragment files; call pp.select_features on the result instead"
-            )
+        if not combined and (isinstance(input, ad.AnnData) or Path(input).suffix.lower() in {".h5ad", ".h5"}):
+            raise ValueError("n_features applies to fragment files; call pp.select_features on the result instead")
         from .features import select_features
         from .tile_scan import build_tile_matrix, scan_tiles
 
         tiles = scan_tiles(
-            input if combined else [input], chrom_sizes, tile_size=tile_size,
-            min_fragments_per_cell=min_fragments_per_cell, exclude_chroms=exclude_chroms,
-            metrics=metrics, filter_query=filter_query, count_strategy=count_strategy,
+            input if combined else [input],
+            chrom_sizes,
+            tile_size=tile_size,
+            min_fragments_per_cell=min_fragments_per_cell,
+            exclude_chroms=exclude_chroms,
+            metrics=metrics,
+            filter_query=filter_query,
+            count_strategy=count_strategy,
             row_groups_per_batch=min(row_groups_per_batch, 8) if low_memory else row_groups_per_batch,
         )
         if n_features is not None:
             select_features(tiles, n_features=n_features)
         return build_tile_matrix(
-            tiles, output_path=output_path,
+            tiles,
+            output_path=output_path,
             features="selected" if n_features is not None else None,
             row_groups_per_batch=min(row_groups_per_batch, 8) if low_memory else row_groups_per_batch,
         )
 
     with async_memory_pool():
         adata = _make_tile_matrix_one(
-            input, output_path, chrom_sizes=chrom_sizes, tile_size=tile_size,
-            min_fragments_per_cell=min_fragments_per_cell, exclude_chroms=exclude_chroms,
-            metrics=metrics, filter_query=filter_query, count_strategy=count_strategy,
-            low_memory=low_memory, row_groups_per_batch=row_groups_per_batch,
+            input,
+            output_path,
+            chrom_sizes=chrom_sizes,
+            tile_size=tile_size,
+            min_fragments_per_cell=min_fragments_per_cell,
+            exclude_chroms=exclude_chroms,
+            metrics=metrics,
+            filter_query=filter_query,
+            count_strategy=count_strategy,
+            low_memory=low_memory,
+            row_groups_per_batch=row_groups_per_batch,
         )
     cleanup_gpu_memory()
     return adata
@@ -818,13 +805,13 @@ def make_tile_matrix(
 
 def _make_tile_matrix_one(
     input: str | Path | ad.AnnData,
-    output_path: Optional[str | Path],
+    output_path: str | Path | None,
     chrom_sizes: dict[str, int],
     tile_size: int,
     min_fragments_per_cell: int,
-    exclude_chroms: Optional[list],
+    exclude_chroms: list | None,
     metrics,
-    filter_query: Optional[str],
+    filter_query: str | None,
     count_strategy: str,
     low_memory: bool,
     row_groups_per_batch: int,
@@ -834,7 +821,7 @@ def _make_tile_matrix_one(
     input_path = None if input_is_adata else Path(input)
     resolved_output_path = Path(output_path) if output_path is not None else None
 
-    if input_is_adata or input_path.suffix.lower() in {'.h5ad', '.h5'}:
+    if input_is_adata or input_path.suffix.lower() in {".h5ad", ".h5"}:
         return _make_tile_matrix_from_interval_matrix(
             input_data=input if input_is_adata else input_path,
             chrom_sizes=chrom_sizes,
@@ -855,11 +842,15 @@ def _make_tile_matrix_one(
 
     all_chroms, included_chroms = _included_chroms(chrom_sizes, exclude_chroms)
     tile_metadata, chrom_offset_df, n_tiles_total = _cached_tile_metadata(
-        tuple(included_chroms), tuple(chrom_sizes[c] for c in included_chroms), tile_size,
+        tuple(included_chroms),
+        tuple(chrom_sizes[c] for c in included_chroms),
+        tile_size,
     )
     fragments = FragmentFile(input_path)
     cell_meta_pd = _tile_cells(
-        fragments, all_chroms, _load_metrics_dataframe(metrics, filter_query),
+        fragments,
+        all_chroms,
+        _load_metrics_dataframe(metrics, filter_query),
         min_fragments_per_cell,
     )
     n_cells = len(cell_meta_pd)
@@ -867,9 +858,14 @@ def _make_tile_matrix_one(
 
     # Per (cell, tile) counts of each batch, kept on the GPU
     keys, counts = _stream_key_counts(
-        fragments, list(cell_meta_pd['barcode']), included_chroms,
-        chrom_offset_df['tile_offset'].values, n_tiles_total, tile_size,
-        count_strategy, row_groups_per_batch,
+        fragments,
+        list(cell_meta_pd["barcode"]),
+        included_chroms,
+        chrom_offset_df["tile_offset"].values,
+        n_tiles_total,
+        tile_size,
+        count_strategy,
+        row_groups_per_batch,
     )
 
     # The CSR matrix, built on the GPU and copied to the host once
@@ -877,29 +873,34 @@ def _make_tile_matrix_one(
     if keys:
         try:
             matrix = _csr_from_key_counts(
-                keys, counts, n_cells, n_tiles_total, stats, count_strategy == 'binarize',
+                keys,
+                counts,
+                n_cells,
+                n_tiles_total,
+                stats,
+                count_strategy == "binarize",
             )
         except (MemoryError, RuntimeError):
             # cupy's OutOfMemoryError and RMM's bad_alloc are MemoryErrors
-            logger.warning(
-                "GPU OOM during sparse matrix assembly. "
-                "Falling back to CPU assembly (this may be slow)."
-            )
+            logger.warning("GPU OOM during sparse matrix assembly. Falling back to CPU assembly (this may be slow).")
             key = np.concatenate([k.get() for k in keys])
             count = np.concatenate([c.get() for c in counts])
-            matrix = sp.coo_matrix(
-                (count, (key // n_tiles_total, key % n_tiles_total)),
-                shape=(n_cells, n_tiles_total),
-            ).tocsr().astype(np.uint16)
+            matrix = (
+                sp.coo_matrix(
+                    (count, (key // n_tiles_total, key % n_tiles_total)),
+                    shape=(n_cells, n_tiles_total),
+                )
+                .tocsr()
+                .astype(np.uint16)
+            )
             del key, count
             stats = {}
-            _add_tile_stats(stats, matrix.indices, matrix.data, n_tiles_total,
-                            count_strategy == 'binarize')
+            _add_tile_stats(stats, matrix.indices, matrix.data, n_tiles_total, count_strategy == "binarize")
         del keys, counts
     else:
         matrix = sp.csr_matrix((n_cells, n_tiles_total), dtype=np.uint16)
 
-    if count_strategy == 'binarize':
+    if count_strategy == "binarize":
         matrix.data[:] = 1
 
     adata = tile_matrix_to_anndata(matrix, cell_meta_pd, tile_metadata)
@@ -916,8 +917,7 @@ def _make_tile_matrix_one(
     else:
         total_time = time.perf_counter() - start_time
         logger.info(
-            f"Created tile AnnData in memory: {adata.shape[0]:,} cells × "
-            f"{adata.shape[1]:,} tiles ({total_time:.1f}s)"
+            f"Created tile AnnData in memory: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles ({total_time:.1f}s)"
         )
 
     return adata

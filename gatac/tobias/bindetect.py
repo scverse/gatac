@@ -34,10 +34,11 @@ import os
 import random
 import re
 import time
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Sequence, Union
+from typing import Literal
 
 import cudf
 import cupy as cp
@@ -53,9 +54,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["bindetect", "bindetect_sites", "BINDetectResult", "SiteSet"]
 
-MOODS_WINDOW = 7            # MOODS.scan.Scanner(7)
-N_CHUNKS = 100              # BINDetect --split
-RAND_WINDOW = 200           # one background position per 200 bp of peak
+MOODS_WINDOW = 7  # MOODS.scan.Scanner(7)
+N_CHUNKS = 100  # BINDetect --split
+RAND_WINDOW = 200  # one background position per 200 bp of peak
 
 
 def _n_threads() -> int:
@@ -71,11 +72,11 @@ def _n_threads() -> int:
 class _Motif:
     id: str
     name: str
-    pfm: np.ndarray          # (4, length) probabilities, rows A C G T
-    n: int = 20              # nsites (TOBIAS default 20)
+    pfm: np.ndarray  # (4, length) probabilities, rows A C G T
+    n: int = 20  # nsites (TOBIAS default 20)
 
 
-def _read_meme(path: Union[str, Path]) -> list[_Motif]:
+def _read_meme(path: str | Path) -> list[_Motif]:
     """MEME reader following TOBIAS's MotifList.from_file (id, optional name, nsites)."""
     motifs, rows = [], None
     cur = None
@@ -108,9 +109,15 @@ def _as_motifs(motifs) -> list[_Motif]:
     if isinstance(motifs, (str, Path)):
         return _read_meme(motifs)
     out = []
-    for m in motifs:                       # gatac DNAMotif: pwm (length, 4), columns A C G T
-        out.append(_Motif(id=str(m.id), name=str(m.name or ""), pfm=np.asarray(m.pwm, np.float64).T.copy(),
-                          n=int(getattr(m, "nsites", 20) or 20)))
+    for m in motifs:  # gatac DNAMotif: pwm (length, 4), columns A C G T
+        out.append(
+            _Motif(
+                id=str(m.id),
+                name=str(m.name or ""),
+                pfm=np.asarray(m.pwm, np.float64).T.copy(),
+                n=int(getattr(m, "nsites", 20) or 20),
+            )
+        )
     return out
 
 
@@ -161,7 +168,7 @@ def _threshold_from_p(pssm, bg, p, precision=2000.0):
     for i in range(n):
         for j in range(a):
             v = precision * pssm[j, i]
-            mat[j, i] = np.int64(v + 0.5) if pssm[j, i] > 0.0 else np.int64(v - 0.5)   # C cast truncates
+            mat[j, i] = np.int64(v + 0.5) if pssm[j, i] > 0.0 else np.int64(v - 0.5)  # C cast truncates
     maxT = 0
     minV = np.iinfo(np.int64).max
     for i in range(n):
@@ -226,7 +233,7 @@ def _threshold_from_p(pssm, bg, p, precision=2000.0):
 def _thresholds_batch(flat, offs, lens, bg, p):
     out = np.empty(len(lens))
     for k in numba.prange(len(lens)):
-        out[k] = _threshold_from_p(flat[:, offs[k]:offs[k] + lens[k]].copy(), bg, p)
+        out[k] = _threshold_from_p(flat[:, offs[k] : offs[k] + lens[k]].copy(), bg, p)
     return out
 
 
@@ -270,7 +277,8 @@ def _moods_order(pssm: np.ndarray, bg: np.ndarray, window: int = MOODS_WINDOW) -
     return np.array(list(range(wp, wp + window)) + rest, dtype=np.int32)
 
 
-_scan_kernel = cp.RawKernel(r"""
+_scan_kernel = cp.RawKernel(
+    r"""
 extern "C" __global__ void scan(const unsigned char* seq, const long long n, const double* mats, const int* moff,
                                 const int* mlen, const int* order, const double* thr, int* hit_m, long long* hit_p,
                                 double* hit_s, unsigned long long* counter, const unsigned long long cap) {
@@ -306,7 +314,10 @@ extern "C" __global__ void scan(const unsigned char* seq, const long long n, con
         if (i < cap) { hit_m[i] = k; hit_p[i] = p; hit_s[i] = s; }
     }
 }
-""", "scan", options=("--fmad=false",))
+""",
+    "scan",
+    options=("--fmad=false",),
+)
 
 
 def _scan_device(seq_d: cp.ndarray, mats: list[np.ndarray], orders: list[np.ndarray], thr: np.ndarray):
@@ -324,8 +335,11 @@ def _scan_device(seq_d: cp.ndarray, mats: list[np.ndarray], orders: list[np.ndar
         hp = cp.empty(cap, cp.int64)
         hs = cp.empty(cap, cp.float64)
         cnt = cp.zeros(1, cp.uint64)
-        _scan_kernel(((n + 255) // 256, len(mats)), (256,),
-                     (seq_d, cp.int64(n), mats_d, offs_d, lens_d, order_d, thr_d, hm, hp, hs, cnt, cp.uint64(cap)))
+        _scan_kernel(
+            ((n + 255) // 256, len(mats)),
+            (256,),
+            (seq_d, cp.int64(n), mats_d, offs_d, lens_d, order_d, thr_d, hm, hp, hs, cnt, cp.uint64(cap)),
+        )
         nh = int(cnt.get()[0])
         if nh <= cap:
             return hm[:nh], hp[:nh], hs[:nh]
@@ -333,8 +347,14 @@ def _scan_device(seq_d: cp.ndarray, mats: list[np.ndarray], orders: list[np.ndar
         cap = nh
 
 
-def _short_run_hits(seq: np.ndarray, mats: list[np.ndarray], orders: list[np.ndarray], thr: np.ndarray,
-                    n_mot: int, window: int = MOODS_WINDOW):
+def _short_run_hits(
+    seq: np.ndarray,
+    mats: list[np.ndarray],
+    orders: list[np.ndarray],
+    thr: np.ndarray,
+    n_mot: int,
+    window: int = MOODS_WINDOW,
+):
     """Hits of MOODS's code path for runs of ACGT shorter than the window (between Ns).
 
     MOODS (scanner.cpp, ``end - start < l``) packs the run plus dummy ``A``s into a window
@@ -349,15 +369,15 @@ def _short_run_hits(seq: np.ndarray, mats: list[np.ndarray], orders: list[np.nda
     if not short.any():
         return np.zeros(0, np.int32), np.zeros(0, np.int64), np.zeros(0)
     out_m, out_p, out_s = [], [], []
-    for lo, hi in ((0, n_mot), (n_mot, 2 * n_mot)):              # forward, reverse scanner
+    for lo, hi in ((0, n_mot), (n_mot, 2 * n_mot)):  # forward, reverse scanner
         ks = np.arange(lo, hi)
         mlen = np.array([mats[k].shape[1] for k in ks])
         maxlen = mlen.max()
         M = np.zeros((len(ks), 4, maxlen))
         for i, k in enumerate(ks):
-            M[i, :, :mlen[i]] = mats[k]
+            M[i, :, : mlen[i]] = mats[k]
         wp = np.array([orders[k][0] if mlen[i] > window else 0 for i, k in enumerate(ks)])
-        la0 = np.zeros(len(ks))                                   # lookahead_scores[0]
+        la0 = np.zeros(len(ks))  # lookahead_scores[0]
         for i, k in enumerate(ks):
             if mlen[i] > window:
                 tot = 0.0
@@ -380,15 +400,19 @@ def _short_run_hits(seq: np.ndarray, mats: list[np.ndarray], orders: list[np.nda
             return cache[code]
 
         for s0, e0 in zip(starts[short], ends[short]):
+
             def code_at(w):
                 return tuple(int(seq[j]) if s0 <= j < e0 else 0 for j in range(w, w + window))
-            w = s0 - 1                                            # initial code: run + dummies, 0 on top
+
+            w = s0 - 1  # initial code: run + dummies, 0 on top
             for i in range(s0, e0):
                 if window_scores(code_at(w))[2]:
                     w += 1
                     sc, full, _ = window_scores(code_at(w))
                     for j in np.flatnonzero(full & (mlen <= e0 - i)):
-                        out_m.append(ks[j]); out_p.append(i); out_s.append(sc[j])
+                        out_m.append(ks[j])
+                        out_p.append(i)
+                        out_s.append(sc[j])
     return np.array(out_m, np.int32), np.array(out_p, np.int64), np.array(out_s, np.float64)
 
 
@@ -412,7 +436,7 @@ def _resolve_overlaps(gstart, chrom, start, end, score, keep):
             elif not keep[b]:
                 j += 1
             elif chrom[a] == chrom[b] and start[b] < end[a]:
-                if score[a] <= score[b]:      # scores.index(min(scores)) -> 0 on ties
+                if score[a] <= score[b]:  # scores.index(min(scores)) -> 0 on ties
                     keep[a] = False
                 else:
                     keep[b] = False
@@ -457,7 +481,8 @@ def _count_overlaps(gstart, chrom, start, end, name, n_mot, ov, tot):
 
 
 # resolve_overlaps, one thread per loc-sorted (TF, chunk) group; groups are independent
-_resolve_kernel = cp.RawKernel(r"""
+_resolve_kernel = cp.RawKernel(
+    r"""
 extern "C" __global__ void resolve(const long long* gstart, const long long n_groups, const int* chrom,
                                    const long long* start, const long long* end, const double* score,
                                    unsigned char* keep) {
@@ -473,10 +498,13 @@ extern "C" __global__ void resolve(const long long* gstart, const long long n_gr
         } else { i++; j = 1; }
     }
 }
-""", "resolve")
+""",
+    "resolve",
+)
 
 # count_overlaps pair scan, one thread per merged site; integer sums, so atomics keep it exact
-_count_kernel = cp.RawKernel(r"""
+_count_kernel = cp.RawKernel(
+    r"""
 extern "C" __global__ void count_ov(const long long n, const int* chunk, const int* chrom, const long long* ms,
                                     const long long* me, const int* mn, const long long n_mot,
                                     unsigned long long* ov, unsigned long long* tot) {
@@ -490,11 +518,16 @@ extern "C" __global__ void count_ov(const long long n, const int* chunk, const i
         atomicAdd(&ov[mn[b] * n_mot + mn[i]], (unsigned long long)bp);
     }
 }
-""", "count_ov")
+""",
+    "count_ov",
+)
 
 # Python string order of "start_end" (TOBIAS groups sites by that id): 21 characters of 4 bits,
 # pad 0 < digits 1..10 < "_" 11, packed into two words compared high then low
-_strkey_kernel = cp.ElementwiseKernel("int64 s, int64 e", "uint64 hi, uint64 lo", r"""
+_strkey_kernel = cp.ElementwiseKernel(
+    "int64 s, int64 e",
+    "uint64 hi, uint64 lo",
+    r"""
     unsigned char buf[21], tmp[20];
     int n = 0, t = 0;
     long long v = s;
@@ -509,7 +542,9 @@ _strkey_kernel = cp.ElementwiseKernel("int64 s, int64 e", "uint64 hi, uint64 lo"
     for (int k = 0; k < 16; k++) h = (h << 4) | buf[k];
     for (int k = 16; k < 21; k++) l = (l << 4) | buf[k];
     hi = h; lo = l;
-""", "tobias_strkey")
+""",
+    "tobias_strkey",
+)
 
 
 def _launch(kernel, n, args):
@@ -762,8 +797,10 @@ class SiteSet:
         return len(self.start)
 
     def __repr__(self) -> str:
-        return (f"SiteSet({len(self):,} sites, {len(self.motifs)} motifs, {len(self.peak_start):,} peaks, "
-                f"tobias_compat={self.tobias_compat})")
+        return (
+            f"SiteSet({len(self):,} sites, {len(self.motifs)} motifs, {len(self.peak_start):,} peaks, "
+            f"tobias_compat={self.tobias_compat})"
+        )
 
 
 def _merged_peaks(peaks, fai: dict, tobias_compat: bool) -> dict[str, np.ndarray]:
@@ -773,14 +810,15 @@ def _merged_peaks(peaks, fai: dict, tobias_compat: bool) -> dict[str, np.ndarray
         return dict(peaks.peaks)
     df = _peaks_from_input(peaks, None)
     df = df[df["chrom"].isin(fai)]
-    return {c: _merge(sub[["start", "end"]].to_numpy(np.int64), tobias_compat)
-            for c, sub in df.groupby("chrom", sort=False)}
+    return {
+        c: _merge(sub[["start", "end"]].to_numpy(np.int64), tobias_compat) for c, sub in df.groupby("chrom", sort=False)
+    }
 
 
 def bindetect_sites(
     peaks,
     motifs,
-    genome_fasta: Union[None, str, Path] = None,
+    genome_fasta: None | str | Path = None,
     *,
     motif_pvalue: float = 1e-4,
     tobias_compat: bool = True,
@@ -861,7 +899,7 @@ def bindetect_sites(
     w = np.isin(raw, np.frombuffer(b"GgCc", np.uint8)).astype(np.float64)
     w += 0.5 * (seq == 4)
     w[rstart + reg_len] = 0.0
-    cs = np.concatenate([[0.0], np.cumsum(w)])             # exact: sums of halves
+    cs = np.concatenate([[0.0], np.cumsum(w)])  # exact: sums of halves
     gcs = []
     for i0 in range(0, n_reg, per_chunk):
         i1 = min(i0 + per_chunk, n_reg)
@@ -911,8 +949,9 @@ def bindetect_sites(
         m1 = min(n_mot, m0 + batch)
         nb = m1 - m0
         ts = time.perf_counter()
-        hm, hp, hs = _scan_device(seq_d, fwd[m0:m1] + rev[m0:m1], ord_f[m0:m1] + ord_r[m0:m1],
-                                  np.concatenate([thr[m0:m1], thr[m0:m1]]))
+        hm, hp, hs = _scan_device(
+            seq_d, fwd[m0:m1] + rev[m0:m1], ord_f[m0:m1] + ord_r[m0:m1], np.concatenate([thr[m0:m1], thr[m0:m1]])
+        )
         sel = np.flatnonzero((s_mot >= m0) & (s_mot < m1))
         if len(sel):
             loc = np.where(sm[sel] < n_mot, sm[sel] - m0, sm[sel] - n_mot - m0 + nb)
@@ -934,14 +973,23 @@ def bindetect_sites(
         chrom = reg_c_d[rid]
         start = reg_s_d[rid] + (hp - rstart_d[rid])
         end = start + cp.asarray(mlen[m0:m1])[mloc]
-        score = _round5_dev(hs)                            # round(match.score, 5)
+        score = _round5_dev(hs)  # round(match.score, 5)
         del hp, hs
         gstart = _segments(mloc * (n_reg // per_chunk + 2) + rid // per_chunk)
         keep = cp.ones(len(mloc), cp.uint8)
         _launch(_resolve_kernel, len(gstart) - 1, (gstart, cp.int64(len(gstart) - 1), chrom, start, end, score, keep))
         k = cp.flatnonzero(keep)
-        kept.append(dict(chrom=chrom[k], start=start[k], end=end[k], motif=(mloc[k] + m0).astype(cp.int32),
-                         score=score[k], minus=minus[k], rid=rid[k].astype(cp.int32)))
+        kept.append(
+            dict(
+                chrom=chrom[k],
+                start=start[k],
+                end=end[k],
+                motif=(mloc[k] + m0).astype(cp.int32),
+                score=score[k],
+                minus=minus[k],
+                rid=rid[k].astype(cp.int32),
+            )
+        )
         del mloc, minus, rid, chrom, start, end, score, keep, k, gstart
     del seq_d
     S = {key: cp.concatenate([b[key] for b in kept]) for key in kept[0]} if kept else None
@@ -971,8 +1019,11 @@ def bindetect_sites(
         last = cp.concatenate([first[1:], cp.asarray([len(s)], cp.int64)]) - 1
         ov_d = cp.zeros(n_mot * n_mot, cp.uint64)
         tot_d = cp.zeros(n_mot, cp.uint64)
-        _launch(_count_kernel, len(first), (cp.int64(len(first)), chunk[first], c[first], s[first], e[last],
-                                            nm[first], cp.int64(n_mot), ov_d, tot_d))
+        _launch(
+            _count_kernel,
+            len(first),
+            (cp.int64(len(first)), chunk[first], c[first], s[first], e[last], nm[first], cp.int64(n_mot), ov_d, tot_d),
+        )
         ov = ov_d.get().view(np.int64).reshape(n_mot, n_mot)
         tot = tot_d.get().view(np.int64)
         del c, s, e, nm, chunk, join, first, last, ov_d, tot_d
@@ -981,9 +1032,15 @@ def bindetect_sites(
     # ---- final order: per motif by (chrom, start), as process_tfbs sorts its sites ----
     t0 = time.perf_counter()
     if S is None:
-        S = dict(chrom=cp.zeros(0, cp.int32), start=cp.zeros(0, cp.int64), end=cp.zeros(0, cp.int64),
-                 motif=cp.zeros(0, cp.int32), score=cp.zeros(0), minus=cp.zeros(0, cp.bool_),
-                 rid=cp.zeros(0, cp.int32))
+        S = dict(
+            chrom=cp.zeros(0, cp.int32),
+            start=cp.zeros(0, cp.int64),
+            end=cp.zeros(0, cp.int64),
+            motif=cp.zeros(0, cp.int32),
+            score=cp.zeros(0),
+            minus=cp.zeros(0, cp.bool_),
+            rid=cp.zeros(0, cp.int32),
+        )
     o = _stable_order(S["motif"], S["rid"].astype(cp.int64) * (1 << 27) + (S["start"] - reg_s_d[S["rid"]]))
     pos_t = np.int32 if int(reg_e.max()) < 2**31 else np.int64
     out = {k: v[o].get() for k, v in S.items()}
@@ -995,12 +1052,29 @@ def bindetect_sites(
     return SiteSet(
         chroms=corder,
         peaks={c: pk[c] for c in corder},
-        peak_chrom=reg_c.astype(np.int16), peak_start=reg_s, peak_end=reg_e,
-        motifs=mlist, prefixes=prefixes, thresholds=thr, gc=float(gc), background=bg,
-        chrom=out["chrom"].astype(np.int16), start=out["start"].astype(pos_t), end=out["end"].astype(pos_t),
-        motif=out["motif"], score=out["score"], minus=out["minus"], peak=out["rid"],
-        motif_offsets=offsets, bg_chrom=reg_c[bg_rid].astype(np.int16), bg_pos=bg_pos,
-        overlap=ov, overlap_total=tot, tobias_compat=tobias_compat, motif_pvalue=motif_pvalue, timings=T,
+        peak_chrom=reg_c.astype(np.int16),
+        peak_start=reg_s,
+        peak_end=reg_e,
+        motifs=mlist,
+        prefixes=prefixes,
+        thresholds=thr,
+        gc=float(gc),
+        background=bg,
+        chrom=out["chrom"].astype(np.int16),
+        start=out["start"].astype(pos_t),
+        end=out["end"].astype(pos_t),
+        motif=out["motif"],
+        score=out["score"],
+        minus=out["minus"],
+        peak=out["rid"],
+        motif_offsets=offsets,
+        bg_chrom=reg_c[bg_rid].astype(np.int16),
+        bg_pos=bg_pos,
+        overlap=ov,
+        overlap_total=tot,
+        tobias_compat=tobias_compat,
+        motif_pvalue=motif_pvalue,
+        timings=T,
     )
 
 
@@ -1035,7 +1109,7 @@ class BINDetectResult:
     """
 
     results: pd.DataFrame
-    sites: Optional[pd.DataFrame]
+    sites: pd.DataFrame | None
     clusters: pd.DataFrame
     distances: pd.DataFrame
     threshold: float
@@ -1064,13 +1138,13 @@ class BINDetectResult:
             raise ValueError(f"groups not in this result: {missing}; groups are {self.groups}")
         s1 = self.sites[f"{group1}_score"].to_numpy()
         s2 = self.sites[f"{group2}_score"].to_numpy()
-        return pd.Series(_log2fc(s1, s2, self.pseudo), index=self.sites.index,
-                         name=f"{group1}_{group2}_log2fc")
+        return pd.Series(_log2fc(s1, s2, self.pseudo), index=self.sites.index, name=f"{group1}_{group2}_log2fc")
 
     def __repr__(self) -> str:
         n_sites = "no sites kept" if self.sites is None else f"{len(self.sites):,} sites"
-        return (f"BINDetectResult({len(self.results)} motifs, {n_sites}, groups {self.groups}, "
-                f"threshold {self.threshold})")
+        return (
+            f"BINDetectResult({len(self.results)} motifs, {n_sites}, groups {self.groups}, threshold {self.threshold})"
+        )
 
 
 def _layout_index_dev(layout, chroms: list[str], chrom: cp.ndarray, pos: cp.ndarray) -> cp.ndarray:
@@ -1105,30 +1179,31 @@ def _sample_changes_exact_null(n: int, bg_mean: float, bg_std: float, seed=None,
     return (mean - bg_mean) / ((std + bg_std) / 2.0)
 
 
-def _tobias_site_order(sites: SiteSet, idx: Optional[np.ndarray] = None) -> np.ndarray:
+def _tobias_site_order(sites: SiteSet, idx: np.ndarray | None = None) -> np.ndarray:
     """Order of sites ``idx`` (sorted by motif; default: all sites) by TOBIAS's groupby key
     "chrom_start_end" within each motif: Python string order of the id, computed on the device
     from its characters. The order indexes ``idx`` and has its smallest integer dtype."""
+
     def col(a):
         return a if idx is None else a[idx]
 
     n = len(sites.start) if idx is None else len(idx)
     out_t = np.int32 if n < 2**31 else np.int64
-    if any("_" in c for c in sites.chroms):            # a chrom name could prefix another's id
+    if any("_" in c for c in sites.chroms):  # a chrom name could prefix another's id
         # The ids as strings on the device; cuDF compares them byte-wise, which is Python's
         # order, and the row index as last key makes the sort stable.
         chrom = cudf.Series(np.asarray(sites.chroms, dtype=object)).take(to_device(col(sites.chrom)))
         key = chrom.reset_index(drop=True).str.cat(
-            [cudf.Series(to_device(col(sites.start))).astype(str),
-             cudf.Series(to_device(col(sites.end))).astype(str)], sep="_")
+            [cudf.Series(to_device(col(sites.start))).astype(str), cudf.Series(to_device(col(sites.end))).astype(str)],
+            sep="_",
+        )
         df = cudf.DataFrame({"m": to_device(col(sites.motif)), "k": key, "i": cp.arange(n)})
         return df.sort_values(["m", "k", "i"])["i"].values.astype(out_t).get()
     # without "_" in names, "chrA_..." vs "chrB_..." is decided by chrA + "_" vs chrB + "_"
     rank = np.empty(len(sites.chroms), np.int64)
     rank[sorted(range(len(sites.chroms)), key=lambda i: sites.chroms[i] + "_")] = np.arange(len(sites.chroms))
     # columns go to the device as stored and are widened there, with no host copies
-    hi, lo = _strkey_kernel(to_device(col(sites.start)).astype(cp.int64),
-                            to_device(col(sites.end)).astype(cp.int64))
+    hi, lo = _strkey_kernel(to_device(col(sites.start)).astype(cp.int64), to_device(col(sites.end)).astype(cp.int64))
     chrom_rank = cp.asarray(rank)[to_device(col(sites.chrom))]
     return _stable_order(to_device(col(sites.motif)), chrom_rank, hi, lo).astype(out_t).get()
 
@@ -1136,14 +1211,14 @@ def _tobias_site_order(sites: SiteSet, idx: Optional[np.ndarray] = None) -> np.n
 def bindetect(
     tracks: FootprintTracks,
     motifs=None,
-    genome_fasta: Union[None, str, Path] = None,
+    genome_fasta: None | str | Path = None,
     *,
-    sites: Optional[SiteSet] = None,
-    groups: Optional[Sequence[str]] = None,
-    comparisons: Union[Literal["all", "time_series"], Sequence[tuple[str, str]]] = "all",
+    sites: SiteSet | None = None,
+    groups: Sequence[str] | None = None,
+    comparisons: Literal["all", "time_series"] | Sequence[tuple[str, str]] = "all",
     motif_pvalue: float = 1e-4,
     bound_pvalue: float = 0.001,
-    pseudo: Optional[float] = None,
+    pseudo: float | None = None,
     cluster_threshold: float = 0.5,
     tobias_compat: bool = True,
     return_sites: bool = True,
@@ -1216,14 +1291,16 @@ def bindetect(
     if sites is None:
         if motifs is None:
             raise ValueError("pass motifs or a precomputed SiteSet (sites=)")
-        sites = bindetect_sites(tracks, motifs, genome_fasta, motif_pvalue=motif_pvalue,
-                                tobias_compat=tobias_compat, verbose=verbose)
+        sites = bindetect_sites(
+            tracks, motifs, genome_fasta, motif_pvalue=motif_pvalue, tobias_compat=tobias_compat, verbose=verbose
+        )
         T.update({f"sites_{k}": v for k, v in sites.timings.items()})
     else:
         if sites.tobias_compat != tobias_compat:
             raise ValueError(f"sites were built with tobias_compat={sites.tobias_compat}")
         same = sorted(c for c in tracks.peaks if len(tracks.peaks[c])) == sites.chroms and all(
-            np.array_equal(tracks.peaks[c], sites.peaks[c]) for c in sites.chroms)
+            np.array_equal(tracks.peaks[c], sites.peaks[c]) for c in sites.chroms
+        )
         if not same:
             raise ValueError("sites were built on other peaks than the tracks'")
     groups = [str(g) for g in (groups or tracks.groups)]
@@ -1292,9 +1369,9 @@ def bindetect(
         # BINDetect writes "{:.5f}" of the bigwig value
         s = _round5_dev(_gather_dev(to_device(tracks.values["footprint"][g]), idx_site)).get()
         for a in range(0, len(s), _CHUNK):
-            v = norms[g].normalize(s[a:a + _CHUNK])
-            v[~(v > 0)] = 0                                  # np.where(v > 0, v, 0)
-            s[a:a + _CHUNK] = np.round(v, 5)
+            v = norms[g].normalize(s[a : a + _CHUNK])
+            v[~(v > 0)] = 0  # np.where(v > 0, v, 0)
+            s[a : a + _CHUNK] = np.round(v, 5)
         cols[f"{g}_score"] = s
         cols[f"{g}_bound"] = (s > threshold).astype(np.int8)
     del idx_site
@@ -1303,16 +1380,18 @@ def bindetect(
     # ---- per-TF summaries ----
     t0 = time.perf_counter()
     has = np.flatnonzero(np.diff(off) > 0)
-    res = pd.DataFrame({
-        "output_prefix": prefixes,
-        "name": [m.name for m in mlist],
-        "motif_id": [m.id for m in mlist],
-        "total_tfbs": np.diff(off).astype(np.int64),
-    })
+    res = pd.DataFrame(
+        {
+            "output_prefix": prefixes,
+            "name": [m.name for m in mlist],
+            "motif_id": [m.id for m in mlist],
+            "total_tfbs": np.diff(off).astype(np.int64),
+        }
+    )
     for g in groups:
         sc, bd = cols[f"{g}_score"], cols[f"{g}_bound"]
         ms = np.full(n_mot, np.nan)
-        ms[has] = [np.round(np.mean(sc[off[m]:off[m + 1]]), 5) for m in has]
+        ms[has] = [np.round(np.mean(sc[off[m] : off[m + 1]]), 5) for m in has]
         nb = np.zeros(n_mot, np.int64)
         if len(has):
             nb[has] = np.add.reduceat(bd, off[has], dtype=np.int64)
@@ -1330,7 +1409,7 @@ def bindetect(
         base = f"{g1}_{g2}"
         s1, s2 = cols[f"{g1}_score"], cols[f"{g2}_score"]
         included = (s1 > 0) | (s2 > 0)
-        l2 = _log2fc(s1, s2, pseudo)                     # not kept: see BINDetectResult.site_log2fc
+        l2 = _log2fc(s1, s2, pseudo)  # not kept: see BINDetectResult.site_log2fc
         if tobias_compat:
             # groupby("peak_id") on "chrom_start_end" of the *TFBS*: one site per group, string order
             ii = order_all[included[order_all]] if order_all is not None else np.zeros(0, np.int64)
@@ -1365,8 +1444,10 @@ def bindetect(
             drawn = [sampler(n, bg_mean, bg_std) for n in uniq]
         sample_cache.update({(n, bg_mean, bg_std): s for n, s in zip(uniq, drawn)})
         res[f"{base}_change"] = [change.get(m, np.nan) for m in range(n_mot)]
-        res[f"{base}_pvalue"] = [scipy.stats.ttest_1samp(sample_cache[(n_obs[m], bg_mean, bg_std)], change[m])[1]
-                                 if m in change else np.nan for m in range(n_mot)]
+        res[f"{base}_pvalue"] = [
+            scipy.stats.ttest_1samp(sample_cache[(n_obs[m], bg_mean, bg_std)], change[m])[1] if m in change else np.nan
+            for m in range(n_mot)
+        ]
     T["per_tf"] = time.perf_counter() - t0
 
     # ---- clusters and highlighting ----
@@ -1399,17 +1480,20 @@ def bindetect(
 
     out_sites = None
     if return_sites:
-        out_sites = pd.DataFrame({
-            "chrom": pd.Categorical.from_codes(sites.chrom, categories=sites.chroms),
-            "start": sites.start,
-            "end": sites.end,
-            "motif": pd.Categorical.from_codes(sites.motif, categories=prefixes),
-            "score": sites.score,
-            "strand": pd.Categorical.from_codes(sites.minus.astype(np.int8), categories=["+", "-"]),
-            "peak_start": sites.peak_start[sites.peak],
-            "peak_end": sites.peak_end[sites.peak],
-            **cols,
-        }, copy=False)                     # no consolidation copy of a table with 10^7+ rows
+        out_sites = pd.DataFrame(
+            {
+                "chrom": pd.Categorical.from_codes(sites.chrom, categories=sites.chroms),
+                "start": sites.start,
+                "end": sites.end,
+                "motif": pd.Categorical.from_codes(sites.motif, categories=prefixes),
+                "score": sites.score,
+                "strand": pd.Categorical.from_codes(sites.minus.astype(np.int8), categories=["+", "-"]),
+                "peak_start": sites.peak_start[sites.peak],
+                "peak_end": sites.peak_end[sites.peak],
+                **cols,
+            },
+            copy=False,
+        )  # no consolidation copy of a table with 10^7+ rows
     T["total"] = sum(T.values())
     if verbose:
         logger.info("bindetect timings: " + ", ".join(f"{k} {v:.1f}s" for k, v in T.items()))
@@ -1422,8 +1506,16 @@ def bindetect(
         pseudo=pseudo,
         groups=groups,
         comparisons=comps,
-        params=dict(motif_pvalue=sites.motif_pvalue, bound_pvalue=bound_pvalue, gc=sites.gc,
-                    background=sites.background, motif_thresholds=dict(zip(prefixes, sites.thresholds)),
-                    log2fc_params=log2fc_params, cluster_threshold=cluster_threshold,
-                    tobias_compat=tobias_compat, n_background=len(sites.bg_pos), timings=T),
+        params=dict(
+            motif_pvalue=sites.motif_pvalue,
+            bound_pvalue=bound_pvalue,
+            gc=sites.gc,
+            background=sites.background,
+            motif_thresholds=dict(zip(prefixes, sites.thresholds)),
+            log2fc_params=log2fc_params,
+            cluster_threshold=cluster_threshold,
+            tobias_compat=tobias_compat,
+            n_background=len(sites.bg_pos),
+            timings=T,
+        ),
     )

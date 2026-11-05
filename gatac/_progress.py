@@ -1,4 +1,5 @@
 """GATAC's progress bars: shown in a terminal or a notebook, not in logs."""
+
 from __future__ import annotations
 
 import os

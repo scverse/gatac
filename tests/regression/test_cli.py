@@ -1,4 +1,5 @@
 """Every ``gatac`` command on the shared synthetic data (more convert cases: test_fragment_files)."""
+
 import shutil
 
 import anndata as ad
@@ -41,8 +42,10 @@ def test_commands(files, monkeypatch):
     gatac("convert", files["tsv"])
     gatac("convert", frags, "-o", d / "back.tsv.gz")
     cols = ["chrom", "start", "end", "barcode", "count"]
-    pd.testing.assert_frame_equal(pd.read_csv(d / "back.tsv.gz", sep="\t", header=None, names=cols),
-                                  pd.read_csv(files["tsv"], sep="\t", header=None, names=cols))
+    pd.testing.assert_frame_equal(
+        pd.read_csv(d / "back.tsv.gz", sep="\t", header=None, names=cols),
+        pd.read_csv(files["tsv"], sep="\t", header=None, names=cols),
+    )
 
     gatac("rename", frags, "--barcode-prefix", "B_", "-o", d / "b.parquet")
     assert ga.io.FragmentFile(d / "b.parquet").barcode_prefix == "B_"
@@ -62,8 +65,7 @@ def test_commands(files, monkeypatch):
     assert {"barcode", "n_unique", "tsse_score"} <= set(metrics.columns)
     assert set(metrics["barcode"]) == set(tiles.obs_names)
 
-    gatac("filter", frags, "--metrics", d / "m.csv", "--filter", "n_unique >= 1500", "-g", sizes,
-          "-o", d / "f.parquet")
+    gatac("filter", frags, "--metrics", d / "m.csv", "--filter", "n_unique >= 1500", "-g", sizes, "-o", d / "f.parquet")
     kept = ga.io.FragmentFile(d / "f.parquet").barcode_counts()["barcode"]
     assert set(kept) == set(metrics.loc[metrics["n_unique"] >= 1500, "barcode"]) and len(kept) > 0
 
@@ -72,13 +74,14 @@ def test_commands(files, monkeypatch):
         genes = ad.read_h5ad(d / f"{cmd}.h5ad")
         assert genes.n_vars == 20 and set(genes.obs_names) == set(tiles.obs_names)
 
-    gatac("doublets", frags, "-g", sizes, "-m", 100)              # default output next to the input
+    gatac("doublets", frags, "-g", sizes, "-m", 100)  # default output next to the input
     doublets = pd.read_csv(d / "a_doublets.csv")
     assert set(doublets["cell_id"]) == set(tiles.obs_names)
 
 
 def test_version_and_errors(tmp_path, monkeypatch, capsys, caplog):
     """--version; an error is one line and exit status 1, and -v adds its traceback."""
+
     def gatac(*argv):
         monkeypatch.setattr("sys.argv", ["gatac", *map(str, argv)])
         with pytest.raises(SystemExit) as e:

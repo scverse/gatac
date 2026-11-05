@@ -25,21 +25,22 @@ and rounded to 3 decimals, matching ArchR exactly.
 The core compute (steps 1-4) maps directly onto cuDF group-bys, ``searchsorted``
 interval overlaps and a cuSPARSE SpMM, which is why it GPU-accelerates well.
 """
+
 from __future__ import annotations
 
 import gc
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union
 
 import cudf
 import cupy as cp
 import cupyx.scipy.sparse as cusp
 import numpy as np
-from anndata import AnnData
 import pandas as pd
 import scipy.sparse as sp
+from anndata import AnnData
 
 from .._files import write_h5ad
 from .._readers import read_gtf, read_metrics
@@ -52,7 +53,7 @@ _INT32_MAX = 2147483647
 # =============================================================================
 # Gene-model evaluation
 # =============================================================================
-def _eval_gene_model(model: Union[str, Callable], x: cp.ndarray) -> cp.ndarray:
+def _eval_gene_model(model: str | Callable, x: cp.ndarray) -> cp.ndarray:
     """Evaluate the ArchR ``geneModel`` on a CuPy array of signed distances.
 
     ``model`` is either a callable ``f(x) -> weight`` or an R/Python-style
@@ -110,10 +111,12 @@ def load_gene_score_annotation(
     if suffix.endswith(".csv") or suffix.endswith(".csv.gz"):
         df = pd.read_csv(gene_anno)
         cols = {c.lower(): c for c in df.columns}
-        df = df.rename(columns={
-            cols.get("symbol", "symbol"): "name",
-            cols.get("seqnames", "seqnames"): "chrom",
-        })
+        df = df.rename(
+            columns={
+                cols.get("symbol", "symbol"): "name",
+                cols.get("seqnames", "seqnames"): "chrom",
+            }
+        )
         df["chrom"] = df["chrom"].astype(str)
         # genomic start < end; normalise strand to +/-
         g_start = df["start"].astype(np.int64).to_numpy()
@@ -143,8 +146,8 @@ def load_gene_score_annotation(
         ext_start = np.where(plus, tss - gene_upstream, tss - gene_downstream)
         ext_end = np.where(plus, tss + gene_downstream, tss + gene_upstream)
     else:
-        gene_start = np.where(plus, lo, hi)   # TSS (strand 5')
-        gene_end = np.where(plus, hi, lo)     # TES (strand 3')
+        gene_start = np.where(plus, lo, hi)  # TSS (strand 5')
+        gene_end = np.where(plus, hi, lo)  # TES (strand 3')
         ext_start = np.where(plus, lo - gene_upstream, lo - gene_downstream)
         ext_end = np.where(plus, hi + gene_downstream, hi + gene_upstream)
 
@@ -160,16 +163,18 @@ def load_gene_score_annotation(
         else:
             gene_weight = 1.0 + m * (gene_scale_factor - 1.0) / rng
 
-    out = pd.DataFrame({
-        "chrom": chrom,
-        "ext_start": ext_start.astype(np.int64),
-        "ext_end": ext_end.astype(np.int64),
-        "gene_start": gene_start.astype(np.int64),
-        "gene_end": gene_end.astype(np.int64),
-        "strand": strand,
-        "name": names,
-        "gene_weight": gene_weight.astype(np.float64),
-    })
+    out = pd.DataFrame(
+        {
+            "chrom": chrom,
+            "ext_start": ext_start.astype(np.int64),
+            "ext_end": ext_end.astype(np.int64),
+            "gene_start": gene_start.astype(np.int64),
+            "gene_end": gene_end.astype(np.int64),
+            "strand": strand,
+            "name": names,
+            "gene_weight": gene_weight.astype(np.float64),
+        }
+    )
     return out
 
 
@@ -184,14 +189,14 @@ def _load_gtf_genes(gtf_path, gene_name_key, gene_id_key) -> pd.DataFrame:
 # Per-chromosome gene-boundary extended search window
 # =============================================================================
 def _compute_search_window(
-    ext_start: cp.ndarray,   # genomic left of extended gene body, sorted asc
-    ext_end: cp.ndarray,     # genomic right of extended gene body
+    ext_start: cp.ndarray,  # genomic left of extended gene body, sorted asc
+    ext_end: cp.ndarray,  # genomic right of extended gene body
     strand_is_plus: cp.ndarray,
-    extend_up: Tuple[int, int],
-    extend_down: Tuple[int, int],
+    extend_up: tuple[int, int],
+    extend_down: tuple[int, int],
     tile_size: int,
     use_gene_boundaries: bool,
-) -> Tuple[cp.ndarray, cp.ndarray]:
+) -> tuple[cp.ndarray, cp.ndarray]:
     """Reproduce ArchR's per-gene ``[s, e]`` overlap window (sorted genes).
 
     When ``use_gene_boundaries`` is True the window is clipped so it cannot
@@ -245,19 +250,19 @@ def _compute_search_window(
 def create_gene_score_matrix_gpu(
     fragments_df: cudf.DataFrame,
     gene_regions: pd.DataFrame,
-    geneModel: Union[str, Callable] = "exp(-abs(x)/5000) + exp(-1)",
-    extend_upstream: Tuple[int, int] = (1000, 100000),
-    extend_downstream: Tuple[int, int] = (1000, 100000),
+    geneModel: str | Callable = "exp(-abs(x)/5000) + exp(-1)",
+    extend_upstream: tuple[int, int] = (1000, 100000),
+    extend_downstream: tuple[int, int] = (1000, 100000),
     tile_size: int = 500,
     ceiling: int = 4,
     scale_to: float = 10000.0,
     use_gene_boundaries: bool = True,
-    exclude_chroms: Optional[list] = ("chrY", "chrM"),
+    exclude_chroms: list | None = ("chrY", "chrM"),
     min_fragments_per_cell: int = 100,
-    cell_metadata: Optional[cudf.DataFrame] = None,
-    filter_query: Optional[str] = None,
-    cell_batch_size: Optional[int] = None,
-) -> Tuple[sp.csr_matrix, cudf.DataFrame, pd.DataFrame]:
+    cell_metadata: cudf.DataFrame | None = None,
+    filter_query: str | None = None,
+    cell_batch_size: int | None = None,
+) -> tuple[sp.csr_matrix, cudf.DataFrame, pd.DataFrame]:
     """Compute the ArchR gene-score matrix. Returns ``(cells x genes)`` CSR."""
     if exclude_chroms is None:
         exclude_chroms = []
@@ -297,9 +302,7 @@ def create_gene_score_matrix_gpu(
 
     bc_cats = fragments_df["barcode"].dtype.categories.to_arrow().to_pylist()
     fetch_bc = [b for b in valid_barcodes.astype(str).to_arrow().to_pylist() if b in bc_cats]
-    fragments_df = fragments_df[
-        fragments_df["barcode"].isin(fetch_bc) & fragments_df["chrom"].isin(fetch_chroms)
-    ]
+    fragments_df = fragments_df[fragments_df["barcode"].isin(fetch_bc) & fragments_df["chrom"].isin(fetch_chroms)]
 
     # Fixed cell ordering -> cell_idx
     unique_barcodes = fragments_df["barcode"].unique().reset_index(drop=True)
@@ -307,17 +310,19 @@ def create_gene_score_matrix_gpu(
     n_cells = len(barcode_list)
     if n_cells == 0:
         raise ValueError("No cells passed filtering for gene score computation")
-    barcode_to_idx = cudf.DataFrame({
-        "barcode": cudf.Series(barcode_list),
-        "cell_idx": cp.arange(n_cells, dtype=cp.int32),
-    })
+    barcode_to_idx = cudf.DataFrame(
+        {
+            "barcode": cudf.Series(barcode_list),
+            "cell_idx": cp.arange(n_cells, dtype=cp.int32),
+        }
+    )
     fragments_df = fragments_df.merge(barcode_to_idx, on="barcode", how="left")
 
     logger.debug(f"Gene score: {n_cells} cells x {n_genes} genes over {len(valid_chroms)} chroms")
 
     # ---- Per-chromosome compute ----------------------------------------
-    gene_blocks: List[sp.csr_matrix] = []        # each (n_genes_chr x n_cells)
-    block_gene_idx: List[np.ndarray] = []         # global gene idx per block row
+    gene_blocks: list[sp.csr_matrix] = []  # each (n_genes_chr x n_cells)
+    block_gene_idx: list[np.ndarray] = []  # global gene idx per block row
     total_gs = cp.zeros(n_cells, dtype=cp.float64)  # per-cell total score
 
     for chrom in valid_chroms:
@@ -331,9 +336,16 @@ def create_gene_score_matrix_gpu(
             continue
 
         block, gidx, col_sums = _gene_score_chrom(
-            chrom_frags, genes_chr, geneModel,
-            extend_upstream, extend_downstream, tile_size, ceiling,
-            use_gene_boundaries, n_cells, cell_batch_size,
+            chrom_frags,
+            genes_chr,
+            geneModel,
+            extend_upstream,
+            extend_downstream,
+            tile_size,
+            ceiling,
+            use_gene_boundaries,
+            n_cells,
+            cell_batch_size,
         )
         if block is not None:
             gene_blocks.append(block)
@@ -350,7 +362,7 @@ def create_gene_score_matrix_gpu(
     inv[nz] = scale_to / total_gs_host[nz]
 
     if gene_blocks:
-        full = sp.vstack(gene_blocks, format="csr")          # rows in block order
+        full = sp.vstack(gene_blocks, format="csr")  # rows in block order
         row_to_gene = np.concatenate(block_gene_idx)
         # Genes on chromosomes absent/empty in the fragment file (or whole
         # chromosomes with no tile overlap) never produce a block. Pad them as
@@ -387,9 +399,9 @@ def create_gene_score_matrix_gpu(
         cell_metadata["barcode"] = cell_metadata["barcode"].astype(str)
 
     gene_metadata = gene_regions.sort_values("gene_idx").reset_index(drop=True)
-    gene_metadata = gene_metadata[
-        ["chrom", "gene_start", "gene_end", "strand", "name", "gene_idx"]
-    ].rename(columns={"gene_start": "start", "gene_end": "end"})
+    gene_metadata = gene_metadata[["chrom", "gene_start", "gene_end", "strand", "name", "gene_idx"]].rename(
+        columns={"gene_start": "start", "gene_end": "end"}
+    )
 
     return matrix, cell_metadata, gene_metadata
 
@@ -405,7 +417,7 @@ def _gene_score_chrom(
     use_gene_boundaries,
     n_cells,
     cell_batch_size,
-) -> Tuple[Optional[sp.csr_matrix], Optional[np.ndarray], cp.ndarray]:
+) -> tuple[sp.csr_matrix | None, np.ndarray | None, cp.ndarray]:
     """Compute one chromosome's (genes_chr x cells) score block (unnormalised)."""
     # --- 1. tile x cell count matrix (both insertion ends, capped) -------
     starts = chrom_frags["start"].astype(cp.int64).values
@@ -417,7 +429,7 @@ def _gene_score_chrom(
     pos = cp.concatenate([left_tiles, right_tiles])
     cell2 = cp.concatenate([cells, cells])
 
-    uniq_tiles = cp.unique(pos)                       # sorted occupied tile starts
+    uniq_tiles = cp.unique(pos)  # sorted occupied tile starts
     n_tiles = int(uniq_tiles.shape[0])
     tile_row = cp.searchsorted(uniq_tiles, pos).astype(cp.int32)
 
@@ -441,8 +453,13 @@ def _gene_score_chrom(
     n_g = ext_start.shape[0]
 
     s, e = _compute_search_window(
-        ext_start, ext_end, plus,
-        extend_upstream, extend_downstream, tile_size, use_gene_boundaries,
+        ext_start,
+        ext_end,
+        plus,
+        extend_upstream,
+        extend_downstream,
+        tile_size,
+        use_gene_boundaries,
     )
 
     # --- 3. overlap genes <-> tiles via searchsorted ---------------------
@@ -459,7 +476,7 @@ def _gene_score_chrom(
 
     # Expand per-gene tile ranges without cp.repeat (which rejects array repeats):
     # for each flat position, find its gene via searchsorted on cumulative ends.
-    offsets = cp.cumsum(counts)                       # exclusive end per gene
+    offsets = cp.cumsum(counts)  # exclusive end per gene
     flat = cp.arange(total_pairs)
     gene_rep = cp.searchsorted(offsets, flat, side="right").astype(cp.int64)
     grp_start = (offsets - counts)[gene_rep]
@@ -469,8 +486,8 @@ def _gene_score_chrom(
     # --- 4. signed distance + model weight -------------------------------
     t_start = uniq_tiles[tile_rep]
     t_end = t_start + tile_size - 1
-    g_lo = ext_start[gene_rep]      # genomic left of extended gene body
-    g_hi = ext_end[gene_rep]        # genomic right
+    g_lo = ext_start[gene_rep]  # genomic left of extended gene body
+    g_hi = ext_end[gene_rep]  # genomic right
     # IRanges distance: gap between [g_lo,g_hi] and [t_start,t_end], 0 if overlap
     gap = cp.maximum(cp.maximum(g_lo - t_end - 1, t_start - g_hi - 1), 0)
     # sign relative to strand-5' (TSS direction); symmetric models ignore it
@@ -492,7 +509,7 @@ def _gene_score_chrom(
         blocks = []
         for c0 in range(0, n_cells, cell_batch_size):
             c1 = min(c0 + cell_batch_size, n_cells)
-            gs = (W @ M[:, c0:c1])
+            gs = W @ M[:, c0:c1]
             blocks.append(_cusparse_to_scipy(gs))
         block = sp.hstack(blocks, format="csr")
     else:
@@ -536,13 +553,13 @@ def gene_score_to_anndata(matrix, cell_metadata, gene_metadata):
 
 
 def make_gene_score_matrix(
-    input_parquet: str | Path | List[str | Path],
+    input_parquet: str | Path | list[str | Path],
     gene_anno: str | Path,
-    output_path: Optional[str | Path] = None,
-    gene_model: Union[str, Callable] = "exp(-abs(x)/5000) + exp(-1)",
+    output_path: str | Path | None = None,
+    gene_model: str | Callable = "exp(-abs(x)/5000) + exp(-1)",
     tile_size: int = 500,
-    extend_upstream: Tuple[int, int] = (1000, 100000),
-    extend_downstream: Tuple[int, int] = (1000, 100000),
+    extend_upstream: tuple[int, int] = (1000, 100000),
+    extend_downstream: tuple[int, int] = (1000, 100000),
     gene_upstream: int = 5000,
     gene_downstream: int = 0,
     use_gene_boundaries: bool = True,
@@ -550,12 +567,12 @@ def make_gene_score_matrix(
     ceiling: int = 4,
     gene_scale_factor: float = 5.0,
     scale_to: float = 10000.0,
-    exclude_chroms: Optional[list] = ("chrY", "chrM"),
+    exclude_chroms: list | None = ("chrY", "chrM"),
     min_fragments_per_cell: int = 100,
-    metrics: Optional[str | Path | pd.DataFrame | "cudf.DataFrame"] = None,
-    filter_query: Optional[str] = None,
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
+    filter_query: str | None = None,
     low_memory: bool = False,
-    cell_batch_size: Optional[int] = None,
+    cell_batch_size: int | None = None,
     gene_name_key: str = "gene_name",
     gene_id_key: str = "gene_id",
 ) -> AnnData:
@@ -623,6 +640,7 @@ def make_gene_score_matrix(
 
     def _score(path: Path) -> AnnData:
         """The gene score matrix of one fragment file."""
+
         def _run(use_low_mem):
             df = read_fragments_parquet(path, low_memory=use_low_mem)
             df = df.sort_values("barcode")
@@ -666,17 +684,19 @@ def make_gene_score_matrix(
         names = _file_names(paths)
         _check_distinct_cells(paths, names)
         adata = combine_file_matrices(
-            (_score(path) for path in paths), names, output_path,
+            (_score(path) for path in paths),
+            names,
+            output_path,
         )
         logger.info(
             f"Gene score matrix of {len(paths)} files: {adata.shape[0]:,} cells x "
-            f"{adata.shape[1]:,} genes ({time.perf_counter() - start:.1f}s)")
+            f"{adata.shape[1]:,} genes ({time.perf_counter() - start:.1f}s)"
+        )
         return adata
 
     input_parquet = Path(input_parquet)
     if output_path is None:
-        output_path = input_parquet.with_suffix("").with_name(
-            input_parquet.stem + "_gene_score_matrix.h5ad")
+        output_path = input_parquet.with_suffix("").with_name(input_parquet.stem + "_gene_score_matrix.h5ad")
     else:
         output_path = Path(output_path)
 
@@ -684,5 +704,6 @@ def make_gene_score_matrix(
     write_h5ad(adata, output_path)
     logger.info(
         f"Created {output_path.name}: {adata.shape[0]:,} cells x {adata.shape[1]:,} genes "
-        f"({time.perf_counter() - start:.1f}s)")
+        f"({time.perf_counter() - start:.1f}s)"
+    )
     return adata

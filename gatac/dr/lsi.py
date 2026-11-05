@@ -179,8 +179,14 @@ _csr_spmv_kernel = cp.RawKernel(
 def _spmv(A: cusp.csr_matrix, x: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
     """``out = A @ x`` for a float32 CSR *A*, with a fixed summation order."""
     _launch_warp_per_row(
-        _csr_spmv_kernel, A.shape[0],
-        A.data, A.indices, A.indptr, x, out, np.int32(A.shape[0]),
+        _csr_spmv_kernel,
+        A.shape[0],
+        A.data,
+        A.indices,
+        A.indptr,
+        x,
+        out,
+        np.int32(A.shape[0]),
     )
     return out
 
@@ -238,9 +244,15 @@ def _spmm(A: cusp.csr_matrix, B: cp.ndarray) -> cp.ndarray:
     B = cp.ascontiguousarray(B, dtype=cp.float32)
     out = cp.empty((A.shape[0], B.shape[1]), dtype=cp.float32)
     _launch_warp_per_row(
-        _csr_spmm_kernel, A.shape[0],
-        A.data, A.indices, A.indptr, B, out,
-        np.int32(A.shape[0]), np.int32(B.shape[1]),
+        _csr_spmm_kernel,
+        A.shape[0],
+        A.data,
+        A.indices,
+        A.indptr,
+        B,
+        out,
+        np.int32(A.shape[0]),
+        np.int32(B.shape[1]),
     )
     return out
 
@@ -261,9 +273,7 @@ def _gram_operator(
     recover the singular vectors on the other side.
     """
     if X.dtype != cp.float32:
-        raise TypeError(
-            f"the deterministic solver needs a float32 matrix, got {X.dtype}."
-        )
+        raise TypeError(f"the deterministic solver needs a float32 matrix, got {X.dtype}.")
     XT = X.T.tocsr()
     m, n = X.shape
     # m <= n: y = X (Xᵀ v), an (m, m) operator; otherwise y = Xᵀ (X v).
@@ -320,19 +330,19 @@ class LSIModel:
     contradict the settings beside it.
     """
 
-    embedding: np.ndarray            #: (n_cells, n_comps) V @ diag(d)
-    singular_values: np.ndarray      #: (n_comps,)
-    feature_loadings: np.ndarray     #: (n_kept, n_comps) — retained features, `idx` order
-    idx: np.ndarray                  #: retained feature indices, into the fitted feature set
-    row_sums: np.ndarray             #: training per-feature sums over `idx` (ArchR rowSm)
-    n_train: int                     #: training cell count (ArchR nCol)
+    embedding: np.ndarray  #: (n_cells, n_comps) V @ diag(d)
+    singular_values: np.ndarray  #: (n_comps,)
+    feature_loadings: np.ndarray  #: (n_kept, n_comps) — retained features, `idx` order
+    idx: np.ndarray  #: retained feature indices, into the fitted feature set
+    row_sums: np.ndarray  #: training per-feature sums over `idx` (ArchR rowSm)
+    n_train: int  #: training cell count (ArchR nCol)
     method: int
     scale_to: float
     binarize: bool
-    scale_by_sv: bool = True         #: embedding is U·S (True) or U (False)
-    deterministic: bool = True       #: whether the *reproducible* solver ran
+    scale_by_sv: bool = True  #: embedding is U·S (True) or U (False)
+    deterministic: bool = True  #: whether the *reproducible* solver ran
     random_state: int = 0
-    depth_cor: np.ndarray | None = None      #: |r| with log10 depth, per component
+    depth_cor: np.ndarray | None = None  #: |r| with log10 depth, per component
     dims_dropped: np.ndarray = field(default_factory=lambda: np.array([], dtype=int))
     n_held_out: int = 0
     n_zero_depth_projected: int = 0
@@ -349,10 +359,7 @@ def _resolve_method(method: int | str) -> int:
     if isinstance(method, str):
         key = method.strip().lower()
         if key not in _METHOD_ALIASES:
-            raise ValueError(
-                f"Unknown LSI method {method!r}. Use 1, 2, 3 or one of "
-                f"{sorted(_METHOD_ALIASES)}."
-            )
+            raise ValueError(f"Unknown LSI method {method!r}. Use 1, 2, 3 or one of {sorted(_METHOD_ALIASES)}.")
         return _METHOD_ALIASES[key]
     if method not in (1, 2, 3):
         raise ValueError(f"method must be 1, 2 or 3 (got {method!r}).")
@@ -384,9 +391,7 @@ def _feature_sums(X: cusp.csr_matrix, binarize: bool) -> cp.ndarray:
     return cp.asarray(X.sum(axis=0), dtype=cp.float32).ravel()
 
 
-def _idf_from_row_sums(
-    row_sums: cp.ndarray, n_train: int, method: int
-) -> cp.ndarray:
+def _idf_from_row_sums(row_sums: cp.ndarray, n_train: int, method: int) -> cp.ndarray:
     """
     IDF vector, pre-transformed for the kernel.
 
@@ -466,10 +471,17 @@ def tfidf_gpu(
         idf = idf.astype(cp.float32, copy=False)
 
     _launch_warp_per_row(
-        _tfidf_kernel, n_cells,
-        X.data, indices32, indptr32, idf, inv_depth,
-        np.float32(scale_to), np.int32(method),
-        np.int32(bool(binarize)), np.int32(n_cells),
+        _tfidf_kernel,
+        n_cells,
+        X.data,
+        indices32,
+        indptr32,
+        idf,
+        inv_depth,
+        np.float32(scale_to),
+        np.int32(method),
+        np.int32(bool(binarize)),
+        np.int32(n_cells),
     )
     return idf, inv_depth
 
@@ -556,7 +568,12 @@ def _svd_deterministic(
     v0 = cp.asarray(rng.random(gram.shape[0]), dtype=cp.float32)
 
     w, x = cusla.eigsh(
-        gram, k=n_comps, which="LM", ncv=ncv, tol=tol, v0=v0,
+        gram,
+        k=n_comps,
+        which="LM",
+        ncv=ncv,
+        tol=tol,
+        v0=v0,
         return_eigenvectors=True,
     )
     del gram
@@ -571,9 +588,9 @@ def _svd_deterministic(
     s[:n_large] = cp.sqrt(w[above])
     x = cp.ascontiguousarray(x[:, above])
 
-    if m <= n:                      # gram was X Xᵀ, so x holds the left vectors
+    if m <= n:  # gram was X Xᵀ, so x holds the left vectors
         u, v = x, _spmm(XT, x) / s[:n_large]
-    else:                           # gram was Xᵀ X, so x holds the right ones
+    else:  # gram was Xᵀ X, so x holds the right ones
         v, u = x, _spmm(X, x) / s[:n_large]
     del XT
     u = _augment_orthonormal(u, n_comps - n_large, rng)
@@ -630,9 +647,7 @@ def _svd(
         ncv = min(max_k, max(4 * n_comps + 1, n_comps + 60))
 
     if _deterministic_available(X, deterministic):
-        u, s, vt = _svd_deterministic(
-            X, n_comps, tol=tol, ncv=ncv, random_state=random_state
-        )
+        u, s, vt = _svd_deterministic(X, n_comps, tol=tol, ncv=ncv, random_state=random_state)
     else:
         if deterministic:
             logger.info(
@@ -653,9 +668,7 @@ def _svd(
     return u, s, vt
 
 
-def scale_dims(
-    embedding: np.ndarray, scale_max: float | None = None
-) -> np.ndarray:
+def scale_dims(embedding: np.ndarray, scale_max: float | None = None) -> np.ndarray:
     """
     ArchR's ``scaleDims`` — z-score each **cell** across its dimensions.
 
@@ -706,7 +719,7 @@ def scale_dims(
         The scaled embedding, float32.
     """
     e = np.asarray(embedding, dtype=np.float64)
-    sd = e.std(axis=1, ddof=1, keepdims=True)      # matrixStats::rowSds
+    sd = e.std(axis=1, ddof=1, keepdims=True)  # matrixStats::rowSds
     sd = np.where(sd == 0, 1.0, sd)
     z = (e - e.mean(axis=1, keepdims=True)) / sd
     if scale_max is not None:
@@ -856,9 +869,7 @@ def compute_lsi(
     else:
         Xh = X.tocsr()
         depth_all = cp.asarray(
-            np.diff(Xh.indptr).astype(np.float32)
-            if binarize
-            else np.asarray(Xh.sum(axis=1)).ravel().astype(np.float32)
+            np.diff(Xh.indptr).astype(np.float32) if binarize else np.asarray(Xh.sum(axis=1)).ravel().astype(np.float32)
         )
     depth_np = cp.asnumpy(depth_all)
 
@@ -898,10 +909,7 @@ def compute_lsi(
     n_train = int(train_mask.sum())
     n_held_out = n_cells - n_train
     if n_held_out:
-        logger.info(
-            f"Holding out {n_held_out} depth-outlier cell(s); "
-            f"fitting on {n_train}."
-        )
+        logger.info(f"Holding out {n_held_out} depth-outlier cell(s); fitting on {n_train}.")
 
     # ---- training submatrix ----------------------------------------------
     if X_gpu_full is not None:
@@ -926,10 +934,7 @@ def compute_lsi(
         row_sums = cp.asarray(rs[idx])
     n_kept = len(idx)
     if n_kept < n_features:
-        logger.info(
-            f"Dropping {n_features - n_kept} feature(s) with zero training "
-            f"signal; {n_kept} retained."
-        )
+        logger.info(f"Dropping {n_features - n_kept} feature(s) with zero training signal; {n_kept} retained.")
 
     if n_comps >= min(n_train, n_kept):
         raise ValueError(
@@ -943,36 +948,38 @@ def compute_lsi(
     if X_gpu_full is not None:
         X_fit = X_train[:, cp.asarray(idx)] if n_kept < n_features else X_train
         X_fit = _to_gpu_csr(X_fit).copy()
-        inv_depth_train = (
-            cp.float32(1.0) / _cell_depth(X_fit, binarize).clip(1.0)
-        ).astype(cp.float32)
+        inv_depth_train = (cp.float32(1.0) / _cell_depth(X_fit, binarize).clip(1.0)).astype(cp.float32)
         tfidf_gpu(
-            X_fit, method=method, scale_to=scale_to, binarize=binarize,
-            idf=idf, inv_depth=inv_depth_train,
+            X_fit,
+            method=method,
+            scale_to=scale_to,
+            binarize=binarize,
+            idf=idf,
+            inv_depth=inv_depth_train,
         )
         used_deterministic = _deterministic_available(X_fit, deterministic)
-        u, s, vt = _svd(X_fit, n_comps, tol=tol, ncv=ncv,
-                        random_state=random_state,
-                        deterministic=deterministic)
+        u, s, vt = _svd(X_fit, n_comps, tol=tol, ncv=ncv, random_state=random_state, deterministic=deterministic)
         del X_fit
     else:
         Xf = X_train[:, idx].tocsr() if n_kept < n_features else X_train.tocsr()
         Xf = _tfidf_host_chunked(
-            Xf, idf=idf, method=method, scale_to=scale_to,
-            binarize=binarize, chunk_size=chunk_size,
+            Xf,
+            idf=idf,
+            method=method,
+            scale_to=scale_to,
+            binarize=binarize,
+            chunk_size=chunk_size,
         )
         store, op = ChunkedMatrix(Xf, chunk_size), None
         op = store.as_operator()
         used_deterministic = _deterministic_available(op, deterministic)
-        u, s, vt = _svd(op, n_comps, tol=tol, ncv=ncv,
-                        random_state=random_state,
-                        deterministic=deterministic)
+        u, s, vt = _svd(op, n_comps, tol=tol, ncv=ncv, random_state=random_state, deterministic=deterministic)
         del store, op, Xf
 
     cp.get_default_memory_pool().free_all_blocks()
 
     emb_train = (u * s) if scale_by_sv else u
-    loadings = cp.asnumpy(vt.T)          # (n_kept, n_comps)
+    loadings = cp.asnumpy(vt.T)  # (n_kept, n_comps)
     s_np = cp.asnumpy(s)
 
     model = LSIModel(
@@ -997,11 +1004,7 @@ def compute_lsi(
 
     # ---- reinsert held-out cells by projection ---------------------------
     if n_held_out:
-        X_out = (
-            X_gpu_full[cp.asarray(~train_mask)]
-            if X_gpu_full is not None
-            else X.tocsr()[~train_mask]
-        )
+        X_out = X_gpu_full[cp.asarray(~train_mask)] if X_gpu_full is not None else X.tocsr()[~train_mask]
         proj, n_zero = _project(model, X_out, already_subset=False)
         model.embedding[~train_mask] = proj
         model.n_zero_depth_projected = n_zero
@@ -1025,9 +1028,7 @@ def compute_lsi(
     # z-score per cell first), and because that scaling is per row rather than
     # per column it changes the correlations — on a real tile matrix it was the
     # difference between dropping component 1 and keeping it.
-    keep, r = drop_depth_correlated(
-        scale_dims(model.embedding), depth_for_cor, cutoff=depth_cor_cutoff
-    )
+    keep, r = drop_depth_correlated(scale_dims(model.embedding), depth_for_cor, cutoff=depth_cor_cutoff)
     model.depth_cor = r
     model.dims_dropped = np.where(~keep)[0]
     if model.dims_dropped.size:
@@ -1065,9 +1066,7 @@ def _tfidf_host_chunked(
     """TF-IDF a host CSR matrix in row chunks, writing back in place."""
     X = X.tocsr()
     if X.dtype != np.float32:
-        X = sp.csr_matrix(
-            (X.data.astype(np.float32), X.indices, X.indptr), shape=X.shape
-        )
+        X = sp.csr_matrix((X.data.astype(np.float32), X.indices, X.indptr), shape=X.shape)
     n_cells = X.shape[0]
     for start in range(0, n_cells, chunk_size):
         end = min(start + chunk_size, n_cells)
@@ -1082,17 +1081,22 @@ def _tfidf_host_chunked(
         # when two consecutive offsets are equal, so it silently mis-sums an
         # empty row. compute_lsi excludes empty rows before reaching here, but
         # this helper should not depend on that.
-        chunk_view = cusp.csr_matrix(
-            (d_data, d_indices, d_indptr), shape=(n_rows, X.shape[1])
-        )
+        chunk_view = cusp.csr_matrix((d_data, d_indices, d_indptr), shape=(n_rows, X.shape[1]))
         depth = _cell_depth(chunk_view, binarize)
         inv_depth = (cp.float32(1.0) / cp.maximum(depth, 1.0)).astype(cp.float32)
 
         _launch_warp_per_row(
-            _tfidf_kernel, n_rows,
-            d_data, d_indices, d_indptr, idf, inv_depth,
-            np.float32(scale_to), np.int32(method),
-            np.int32(bool(binarize)), np.int32(n_rows),
+            _tfidf_kernel,
+            n_rows,
+            d_data,
+            d_indices,
+            d_indptr,
+            idf,
+            inv_depth,
+            np.float32(scale_to),
+            np.int32(method),
+            np.int32(bool(binarize)),
+            np.int32(n_rows),
         )
         X.data[d0:d1] = cp.asnumpy(d_data)
         del d_data, d_indices, d_indptr, depth, inv_depth
@@ -1100,9 +1104,7 @@ def _tfidf_host_chunked(
     return X
 
 
-def _project(
-    model: LSIModel, X_new, already_subset: bool = False
-) -> tuple[np.ndarray, int]:
+def _project(model: LSIModel, X_new, already_subset: bool = False) -> tuple[np.ndarray, int]:
     """Core of :func:`project_lsi`; returns ``(embedding, n_zero_depth)``."""
     Xg = _to_gpu_csr(X_new)
 
@@ -1114,17 +1116,17 @@ def _project(
     # 2/3. the fitted binarize setting, then depth recomputed on THESE cells
     depth = _cell_depth(Xg, model.binarize)
     n_zero = int(cp.sum(depth == 0))
-    inv_depth = (
-        cp.float32(1.0) / cp.where(depth == 0, cp.float32(1.0), depth)
-    ).astype(cp.float32)
+    inv_depth = (cp.float32(1.0) / cp.where(depth == 0, cp.float32(1.0), depth)).astype(cp.float32)
 
     # 4/5. TF from the new cells' depth, IDF from the training row sums
-    idf = _idf_from_row_sums(
-        cp.asarray(model.row_sums), model.n_train, model.method
-    )
+    idf = _idf_from_row_sums(cp.asarray(model.row_sums), model.n_train, model.method)
     tfidf_gpu(
-        Xg, method=model.method, scale_to=model.scale_to,
-        binarize=model.binarize, idf=idf, inv_depth=inv_depth,
+        Xg,
+        method=model.method,
+        scale_to=model.scale_to,
+        binarize=model.binarize,
+        idf=idf,
+        inv_depth=inv_depth,
     )
 
     # Deterministic on purpose: this is the step that places the held-out
@@ -1134,11 +1136,7 @@ def _project(
     # the 179 held-out cells of the PBMC fixture, with the 4,258 fitted cells
     # already identical.
     loadings = cp.asarray(model.feature_loadings, dtype=cp.float32)
-    emb = (
-        _spmm(Xg, loadings)
-        if Xg.dtype == cp.float32
-        else Xg.dot(loadings)
-    )
+    emb = _spmm(Xg, loadings) if Xg.dtype == cp.float32 else Xg.dot(loadings)
     if not model.scale_by_sv:
         # X @ loadings is U·S; an unscaled model embeds the fitted cells as U
         s = cp.asarray(model.singular_values, dtype=cp.float32)
@@ -1189,6 +1187,7 @@ def project_lsi(model: LSIModel, X_new) -> np.ndarray:
             "retained features; their embedding rows are zero."
         )
     return emb
+
 
 # ---------------------------------------------------------------------------
 # Iterative-LSI feature selection (ArchR addIterativeLSI / .identifyVarFeatures)
@@ -1327,9 +1326,7 @@ def initial_features(
     return np.sort(top)
 
 
-def accessibility_pool(
-    accessibility: np.ndarray, total_features: int = 500_000
-) -> np.ndarray:
+def accessibility_pool(accessibility: np.ndarray, total_features: int = 500_000) -> np.ndarray:
     """
     The feature *pool* variable-feature scoring runs over.
 
@@ -1413,10 +1410,7 @@ def cluster_var_features(
     """
     labels = np.asarray(clusters)
     if labels.shape[0] != X_pool.shape[0]:
-        raise ValueError(
-            f"clusters has length {labels.shape[0]} but X_pool has "
-            f"{X_pool.shape[0]} rows."
-        )
+        raise ValueError(f"clusters has length {labels.shape[0]} but X_pool has {X_pool.shape[0]} rows.")
     uniq, codes = np.unique(labels, return_inverse=True)
     k = len(uniq)
     if k < 2:
@@ -1430,12 +1424,16 @@ def cluster_var_features(
 
     def _accumulate(Xg: cusp.csr_matrix, code_slice: cp.ndarray) -> None:
         _launch_warp_per_row(
-            _cluster_sums_kernel, Xg.shape[0],
+            _cluster_sums_kernel,
+            Xg.shape[0],
             Xg.data.astype(cp.float32, copy=False),
             Xg.indices.astype(cp.int32, copy=False),
             Xg.indptr.astype(cp.int32, copy=False),
-            code_slice, group, np.int32(n_pool),
-            np.int32(bool(binarize)), np.int32(Xg.shape[0]),
+            code_slice,
+            group,
+            np.int32(n_pool),
+            np.int32(bool(binarize)),
+            np.int32(Xg.shape[0]),
         )
 
     if chunk_size is None:
@@ -1483,10 +1481,7 @@ def _resolve_features(adata, features) -> np.ndarray | None:
     mask = np.asarray(features)
     if mask.dtype == bool:
         if mask.shape[0] != adata.n_vars:
-            raise ValueError(
-                f"Boolean feature mask has length {mask.shape[0]}, expected "
-                f"{adata.n_vars}."
-            )
+            raise ValueError(f"Boolean feature mask has length {mask.shape[0]}, expected {adata.n_vars}.")
         return mask
     out = np.zeros(adata.n_vars, dtype=bool)
     out[mask] = True
@@ -1513,9 +1508,7 @@ def _jsonable(value):
         return value
     if value is None:
         return "None"
-    if isinstance(value, (tuple, list)) and all(
-        isinstance(v, (bool, int, float)) for v in value
-    ):
+    if isinstance(value, (tuple, list)) and all(isinstance(v, (bool, int, float)) for v in value):
         return np.asarray(value)
     return None
 
@@ -1542,9 +1535,7 @@ def _pack_params(**kwargs) -> dict:
     return out
 
 
-def _align_loadings(
-    model: LSIModel, feat_mask: np.ndarray | None, n_vars: int
-) -> np.ndarray:
+def _align_loadings(model: LSIModel, feat_mask: np.ndarray | None, n_vars: int) -> np.ndarray:
     """
     Scatter the fitted loadings onto the full var axis.
 
@@ -1561,9 +1552,7 @@ def _align_loadings(
     return full
 
 
-def _fitted_mask(
-    model: LSIModel, feat_mask: np.ndarray | None, n_vars: int
-) -> np.ndarray:
+def _fitted_mask(model: LSIModel, feat_mask: np.ndarray | None, n_vars: int) -> np.ndarray:
     """Boolean mask over the full var axis of the features actually fitted."""
     out = np.zeros(n_vars, dtype=bool)
     base = np.where(feat_mask)[0] if feat_mask is not None else np.arange(n_vars)
@@ -1727,19 +1716,11 @@ def lsi(
     if feat_mask is not None:
         n_sel = int(feat_mask.sum())
         if n_sel == 0:
-            raise ValueError(
-                "The feature selection is empty; nothing to decompose."
-            )
-        logger.info(
-            f"Running LSI on {adata.n_obs:,} cells x {n_sel:,} selected "
-            f"features (method {method_id})."
-        )
+            raise ValueError("The feature selection is empty; nothing to decompose.")
+        logger.info(f"Running LSI on {adata.n_obs:,} cells x {n_sel:,} selected features (method {method_id}).")
         X = X[:, feat_mask]
     else:
-        logger.info(
-            f"Running LSI on {adata.n_obs:,} cells x {adata.n_vars:,} features "
-            f"(method {method_id})."
-        )
+        logger.info(f"Running LSI on {adata.n_obs:,} cells x {adata.n_vars:,} features (method {method_id}).")
 
     depth = _resolve_depth(adata, depth_key)
 
@@ -1834,8 +1815,7 @@ def model_from_adata(adata, uns_key: str = "lsi") -> LSIModel:
     """
     if uns_key not in adata.uns or "model" not in adata.uns[uns_key]:
         raise KeyError(
-            f"adata.uns['{uns_key}']['model'] not found. Re-run with "
-            "`store_model=True` to make projection possible."
+            f"adata.uns['{uns_key}']['model'] not found. Re-run with `store_model=True` to make projection possible."
         )
     stored = adata.uns[uns_key]["model"]
     mask = np.asarray(stored["feature_mask"], dtype=bool)
@@ -2015,10 +1995,7 @@ def iterative_lsi(
     if cluster_params:
         unknown = set(cluster_params) - set(params)
         if unknown:
-            raise ValueError(
-                f"Unknown cluster_params: {sorted(unknown)}. "
-                f"Known keys: {sorted(params)}."
-            )
+            raise ValueError(f"Unknown cluster_params: {sorted(unknown)}. Known keys: {sorted(params)}.")
         params.update(cluster_params)
 
     # Upload once and slice on the device. scipy's fancy column indexing on a
@@ -2040,10 +2017,11 @@ def iterative_lsi(
         return X[:, cols]
 
     # ---- accessibility, computed once over every feature ------------------
-    acc = feature_accessibility(X_dev if X_dev is not None else X,
-                                binarize=binarize)
+    acc = feature_accessibility(X_dev if X_dev is not None else X, binarize=binarize)
     features = initial_features(
-        acc, n_features, total_features=total_features,
+        acc,
+        n_features,
+        total_features=total_features,
         filter_quantile=filter_quantile,
     )
     pool = accessibility_pool(acc, total_features)
@@ -2069,9 +2047,9 @@ def iterative_lsi(
             binarize=binarize,
             outlier_quantiles=outlier_quantiles,
             depth=depth,
-            depth_cor_cutoff=None,      # filtered per round below, and at the end
-            allow_empty_cells=True,     # the algorithm picks the features, so
-                                        # emptiness is not the user's to fix
+            depth_cor_cutoff=None,  # filtered per round below, and at the end
+            allow_empty_cells=True,  # the algorithm picks the features, so
+            # emptiness is not the user's to fix
             scale_by_sv=True,
             tol=tol,
             ncv=ncv,
@@ -2084,8 +2062,8 @@ def iterative_lsi(
 
         # ---- ArchR .LSICluster: scale, drop depth-correlated, cluster -----
         z = scale_dims(model.embedding)
-        depth_for_cor = depth if depth is not None else cp.asnumpy(
-            _cell_depth(_to_gpu_csr(_select(features)), binarize)
+        depth_for_cor = (
+            depth if depth is not None else cp.asnumpy(_cell_depth(_to_gpu_csr(_select(features)), binarize))
         )
         keep, _r = drop_depth_correlated(z, depth_for_cor, cutoff=depth_cor_cutoff)
         if keep.sum() < 2:
@@ -2098,17 +2076,11 @@ def iterative_lsi(
         if cluster_fn is not None:
             labels = np.asarray(cluster_fn(z))
             if labels.shape[0] != n_cells:
-                raise ValueError(
-                    f"cluster_fn returned {labels.shape[0]} labels for "
-                    f"{n_cells} cells."
-                )
+                raise ValueError(f"cluster_fn returned {labels.shape[0]} labels for {n_cells} cells.")
         else:
             labels = snn_cluster(z, random_state=random_state, **params)
         cluster_labels[it] = labels
-        logger.info(
-            f"  round {it}: {len(np.unique(labels))} cluster(s) on "
-            f"{keep.sum()} dim(s)"
-        )
+        logger.info(f"  round {it}: {len(np.unique(labels))} cluster(s) on {keep.sum()} dim(s)")
 
         # ArchR: `if (nClust == 1) return(prevFeatures)` — a single cluster
         # carries no between-cluster variance, so the feature set is kept.
@@ -2123,8 +2095,12 @@ def iterative_lsi(
         if X_pool is None:
             X_pool = _select(pool)
         sel_in_pool, _var = cluster_var_features(
-            X_pool, labels, n_features, scale_to=scale_to,
-            binarize=binarize, chunk_size=chunk_size,
+            X_pool,
+            labels,
+            n_features,
+            scale_to=scale_to,
+            binarize=binarize,
+            chunk_size=chunk_size,
         )
         features = np.sort(pool[sel_in_pool])
 
@@ -2132,24 +2108,14 @@ def iterative_lsi(
     cp.get_default_memory_pool().free_all_blocks()
 
     # ---- final depth-correlation filter, on the scaled embedding ----------
-    depth_final = depth if depth is not None else cp.asnumpy(
-        _cell_depth(_to_gpu_csr(_select(features)), binarize)
-    )
+    depth_final = depth if depth is not None else cp.asnumpy(_cell_depth(_to_gpu_csr(_select(features)), binarize))
     X_dev = None  # free the device copy; _select is done
-    keep, r = drop_depth_correlated(
-        scale_dims(model.embedding), depth_final, cutoff=depth_cor_cutoff
-    )
+    keep, r = drop_depth_correlated(scale_dims(model.embedding), depth_final, cutoff=depth_cor_cutoff)
     embedding = model.embedding[:, keep]
     dims_dropped = np.where(~keep)[0]
     if dims_dropped.size:
-        logger.info(
-            f"Dropping {dims_dropped.size} depth-correlated component(s): "
-            f"{dims_dropped.tolist()}"
-        )
-    logger.info(
-        f"Iterative LSI complete: {embedding.shape[1]} component(s), "
-        f"{len(features):,} features."
-    )
+        logger.info(f"Dropping {dims_dropped.size} depth-correlated component(s): {dims_dropped.tolist()}")
+    logger.info(f"Iterative LSI complete: {embedding.shape[1]} component(s), {len(features):,} features.")
 
     if not inplace:
         return embedding, model.singular_values
@@ -2159,9 +2125,7 @@ def iterative_lsi(
     mask[features] = True
     adata.var["selected_iterative_lsi"] = mask
     for it, labels in cluster_labels.items():
-        adata.obs[f"iterative_lsi_clusters_iter{it}"] = pd.Categorical(
-            labels.astype(str)
-        )
+        adata.obs[f"iterative_lsi_clusters_iter{it}"] = pd.Categorical(labels.astype(str))
 
     uns: dict = {
         "singular_values": model.singular_values,

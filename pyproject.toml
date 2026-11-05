@@ -141,7 +141,9 @@ ignore = [
 isort.known-first-party = ["gatac"]
 
 [tool.ruff.lint.per-file-ignores]
-"*/__init__.py" = ["F401"]
+"*/__init__.py" = ["F401", "E402"]
+# Imports after _require_rapids(), which names the CUDA extra to install
+"gatac/gpu.py" = ["E402"]
 # The closures of the motif scan and the background sampling read the loop's
 # variables, but each runs in the iteration that defines it
 "gatac/tobias/bindetect.py" = ["B023"]

@@ -754,8 +754,7 @@ class FootprintTracks:
         try:
             import pyBigWig
         except ImportError as e:
-            raise ImportError("to_bigwig needs pyBigWig: pip install 'gatac[bigwig]' "
-                              "(or pip install pyBigWig)") from e
+            raise ImportError("to_bigwig needs pyBigWig: pip install 'gatac[bigwig]' (or pip install pyBigWig)") from e
         lay = self.layout(track)
         bw = pyBigWig.open(str(path), "w")
         bw.addHeader([(c, int(self.chrom_sizes[c])) for c in lay.chroms])

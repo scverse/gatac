@@ -103,10 +103,7 @@ class _DefaultHandler(logging.StreamHandler):
 _logger = logging.getLogger("gatac")
 _logger.setLevel(logging.INFO)
 _handler = _DefaultHandler()
-_handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                      datefmt="%H:%M:%S")
-)
+_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
 _logger.addHandler(_handler)
 
 
@@ -129,5 +126,3 @@ def set_verbosity(level: str | int) -> None:
     if isinstance(level, str):
         level = getattr(logging, level.upper())
     logging.getLogger("gatac").setLevel(level)
-
-

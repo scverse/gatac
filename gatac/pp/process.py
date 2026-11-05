@@ -1,6 +1,7 @@
 """
 Merging the matrices of several samples into one ``.h5ad``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,8 +84,5 @@ def combine(
             yield ad.read_h5ad(path)
 
     combined = combine_file_matrices(parts(), names, output_path)
-    logger.info(
-        f"Saved combined matrix ({combined.n_obs:,} cells × {combined.n_vars:,} features) "
-        f"to {output_path}"
-    )
+    logger.info(f"Saved combined matrix ({combined.n_obs:,} cells × {combined.n_vars:,} features) to {output_path}")
     combined.file.close()
