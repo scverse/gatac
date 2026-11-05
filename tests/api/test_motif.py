@@ -7,17 +7,18 @@ on whether it runs. Parity with chromVAR, motifmatchr and GSEApy is the
 reproducibility suite's job; the logistic fitter's numerics are guarded in
 ``tests/regression/test_motif_regression.py``.
 """
+
 from __future__ import annotations
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
-import anndata as ad
 
 import gatac as ga
 
-N_GROUPS = 3          # as in tests/conftest.py
+N_GROUPS = 3  # as in tests/conftest.py
 PLANTED = [f"M{g}" for g in range(N_GROUPS)]
 
 
@@ -80,8 +81,7 @@ def test_scan_coordinate_system_shifts_extraction_by_one_base(motifs, world):
     names = [f"{c}:{a + 1}-{a + L + 20}" for c, a in zip(hot.chrom, s)]
     found = {}
     for cs in ("0-based", "1-based"):
-        a = ad.AnnData(sp.csr_matrix((1, len(names)), dtype=np.float32),
-                       var=pd.DataFrame(index=names))
+        a = ad.AnnData(sp.csr_matrix((1, len(names)), dtype=np.float32), var=pd.DataFrame(index=names))
         # A strict threshold: M0 is the near-palindromic AP-1 site, and at the
         # default p-value a window half-overlapping it on the other strand scores in.
         ga.motif.scan(a, m0, world["fasta"], bg="even", pvalue=1e-6, coordinate_system=cs)
@@ -121,8 +121,7 @@ def test_enrichment_regression_precomputed_hits_equal_fresh_scan(motifs, world, 
     regions, score = regression_inputs
     fresh = ga.motif.enrichment_regression(motifs, regions, score, world["fasta"])
     hits = ga.motif.presence_matrix(motifs, regions, world["fasta"])
-    cached = ga.motif.enrichment_regression(motifs, regions, score, world["fasta"],
-                                            precomputed_hits=hits)
+    cached = ga.motif.enrichment_regression(motifs, regions, score, world["fasta"], precomputed_hits=hits)
     pd.testing.assert_frame_equal(fresh, cached)
 
 
@@ -147,8 +146,7 @@ def test_enrichment_regression_drops_nonfinite_scores(motifs, world, regression_
     score[bad[1::2]] = np.inf
     keep = np.isfinite(score)
     got = ga.motif.enrichment_regression(motifs, regions, score, world["fasta"])
-    ref = ga.motif.enrichment_regression(motifs, [r for r, k in zip(regions, keep) if k],
-                                         score[keep], world["fasta"])
+    ref = ga.motif.enrichment_regression(motifs, [r for r, k in zip(regions, keep) if k], score[keep], world["fasta"])
     pd.testing.assert_frame_equal(got, ref)
 
 
@@ -157,13 +155,16 @@ def gc_world(tmp_path_factory):
     """One contig of 500 bp segments whose GC fraction ranges 0.25-0.75."""
     rng = np.random.default_rng(5)
     gc = rng.uniform(0.25, 0.75, 1_000)
-    seq = "".join("".join(rng.choice(list("GCAT"), 500, p=[f / 2, f / 2, (1 - f) / 2, (1 - f) / 2]))
-                  for f in gc)
+    seq = "".join("".join(rng.choice(list("GCAT"), 500, p=[f / 2, f / 2, (1 - f) / 2, (1 - f) / 2])) for f in gc)
     fasta = tmp_path_factory.mktemp("gc") / "gc.fa"
-    fasta.write_text(">chrA\n" + "\n".join(seq[i:i + 60] for i in range(0, len(seq), 60)) + "\n")
+    fasta.write_text(">chrA\n" + "\n".join(seq[i : i + 60] for i in range(0, len(seq), 60)) + "\n")
     regions = [f"chrA:{i * 500}-{(i + 1) * 500}" for i in range(1_000)]
-    actual = np.array([(seq[i * 500:(i + 1) * 500].count("G") + seq[i * 500:(i + 1) * 500].count("C")) / 500
-                       for i in range(1_000)])
+    actual = np.array(
+        [
+            (seq[i * 500 : (i + 1) * 500].count("G") + seq[i * 500 : (i + 1) * 500].count("C")) / 500
+            for i in range(1_000)
+        ]
+    )
     return {"fasta": fasta, "regions": regions, "gc": actual, "seq": seq}
 
 
@@ -181,7 +182,7 @@ def test_gc_matched_background_matches_target_gc(gc_world):
     got = np.array([lookup[r] for r in bg])
     want = gc[rich[::2]]
     assert abs(np.median(got) - np.median(want)) < 0.02
-    assert abs(np.median(gc) - np.median(want)) > 0.1    # the pool alone would not match
+    assert abs(np.median(gc) - np.median(want)) > 0.1  # the pool alone would not match
     assert bg == ga.motif.sample_gc_matched_background(list(target), gc_world["fasta"], **kw)
 
 
@@ -233,14 +234,14 @@ def test_compute_deviations_independent_of_batching(deviations):
     """``batch_size`` and ``motif_batch_size`` trade memory for speed and do not change the scores."""
     a = deviations.copy()
     ga.motif.compute_deviations(a, batch_size=37, motif_batch_size=1, key_added="small")
-    np.testing.assert_allclose(a.obsm["small"].to_numpy(), deviations.obsm["chromvar"].to_numpy(),
-                               rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(a.obsm["small"].to_numpy(), deviations.obsm["chromvar"].to_numpy(), rtol=1e-5, atol=1e-6)
 
 
 def test_gsea_puts_the_groups_motif_on_top(deviations):
     """Ranking peaks by group-``g`` log2FC makes ``M{g}`` the top, significant motif; same seed, same table."""
-    rankings = {f"g{g}": pd.DataFrame({"log2fc": _log2fc(deviations, g)}, index=deviations.var_names)
-                for g in range(N_GROUPS)}
+    rankings = {
+        f"g{g}": pd.DataFrame({"log2fc": _log2fc(deviations, g)}, index=deviations.var_names) for g in range(N_GROUPS)
+    }
     res = ga.motif.gsea(deviations, rankings, permutation_num=200, min_size=5)
     for g in range(N_GROUPS):
         df = res[f"g{g}"]

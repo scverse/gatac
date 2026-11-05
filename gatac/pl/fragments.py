@@ -23,8 +23,8 @@ def fragment_size_distribution(
     bins: int = 200,
     color: str = "#65da86",
     title: str = "Fragment size distribution",
-    ax: "matplotlib.axes.Axes | None" = None,
-) -> "matplotlib.axes.Axes":
+    ax: matplotlib.axes.Axes | None = None,
+) -> matplotlib.axes.Axes:
     """Plot the fragment size distribution from a Parquet fragment file.
 
     Parameters

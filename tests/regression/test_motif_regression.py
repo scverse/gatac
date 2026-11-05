@@ -7,6 +7,7 @@ fitter's numerics (the Hessian is assembled from precomputed column products,
 not an einsum) without the cost of a real scan. statsmodels is the reference:
 coefficient and standard error of the score column must match per motif.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,8 +43,8 @@ def test_fit_matches_statsmodels(pass_products):
     Xg = cp.asarray(X)
     products = _design_products(Xg) if pass_products else None
     coef, se, converged = _fit_logistic_batch(
-        Xg, cp.asarray(Y), 1, max_iter=50, tol=1e-8, ridge=1e-8,
-        products=products)
+        Xg, cp.asarray(Y), 1, max_iter=50, tol=1e-8, ridge=1e-8, products=products
+    )
 
     assert converged.all()
     for m in range(Y.shape[0]):
@@ -55,6 +56,5 @@ def test_fit_matches_statsmodels(pass_products):
 def test_separated_fit_is_flagged():
     X, Y = _synthetic(n_motifs=2)
     Y[1] = (X[:, 1] > 0.5).astype(np.float64)  # perfectly separated by score
-    _, _, converged = _fit_logistic_batch(
-        cp.asarray(X), cp.asarray(Y), 1, max_iter=50, tol=1e-8, ridge=1e-8)
+    _, _, converged = _fit_logistic_batch(cp.asarray(X), cp.asarray(Y), 1, max_iter=50, tol=1e-8, ridge=1e-8)
     assert converged[0] and not converged[1]

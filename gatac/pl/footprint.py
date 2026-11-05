@@ -58,8 +58,9 @@ def bindetect_volcano(res, group1=None, group2=None, label_top=5, ax=None):
     for sel in (up, down):
         idx = np.flatnonzero(sel)
         for i in idx[np.argsort(-np.abs(change[idx]))][:label_top]:
-            ax.annotate(_motif_label(df.iloc[i]), (change[i], y[i]), fontsize=7,
-                        xytext=(2, 2), textcoords="offset points")
+            ax.annotate(
+                _motif_label(df.iloc[i]), (change[i], y[i]), fontsize=7, xytext=(2, 2), textcoords="offset points"
+            )
     ax.axvline(0, color="black", lw=0.5)
     ax.set_xlabel(f"Differential binding score ({group1} / {group2})")
     ax.set_ylabel("-log10(p-value)")
@@ -68,8 +69,7 @@ def bindetect_volcano(res, group1=None, group2=None, label_top=5, ax=None):
     return ax
 
 
-def footprint_aggregate(tracks, res, motif, groups=None, flank=60, bound_in=None,
-                        track="corrected", ax=None):
+def footprint_aggregate(tracks, res, motif, groups=None, flank=60, bound_in=None, track="corrected", ax=None):
     """
     Aggregate signal around the binding sites of one motif (TOBIAS PlotAggregate).
 
@@ -117,7 +117,7 @@ def footprint_aggregate(tracks, res, motif, groups=None, flank=60, bound_in=None
     offs = np.arange(-flank, flank + 1)
     agg = {g: np.zeros(len(offs)) for g in groups}
     for chrom, sub in sites.groupby("chrom", observed=True):
-        mid = (sub["start"].to_numpy() + (sub["end"] - sub["start"]).to_numpy() // 2)
+        mid = sub["start"].to_numpy() + (sub["end"] - sub["start"]).to_numpy() // 2
         idx = lay.index(str(chrom), (mid[:, None] + offs[None, :]).ravel()).reshape(len(mid), -1)
         minus = (sub["strand"] == "-").to_numpy()
         idx[minus] = idx[minus, ::-1]

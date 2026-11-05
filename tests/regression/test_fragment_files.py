@@ -7,6 +7,7 @@ through ``FragmentFile``. The reader is checked against pandas on the source
 fragments; the matrix builders against their own results with other batch
 sizes. Synthetic data, GPU required.
 """
+
 from __future__ import annotations
 
 import gzip
@@ -46,10 +47,14 @@ def _fragments(seed: int = 0) -> pd.DataFrame:
     weights = rng.pareto(1.2, 300) + 1
     barcodes = np.array([f"{''.join(rng.choice(list('ACGT'), 16))}-1" for _ in range(300)])
     bc = rng.choice(barcodes, n, p=weights / weights.sum())
-    df = pd.DataFrame({"chrom": chrom, "start": start, "end": start + length, "barcode": bc,
-                       "count": rng.integers(1, 5, n)})
-    return df.sort_values(["chrom", "start", "end", "barcode"], kind="stable").drop_duplicates(
-        ["chrom", "start", "end", "barcode"]).reset_index(drop=True)
+    df = pd.DataFrame(
+        {"chrom": chrom, "start": start, "end": start + length, "barcode": bc, "count": rng.integers(1, 5, n)}
+    )
+    return (
+        df.sort_values(["chrom", "start", "end", "barcode"], kind="stable")
+        .drop_duplicates(["chrom", "start", "end", "barcode"])
+        .reset_index(drop=True)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -110,6 +115,7 @@ def test_file_layout(data):
     # cuDF reads the barcode table too (it reads DELTA_BYTE_ARRAY strings
     # written with a page index back as NUL bytes)
     import cudf
+
     names = cudf.read_parquet(data["path"], columns=["bc_name"])["bc_name"].dropna()
     assert ["S1_" + n for n in names.to_arrow().to_pylist()] == list(ff.barcodes)
 
@@ -128,9 +134,15 @@ def test_stored_columns_and_encodings(data):
 
 
 def test_end_before_start_is_rejected(tmp_path):
-    t = pa.table({"chrom": ["chr1", "chr1"], "start": pa.array([100, 500], pa.uint32()),
-                  "end": pa.array([200, 400], pa.uint32()), "barcode": ["A", "A"],
-                  "count": pa.array([1, 1], pa.uint16())})
+    t = pa.table(
+        {
+            "chrom": ["chr1", "chr1"],
+            "start": pa.array([100, 500], pa.uint32()),
+            "end": pa.array([200, 400], pa.uint32()),
+            "barcode": ["A", "A"],
+            "count": pa.array([1, 1], pa.uint16()),
+        }
+    )
     with pytest.raises(ValueError, match="ends before it starts"):
         ga.io.fragments.write_fragments(lambda: iter([t]), tmp_path / "bad.parquet")
 
@@ -141,27 +153,41 @@ def test_barcode_counts(data, chroms):
     got = FragmentFile(data["path"]).barcode_counts(chroms=chroms, mito_chroms=["chrM"])
     got = got.set_index("barcode").sort_index()
     sel = df if chroms is None else df[df["chrom"].isin(chroms)]
-    exp = pd.DataFrame({
-        "n_unique": sel.groupby("barcode").size(),
-        "n_total": sel.groupby("barcode")["count"].sum(),
-        "n_mito": sel.assign(m=np.where(sel["chrom"] == "chrM", sel["count"], 0)).groupby("barcode")["m"].sum(),
-    }).sort_index()
+    exp = pd.DataFrame(
+        {
+            "n_unique": sel.groupby("barcode").size(),
+            "n_total": sel.groupby("barcode")["count"].sum(),
+            "n_mito": sel.assign(m=np.where(sel["chrom"] == "chrM", sel["count"], 0)).groupby("barcode")["m"].sum(),
+        }
+    ).sort_index()
     pd.testing.assert_frame_equal(got, exp, check_dtype=False, check_names=False)
 
 
 def test_iter_batches(data):
     cells = _cells(data, 40)
     chroms = ["chr3", "chr1", "chrX"]
-    parts = [b.to_pandas() for b in FragmentFile(data["path"]).iter_batches(
-        ["chrom", "start", "end", "count"], row_groups_per_batch=3, chroms=chroms, cells=cells)]
+    parts = [
+        b.to_pandas()
+        for b in FragmentFile(data["path"]).iter_batches(
+            ["chrom", "start", "end", "count"], row_groups_per_batch=3, chroms=chroms, cells=cells
+        )
+    ]
     got = pd.concat(parts).sort_values(["chrom", "start", "end", "cell"]).reset_index(drop=True)
     df = data["df"]
     ref = df[df["chrom"].isin(chroms) & df["barcode"].isin(cells)]
-    exp = pd.DataFrame({
-        "chrom": ref["chrom"].map({c: i for i, c in enumerate(chroms)}),
-        "start": ref["start"], "end": ref["end"], "count": ref["count"],
-        "cell": ref["barcode"].map({c: i for i, c in enumerate(cells)}),
-    }).sort_values(["chrom", "start", "end", "cell"]).reset_index(drop=True)
+    exp = (
+        pd.DataFrame(
+            {
+                "chrom": ref["chrom"].map({c: i for i, c in enumerate(chroms)}),
+                "start": ref["start"],
+                "end": ref["end"],
+                "count": ref["count"],
+                "cell": ref["barcode"].map({c: i for i, c in enumerate(cells)}),
+            }
+        )
+        .sort_values(["chrom", "start", "end", "cell"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(got, exp, check_dtype=False)
 
 
@@ -174,7 +200,7 @@ def test_empty_selection_yields_nothing(data):
 def test_register_duckdb_view(data):
     con = duckdb.connect()
     FragmentFile(data["path"]).register(con)
-    got = con.sql("SELECT * FROM fragments ORDER BY chrom, start, \"end\", barcode").df()
+    got = con.sql('SELECT * FROM fragments ORDER BY chrom, start, "end", barcode').df()
     exp = data["df"].sort_values(["chrom", "start", "end", "barcode"]).reset_index(drop=True)
     pd.testing.assert_frame_equal(got, exp, check_dtype=False)
 
@@ -189,8 +215,9 @@ def test_rejects_other_parquet(data, tmp_path):
 def test_batch_prefixes_and_no_partial_file(data, tmp_path):
     tsv_b = tmp_path / "other.tsv.gz"
     shutil.copy(data["tsv"], tsv_b)
-    outs = ga.io.make_parquet_batch([data["tsv"], tsv_b], output_dir=tmp_path / "out",
-                                    barcode_prefix=["A_", "B_"], workers=2)
+    outs = ga.io.make_parquet_batch(
+        [data["tsv"], tsv_b], output_dir=tmp_path / "out", barcode_prefix=["A_", "B_"], workers=2
+    )
     for out, prefix in zip(outs, ["A_", "B_"]):
         assert all(b.startswith(prefix) for b in FragmentFile(out).barcode_counts()["barcode"])
     # The staging Parquet of the TSV parse is removed
@@ -198,8 +225,7 @@ def test_batch_prefixes_and_no_partial_file(data, tmp_path):
     bad = pd.DataFrame({"barcode": ["not-in-file"], "n_unique": [1], "n_total": [1]})
     target = tmp_path / "bad.parquet"
     with pytest.raises(ValueError):
-        ga.io.fragments.write_fragments(lambda: FragmentFile(data["path"]).iter_arrow(), target,
-                                        barcode_stats=bad)
+        ga.io.fragments.write_fragments(lambda: FragmentFile(data["path"]).iter_arrow(), target, barcode_stats=bad)
     assert not target.exists() and not list(tmp_path.glob("bad.parquet*"))
 
 
@@ -214,8 +240,7 @@ def test_batch_same_file_names(data, tmp_path, caplog):
     with pytest.raises(ValueError, match="file_prefix"):
         ga.io.make_parquet_batch(inputs, output_dir=tmp_path / "out", workers=2)
     assert not (tmp_path / "out").exists()
-    outs = ga.io.make_parquet_batch(inputs, output_dir=tmp_path / "out", workers=2,
-                                    file_prefix=["A_", "B_"])
+    outs = ga.io.make_parquet_batch(inputs, output_dir=tmp_path / "out", workers=2, file_prefix=["A_", "B_"])
     assert [p.name for p in outs] == ["A_atac_fragments.parquet", "B_atac_fragments.parquet"]
     assert all(p.exists() for p in outs)
     assert "share 300 barcode names" in caplog.text
@@ -239,8 +264,19 @@ def test_convert_cli_sample_placeholders(data, tmp_path, monkeypatch):
     out = tmp_path / "parquets"
 
     def convert(*options):
-        monkeypatch.setattr("sys.argv", ["gatac", "convert", str(tmp_path / "runs/*/outs/atac_fragments.tsv.gz"),
-                                         "--output-dir", str(out), "-j", "2", *options])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "gatac",
+                "convert",
+                str(tmp_path / "runs/*/outs/atac_fragments.tsv.gz"),
+                "--output-dir",
+                str(out),
+                "-j",
+                "2",
+                *options,
+            ],
+        )
         cli.main()
 
     with pytest.raises(SystemExit):  # both would be written to parquets/atac_fragments.parquet
@@ -281,13 +317,16 @@ def test_convert_names_per_file(data, tmp_path, monkeypatch):
 
     # A sample sheet; an empty cell takes the default
     sheet = tmp_path / "samples.csv"
-    sheet.write_text("fragments,output,barcode_prefix\n"
-                     f"{inputs[0]},{tmp_path / 'sheet' / 'p1.parquet'},P1_\n"
-                     f"{inputs[1]},{tmp_path / 'sheet' / 'p2.parquet'},\n")
+    sheet.write_text(
+        "fragments,output,barcode_prefix\n"
+        f"{inputs[0]},{tmp_path / 'sheet' / 'p1.parquet'},P1_\n"
+        f"{inputs[1]},{tmp_path / 'sheet' / 'p2.parquet'},\n"
+    )
     convert("--samples", sheet)
     assert prefixes([tmp_path / "sheet" / "p1.parquet", tmp_path / "sheet" / "p2.parquet"]) == ["P1_", ""]
-    got = ga.io.make_parquet_batch(samples=pd.DataFrame({"fragments": inputs, "barcode_prefix": ["X_", "Y_"]}),
-                                   output_dir=tmp_path / "frame")
+    got = ga.io.make_parquet_batch(
+        samples=pd.DataFrame({"fragments": inputs, "barcode_prefix": ["X_", "Y_"]}), output_dir=tmp_path / "frame"
+    )
     assert [p.name for p in got] == ["s1.parquet", "s2.parquet"] and prefixes(got) == ["X_", "Y_"]
     with pytest.raises(ValueError, match="sample sheet"):
         ga.io.make_parquet_batch(samples=pd.DataFrame({"file": inputs}))
@@ -304,7 +343,9 @@ def test_to_tsv_round_trip(data, tmp_path):
         pd.testing.assert_frame_equal(got, original, check_dtype=False)
     raw = gz.read_bytes()
     assert gzip.decompress(raw) == plain.read_bytes()
-    assert raw[12:14] == b"BC" and raw.endswith(bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000"))
+    assert raw[12:14] == b"BC" and raw.endswith(
+        bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
+    )
     assert ga.io.make_parquet(gz, tmp_path / "again.parquet").exists()
 
 
@@ -319,6 +360,7 @@ def test_to_tsv_keeps_existing_output(data, tmp_path):
     assert len(pd.read_csv(original, sep="\t", header=None)) == len(data["df"])
     assert list(tmp_path.glob("*.tmp")) == []
 
+
 def test_read_fragments_parquet_categoricals(data):
     got = ga.io.read_fragments_parquet(data["path"]).to_pandas()
     assert got["chrom"].dtype == "category" and got["barcode"].dtype == "category"
@@ -330,8 +372,9 @@ def test_read_fragments_parquet_categoricals(data):
 
 
 def test_filter(data):
-    out = ga.pp.filter_fragments(data["path"], data["dir"] / "filtered.parquet",
-                                 min_fragments_per_cell=200, chrom_sizes=CHROM_SIZES)
+    out = ga.pp.filter_fragments(
+        data["path"], data["dir"] / "filtered.parquet", min_fragments_per_cell=200, chrom_sizes=CHROM_SIZES
+    )
     ff = FragmentFile(out)
     t = pa.concat_tables(ff.iter_arrow()).to_pandas()
     # The barcode table describes the filtered fragments
@@ -341,16 +384,19 @@ def test_filter(data):
     kept = ref[ref["chrom"].isin(CHROM_SIZES)]
     n = kept.groupby("barcode").size()
     kept = kept[kept["barcode"].isin(n.index[n >= 200])].reset_index(drop=True)
-    assert np.array_equal(t[["chrom", "start", "end", "barcode"]].to_numpy().astype(str),
-                          kept[["chrom", "start", "end", "barcode"]].to_numpy().astype(str))
+    assert np.array_equal(
+        t[["chrom", "start", "end", "barcode"]].to_numpy().astype(str),
+        kept[["chrom", "start", "end", "barcode"]].to_numpy().astype(str),
+    )
 
 
 def test_filter_with_metrics(data):
     # Cells from a metrics table, one of them absent from the file
     cells = _cells(data, 30)
     metrics = pd.DataFrame({"barcode": cells + ["S1_not-in-file"]})
-    out = ga.pp.filter_fragments(data["path"], data["dir"] / "filtered_metrics.parquet",
-                                 metrics=metrics, chrom_sizes=CHROM_SIZES)
+    out = ga.pp.filter_fragments(
+        data["path"], data["dir"] / "filtered_metrics.parquet", metrics=metrics, chrom_sizes=CHROM_SIZES
+    )
     ff = FragmentFile(out)
     ref = data["df"]
     kept = ref[ref["chrom"].isin(CHROM_SIZES) & ref["barcode"].isin(cells)].reset_index(drop=True)
@@ -362,11 +408,11 @@ def test_filter_with_metrics(data):
     assert np.array_equal(counts["n_unique"], exp["size"]) and np.array_equal(counts["n_total"], exp["sum"])
 
 
-
 def test_filter_writes_the_same_layout(data):
     """The GPU writer of filter_fragments writes what make_parquet writes."""
-    out = ga.pp.filter_fragments(data["path"], data["dir"] / "filtered_layout.parquet",
-                                 min_fragments_per_cell=200, chrom_sizes=CHROM_SIZES)
+    out = ga.pp.filter_fragments(
+        data["path"], data["dir"] / "filtered_layout.parquet", min_fragments_per_cell=200, chrom_sizes=CHROM_SIZES
+    )
     ref, got = pq.ParquetFile(data["path"]), pq.ParquetFile(out)
     assert got.schema_arrow == ref.schema_arrow
 
@@ -399,8 +445,9 @@ def test_filter_several_files_prefix_and_no_cell(data):
     # Cells are matched on the input's names, then take the new prefix
     metrics = pd.DataFrame({"barcode": cells})
     outs = [data["dir"] / "f1.parquet", data["dir"] / "f2.parquet"]
-    ga.pp.filter_fragments([data["path"], other], outs, metrics=metrics,
-                           barcode_prefix=["X_", "Y_"], chrom_sizes=CHROM_SIZES)
+    ga.pp.filter_fragments(
+        [data["path"], other], outs, metrics=metrics, barcode_prefix=["X_", "Y_"], chrom_sizes=CHROM_SIZES
+    )
     a = pa.concat_tables(FragmentFile(outs[0]).iter_arrow()).to_pandas()
     assert set(a["barcode"]) == {"X_" + c.removeprefix("S1_") for c in cells}
     ref = data["df"]
@@ -408,11 +455,14 @@ def test_filter_several_files_prefix_and_no_cell(data):
     b = pa.concat_tables(FragmentFile(outs[1]).iter_arrow()).to_pandas()
     pd.testing.assert_frame_equal(b, a.assign(barcode="Y_" + a["barcode"].str[2:]))
     # Without barcode_prefix the output keeps the input's
-    assert FragmentFile(ga.pp.filter_fragments(
-        outs[1], data["dir"] / "f4.parquet", min_fragments_per_cell=1)).barcode_prefix == "Y_"
+    assert (
+        FragmentFile(
+            ga.pp.filter_fragments(outs[1], data["dir"] / "f4.parquet", min_fragments_per_cell=1)
+        ).barcode_prefix
+        == "Y_"
+    )
     # No cell of the metrics in this file
-    out = ga.pp.filter_fragments(data["path"], data["dir"] / "f3.parquet",
-                                 metrics=pd.DataFrame({"barcode": ["nope"]}))
+    out = ga.pp.filter_fragments(data["path"], data["dir"] / "f3.parquet", metrics=pd.DataFrame({"barcode": ["nope"]}))
     ff = FragmentFile(out)
     assert ff.num_rows == 0 and ff.n_barcodes == 0
 
@@ -427,9 +477,17 @@ def _adata_equal(a, b):
 
 @pytest.mark.parametrize("strategy", ["unique", "count", "binarize"])
 def test_tile_matrix_independent_of_batching(data, strategy):
-    res = [ga.pp.make_tile_matrix(data["path"], CHROM_SIZES, tile_size=50_000,
-                                  min_fragments_per_cell=50, count_strategy=strategy,
-                                  row_groups_per_batch=rg) for rg in (1, 4, 64)]
+    res = [
+        ga.pp.make_tile_matrix(
+            data["path"],
+            CHROM_SIZES,
+            tile_size=50_000,
+            min_fragments_per_cell=50,
+            count_strategy=strategy,
+            row_groups_per_batch=rg,
+        )
+        for rg in (1, 4, 64)
+    ]
     assert res[0].n_obs > 10
     assert set(res[0].obs_names) <= set(data["df"]["barcode"])
     for r in res[1:]:
@@ -439,8 +497,13 @@ def test_tile_matrix_independent_of_batching(data, strategy):
 @pytest.fixture
 def two_samples(data, tmp_path):
     """Two fragment files of the same barcodes (one's are a subset of the other's), with their own prefixes."""
-    small = ga.pp.filter_fragments(data["path"], tmp_path / "small.parquet", metrics=pd.DataFrame(
-        {"barcode": _cells(data, 20)}), chrom_sizes=CHROM_SIZES, barcode_prefix="A_")
+    small = ga.pp.filter_fragments(
+        data["path"],
+        tmp_path / "small.parquet",
+        metrics=pd.DataFrame({"barcode": _cells(data, 20)}),
+        chrom_sizes=CHROM_SIZES,
+        barcode_prefix="A_",
+    )
     return [small, ga.io.set_barcode_prefix(data["path"], "B_", output_path=tmp_path / "big.parquet")]
 
 
@@ -459,9 +522,13 @@ def test_set_barcode_prefix(data, tmp_path):
     # pyarrow keeps the other footer keys, cuDF and DuckDB read the data
     meta = pq.ParquetFile(copy).metadata.metadata
     assert {k: v for k, v in meta.items() if k != b"gatac.barcode_prefix"} == {
-        k: v for k, v in pq.ParquetFile(data["path"]).metadata.metadata.items() if k != b"gatac.barcode_prefix"}
-    assert pa.concat_tables(ff.iter_arrow()).drop(["barcode"]).equals(
-        pa.concat_tables(FragmentFile(data["path"]).iter_arrow()).drop(["barcode"]))
+        k: v for k, v in pq.ParquetFile(data["path"]).metadata.metadata.items() if k != b"gatac.barcode_prefix"
+    }
+    assert (
+        pa.concat_tables(ff.iter_arrow())
+        .drop(["barcode"])
+        .equals(pa.concat_tables(FragmentFile(data["path"]).iter_arrow()).drop(["barcode"]))
+    )
     assert ff.read_categorical(["start"])["start"].to_numpy().tolist() == data["df"]["start"].tolist()
     with duckdb.connect() as con:
         ff.register(con)
@@ -492,14 +559,15 @@ def test_shared_cell_names_are_refused(data, tmp_path):
     """Combining files whose cells share names raises, before any work, with the fix."""
     other = tmp_path / "other.parquet"
     shutil.copy(data["path"], other)
-    for make in (lambda p: ga.pp.scan_tiles(p, **SCAN_KW),
-                 lambda p: ga.pp.make_gene_matrix(p, data["gtf"]),
-                 lambda p: ga.pp.make_gene_score_matrix(p, data["gtf"])):
+    for make in (
+        lambda p: ga.pp.scan_tiles(p, **SCAN_KW),
+        lambda p: ga.pp.make_gene_matrix(p, data["gtf"]),
+        lambda p: ga.pp.make_gene_score_matrix(p, data["gtf"]),
+    ):
         with pytest.raises(ValueError, match="gatac rename"):
             make([data["path"], other])
     ga.io.set_barcode_prefix(other, "S2_")
     assert ga.pp.scan_tiles([data["path"], other], **SCAN_KW).obs_names.is_unique
-
 
 
 SCAN_KW = dict(chrom_sizes=CHROM_SIZES, tile_size=50_000, min_fragments_per_cell=50)
@@ -563,11 +631,20 @@ def test_build_tile_matrix(two_samples, tmp_path):
 
 
 def test_metrics_independent_of_batching(data):
-    tss = pd.DataFrame({"chrom": ["chr1", "chr1", "chr2", "chr3"],
-                        "tss": [200_000, 900_000, 400_000, 1_000_000], "strand": ["+", "-", "+", "+"]})
-    res = [ga.pp.compute_metrics(data["path"], tss, min_unique_frags=50,
-                                 row_groups_per_batch=rg).to_pandas().sort_values("barcode").reset_index(drop=True)
-           for rg in (1, 4, 64)]
+    tss = pd.DataFrame(
+        {
+            "chrom": ["chr1", "chr1", "chr2", "chr3"],
+            "tss": [200_000, 900_000, 400_000, 1_000_000],
+            "strand": ["+", "-", "+", "+"],
+        }
+    )
+    res = [
+        ga.pp.compute_metrics(data["path"], tss, min_unique_frags=50, row_groups_per_batch=rg)
+        .to_pandas()
+        .sort_values("barcode")
+        .reset_index(drop=True)
+        for rg in (1, 4, 64)
+    ]
     assert len(res[0]) > 10
     for r in res[1:]:
         pd.testing.assert_frame_equal(r, res[0], check_dtype=False)
@@ -576,8 +653,12 @@ def test_metrics_independent_of_batching(data):
 def test_metrics_several_files(data, tmp_path):
     """A list of files gives each file's rows, in the order given."""
     tss = pd.DataFrame({"chrom": ["chr1", "chr2"], "tss": [200_000, 400_000], "strand": ["+", "-"]})
-    small = ga.pp.filter_fragments(data["path"], tmp_path / "small.parquet", metrics=pd.DataFrame(
-        {"barcode": _cells(data, 20)}), chrom_sizes=CHROM_SIZES)
+    small = ga.pp.filter_fragments(
+        data["path"],
+        tmp_path / "small.parquet",
+        metrics=pd.DataFrame({"barcode": _cells(data, 20)}),
+        chrom_sizes=CHROM_SIZES,
+    )
     one = [ga.pp.compute_metrics(p, tss, min_unique_frags=50).to_pandas() for p in (small, data["path"])]
     both = ga.pp.compute_metrics([small, data["path"]], tss, min_unique_frags=50, workers=2).to_pandas()
     pd.testing.assert_frame_equal(both, pd.concat(one, ignore_index=True))
@@ -618,8 +699,12 @@ def test_gene_matrix_var_spans_transcripts(data, tmp_path):
     gtf = tmp_path / "multi.gtf"
     gtf.write_text("\n".join(rows) + "\n")
 
-    runs = [ga.pp.make_gene_matrix(data["path"], gtf, output_path=tmp_path / f"genes{k}.h5ad",
-                                   min_fragments_per_cell=50).var for k in range(2)]
+    runs = [
+        ga.pp.make_gene_matrix(
+            data["path"], gtf, output_path=tmp_path / f"genes{k}.h5ad", min_fragments_per_cell=50
+        ).var
+        for k in range(2)
+    ]
     pd.testing.assert_frame_equal(runs[0], runs[1])
     domains = ga.pp.gene.load_gene_annotation(gtf)
     exp = domains.groupby("id").agg(start=("start", "min"), end=("end", "max"))
@@ -633,10 +718,10 @@ def test_gene_matrices_barcode_only_metrics(data, fn):
     # A metrics table with only barcodes selects those cells; the fragment
     # counts are computed from the file
     import cudf
+
     make = ga.pp.make_gene_matrix if fn == "gene" else ga.pp.make_gene_score_matrix
     cells = _cells(data, 40)
-    sel = make(data["path"], data["gtf"], metrics=cudf.DataFrame({"barcode": cells}),
-               min_fragments_per_cell=50)
+    sel = make(data["path"], data["gtf"], metrics=cudf.DataFrame({"barcode": cells}), min_fragments_per_cell=50)
     full = make(data["path"], data["gtf"], min_fragments_per_cell=50)
     assert set(sel.obs_names) == set(cells)
     ref = full[sel.obs_names, sel.var_names]
@@ -648,8 +733,7 @@ def test_gene_matrices_of_several_files(two_samples, data, fn, tmp_path):
     """A list of files makes the per-file matrices' rows, in memory or written as built."""
     make = ga.pp.make_gene_matrix if fn == "gene" else ga.pp.make_gene_score_matrix
     kw = dict(min_fragments_per_cell=50)
-    one = [make(p, data["gtf"], output_path=tmp_path / f"one{i}.h5ad", **kw)
-           for i, p in enumerate(two_samples)]
+    one = [make(p, data["gtf"], output_path=tmp_path / f"one{i}.h5ad", **kw) for i, p in enumerate(two_samples)]
     full = sp.vstack([sp.csr_matrix(o.X) for o in one]).tocsr()
 
     both = make(two_samples, data["gtf"], **kw)
@@ -672,12 +756,16 @@ def test_combine_file_matrices_widens_and_checks_features(tmp_path):
 
     def part(prefix, dtype, top):
         names = [f"{prefix}c1", f"{prefix}c2"]
-        return ad.AnnData(sp.csr_matrix(np.array([[0, 1, 0], [top, 0, 2]], dtype=dtype)),
-                          obs=pd.DataFrame({"barcode": names}, index=names),
-                          var=pd.DataFrame(index=["g1", "g2", "g3"]))
+        return ad.AnnData(
+            sp.csr_matrix(np.array([[0, 1, 0], [top, 0, 2]], dtype=dtype)),
+            obs=pd.DataFrame({"barcode": names}, index=names),
+            var=pd.DataFrame(index=["g1", "g2", "g3"]),
+        )
 
-    parts = [part(p, dtype, top)
-             for p, dtype, top in (("a_", np.uint8, 200), ("b_", np.uint16, 60_000), ("c_", np.int32, 100_000))]
+    parts = [
+        part(p, dtype, top)
+        for p, dtype, top in (("a_", np.uint8, 200), ("b_", np.uint16, 60_000), ("c_", np.int32, 100_000))
+    ]
     expected = sp.vstack([p.X for p in parts]).tocsr()
     for out in (None, tmp_path / "c.h5ad"):
         res = combine_file_matrices(iter(parts), ["a", "b", "c"], out)
@@ -696,6 +784,7 @@ def test_combine_file_matrices_widens_and_checks_features(tmp_path):
 
 def _cells_adata(data):
     import anndata as ad
+
     cells = _cells(data, 80)
     obs = pd.DataFrame({"group": np.where(np.arange(len(cells)) % 2, "a", "b")}, index=cells)
     return ad.AnnData(obs=obs)
@@ -703,8 +792,7 @@ def _cells_adata(data):
 
 def test_peaks_run(data):
     adata = _cells_adata(data)
-    called = ga.peak.call(adata, "group", data["path"], genome=CHROM_SIZES,
-                              verbose=False, inplace=False)
+    called = ga.peak.call(adata, "group", data["path"], genome=CHROM_SIZES, verbose=False, inplace=False)
     assert sum(len(p) for p in called.values()) > 0
 
     peaks = pd.concat(called.values())[["chrom", "start", "end"]].drop_duplicates()
@@ -713,8 +801,15 @@ def test_peaks_run(data):
     # counting_strategy="fragment" is not exercised: it fails on cupy's
     # array-valued `repeats`.
     for strategy in ("paired-insertion", "insertion"):
-        res = ga.peak.make_matrix(adata, data["path"], peak_file=peak_file, use_rep=None,
-                                     genome=CHROM_SIZES, counting_strategy=strategy, verbose=False)
+        res = ga.peak.make_matrix(
+            adata,
+            data["path"],
+            peak_file=peak_file,
+            use_rep=None,
+            genome=CHROM_SIZES,
+            counting_strategy=strategy,
+            verbose=False,
+        )
         assert res.X.nnz > 0
 
 
@@ -723,9 +818,12 @@ def test_peaks_from_a_directory_of_samples(data, tmp_path):
     cells = _cells(data, 80)
     d = tmp_path / "filtered"
     d.mkdir()
-    paths = [ga.pp.filter_fragments(data["path"], d / f"{name}.parquet",
-                                    metrics=pd.DataFrame({"barcode": part}), chrom_sizes=CHROM_SIZES)
-             for name, part in (("s1", cells[::2]), ("s2", cells[1::2]))]
+    paths = [
+        ga.pp.filter_fragments(
+            data["path"], d / f"{name}.parquet", metrics=pd.DataFrame({"barcode": part}), chrom_sizes=CHROM_SIZES
+        )
+        for name, part in (("s1", cells[::2]), ("s2", cells[1::2]))
+    ]
     adata = ga.pp.make_tile_matrix(paths, **SCAN_KW)
     assert set(adata.obs["source_file"]) == {"s1.parquet", "s2.parquet"}
     adata.obs["group"] = np.where(np.arange(adata.n_obs) % 2, "a", "b")
@@ -738,7 +836,8 @@ def test_peaks_from_a_directory_of_samples(data, tmp_path):
 
     peak_file = tmp_path / "peaks.bed"
     pd.concat(by_file.values())[["chrom", "start", "end"]].drop_duplicates().to_csv(
-        peak_file, sep="\t", header=False, index=False)
+        peak_file, sep="\t", header=False, index=False
+    )
     kw.update(peak_file=peak_file, use_rep=None)
     X_dir = ga.peak.make_matrix(adata, d, **kw).X
     X_file = ga.peak.make_matrix(adata, data["path"], **kw).X
@@ -747,6 +846,7 @@ def test_peaks_from_a_directory_of_samples(data, tmp_path):
 
 def test_footprint_cuts(data):
     from gatac.tobias.footprint import _load_cuts
+
     adata = _cells_adata(data)
     groups = dict(zip(adata.obs_names, (adata.obs["group"] == "a").astype(int)))
     sizes = {c: CHROM_SIZES[c] for c in ("chr1", "chr2")}

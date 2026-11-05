@@ -23,12 +23,12 @@ Thibodeau, A. et al. AMULET: a novel read count-based method for effective
 multiplet detection from single-cell ATAC-seq data. Genome Biol 22, 252
 (2021). https://doi.org/10.1186/s13059-021-02469-x
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Union, List
 
 import cupy as cp
 import numpy as np
@@ -36,10 +36,10 @@ import pandas as pd
 import scipy.stats as stats
 import statsmodels.api as sm
 
-from ..gpu import bincount
 from .._readers import read_bed
-from ._utils import cleanup_gpu_memory
+from ..gpu import bincount
 from ..io.fragments import FragmentFile
+from ._utils import cleanup_gpu_memory
 from .genome import get_chrom_sizes
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ _ROW_GROUPS_PER_BATCH = 64
 # ---------------------------------------------------------------------------
 # Interval primitives (GPU, sort + cumsum)
 # ---------------------------------------------------------------------------
+
 
 def _check_bits(n_bits: int, what: str):
     if n_bits > 64:
@@ -99,10 +100,12 @@ def _overlap_segments(
     # since events at the same position are collapsed.
     cell_key = cell.astype(cp.uint64) << np.uint64(pos_bits + 1)
     one = np.uint64(1)
-    events = cp.concatenate([
-        cell_key | (start.astype(cp.uint64) << one) | one,
-        cell_key | (end.astype(cp.uint64) << one),
-    ])
+    events = cp.concatenate(
+        [
+            cell_key | (start.astype(cp.uint64) << one) | one,
+            cell_key | (end.astype(cp.uint64) << one),
+        ]
+    )
     events.sort()
 
     delta = (events & one).astype(cp.int32) * 2 - 1
@@ -161,10 +164,12 @@ def _merge_intervals(start: cp.ndarray, end: cp.ndarray) -> tuple:
     one = np.uint64(1)
     shift = np.uint64(idx_bits)
     idx = cp.arange(n, dtype=cp.uint64)
-    events = cp.concatenate([
-        ((start.astype(cp.uint64) << one) << shift) | idx,
-        (((end.astype(cp.uint64) << one) | one) << shift) | idx,
-    ])
+    events = cp.concatenate(
+        [
+            ((start.astype(cp.uint64) << one) << shift) | idx,
+            (((end.astype(cp.uint64) << one) | one) << shift) | idx,
+        ]
+    )
     events.sort()
 
     is_end = ((events >> shift) & one).astype(bool)
@@ -198,7 +203,8 @@ def _hits_regions(
 # Data loading
 # ---------------------------------------------------------------------------
 
-def _load_repeat_regions(repeat_filter: Union[str, Path], chromosomes: List[str]) -> dict:
+
+def _load_repeat_regions(repeat_filter: str | Path, chromosomes: list[str]) -> dict:
     """Load a BED file of known repetitive regions, merged per chromosome on the GPU."""
     logger.info(f"Loading repeat regions from {repeat_filter}")
     df = read_bed(repeat_filter)
@@ -214,8 +220,8 @@ def _load_repeat_regions(repeat_filter: Union[str, Path], chromosomes: List[str]
 
 def _load_fragments(
     fragment_path: Path,
-    chromosomes: List[str],
-    barcodes: List[str],
+    chromosomes: list[str],
+    barcodes: list[str],
     max_insert_size: int,
 ) -> dict:
     """
@@ -228,7 +234,10 @@ def _load_fragments(
     """
     parts = {"chrom": [], "cell": [], "start": [], "end": []}
     for df in FragmentFile(fragment_path).iter_batches(
-        ["chrom", "start", "end"], _ROW_GROUPS_PER_BATCH, chroms=chromosomes, cells=barcodes,
+        ["chrom", "start", "end"],
+        _ROW_GROUPS_PER_BATCH,
+        chroms=chromosomes,
+        cells=barcodes,
     ):
         df = df[(df["end"] - df["start"]) <= max_insert_size]
         parts["chrom"].append(df["chrom"].values)
@@ -242,11 +251,11 @@ def _load_fragments(
 
 def _find_overlaps(
     fragment_path: Path,
-    barcodes: List[str],
-    chromosomes: List[str],
+    barcodes: list[str],
+    chromosomes: list[str],
     expected_overlap: int,
     max_insert_size: int,
-    repeat_filter: Optional[Union[str, Path]],
+    repeat_filter: str | Path | None,
     min_overlap_bp: int,
 ) -> tuple:
     """
@@ -284,9 +293,7 @@ def _find_overlaps(
             keep = ~_hits_regions(start, end, *repeats[chrom])
             start, end, cell = start[keep], end[keep], cell[keep]
 
-        seg_cell, seg_start, seg_end = _overlap_segments(
-            start, end, cell, expected_overlap + 1
-        )
+        seg_cell, seg_start, seg_end = _overlap_segments(start, end, cell, expected_overlap + 1)
         if min_overlap_bp > 1:
             keep = (seg_end - seg_start + 1) >= min_overlap_bp
             seg_cell, seg_start, seg_end = seg_cell[keep], seg_start[keep], seg_end[keep]
@@ -311,6 +318,7 @@ def _find_overlaps(
 # Poisson tests
 # ---------------------------------------------------------------------------
 
+
 def _infer_repeats(rowsum: np.ndarray, threshold: float) -> np.ndarray:
     """
     Infer repetitive regions via Poisson test on row sums.
@@ -324,9 +332,7 @@ def _infer_repeats(rowsum: np.ndarray, threshold: float) -> np.ndarray:
         return np.zeros(0, dtype=bool)
     rep_mean = np.mean(rowsum)
     rep_probabilities = stats.poisson.sf(rowsum, rep_mean)
-    corrected_rep_probabilities = sm.stats.multipletests(
-        rep_probabilities, method="fdr_bh"
-    )
+    corrected_rep_probabilities = sm.stats.multipletests(rep_probabilities, method="fdr_bh")
     return corrected_rep_probabilities[1] < threshold
 
 
@@ -353,20 +359,24 @@ def _get_doublets(colsum: np.ndarray, cell_ids: np.ndarray) -> pd.DataFrame:
             f"of {len(colsum):,} cells have any overlap)"
         )
     corrected = sm.stats.multipletests(doublet_probabilities, method="fdr_bh")
-    return pd.DataFrame({
-        "cell_id": cell_ids,
-        "p_value": doublet_probabilities,
-        "q_value": corrected[1],
-    })
+    return pd.DataFrame(
+        {
+            "cell_id": cell_ids,
+            "p_value": doublet_probabilities,
+            "q_value": corrected[1],
+        }
+    )
 
 
 def _no_doublets(cell_ids: np.ndarray) -> pd.DataFrame:
-    return pd.DataFrame({
-        "cell_id": cell_ids,
-        "p_value": np.ones(len(cell_ids)),
-        "q_value": np.ones(len(cell_ids)),
-        "is_doublet": np.zeros(len(cell_ids), dtype=bool),
-    })
+    return pd.DataFrame(
+        {
+            "cell_id": cell_ids,
+            "p_value": np.ones(len(cell_ids)),
+            "q_value": np.ones(len(cell_ids)),
+            "is_doublet": np.zeros(len(cell_ids), dtype=bool),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -386,15 +396,15 @@ def _filter_autosomes(chrom_sizes: dict) -> dict:
 
 
 def detect_doublets(
-    fragment_path: Union[str, Path],
-    chrom_sizes: Union[dict, str],
-    barcodes: Optional[List[str]] = None,
+    fragment_path: str | Path,
+    chrom_sizes: dict | str,
+    barcodes: list[str] | None = None,
     min_fragments: int = 100,
     expected_overlap: int = 2,
     max_insert_size: int = 900,
     q_threshold: float = 0.01,
     q_rep_threshold: float = 0.01,
-    repeat_filter: Optional[Union[str, Path]] = None,
+    repeat_filter: str | Path | None = None,
     min_overlap_bp: int = 1,
     n_threads: int = 1,
 ) -> pd.DataFrame:
@@ -470,9 +480,7 @@ def detect_doublets(
             f"AMULET is designed for autosomes only)"
         )
     if not chrom_sizes:
-        raise ValueError(
-            "No autosomes found in chrom_sizes. AMULET requires chr1..chrN."
-        )
+        raise ValueError("No autosomes found in chrom_sizes. AMULET requires chr1..chrN.")
 
     fragment_path = Path(fragment_path)
     if not fragment_path.exists():
@@ -505,9 +513,7 @@ def detect_doublets(
     if n_overlaps == 0:
         result = _no_doublets(cell_ids)
     else:
-        logger.info(
-            f"Found {n_overlaps:,} overlap segments in {n_regions:,} union regions"
-        )
+        logger.info(f"Found {n_overlaps:,} overlap segments in {n_regions:,} union regions")
         rowsum = bincount(region, minlength=n_regions).get()
 
         logger.info("Inferring repetitive regions")
@@ -526,8 +532,7 @@ def detect_doublets(
 
     n_doublets = int(result["is_doublet"].sum())
     logger.info(
-        f"Detected {n_doublets:,} doublets "
-        f"({100 * n_doublets / len(barcodes):.2f}% of {len(barcodes):,} cells)"
+        f"Detected {n_doublets:,} doublets ({100 * n_doublets / len(barcodes):.2f}% of {len(barcodes):,} cells)"
     )
 
     return result

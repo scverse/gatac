@@ -30,14 +30,7 @@ if not sys.stderr.isatty():
 # (seconds on nodes without it). Apply libcudf's intended default up front.
 os.environ.setdefault("KVIKIO_COMPAT_MODE", "ON")
 
-from . import io
-from . import pp
-from . import dr
-from . import peak
-from . import motif
-from . import tobias
-from . import pl
-from . import gpu
+from . import dr, gpu, io, motif, peak, pl, pp, tobias
 
 __version__ = "0.1.0"
 __all__ = ["io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu", "extensions", "set_verbosity"]
@@ -95,10 +88,7 @@ _logger = logging.getLogger("gatac")
 _logger.setLevel(logging.INFO)
 
 _handler = logging.StreamHandler()
-_handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                      datefmt="%H:%M:%S")
-)
+_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
 _logger.addHandler(_handler)
 # Prevent messages from propagating to the root logger (avoids duplicate
 # output when the caller also configures basicConfig).
@@ -124,5 +114,3 @@ def set_verbosity(level: str | int) -> None:
     if isinstance(level, str):
         level = getattr(logging, level.upper())
     logging.getLogger("gatac").setLevel(level)
-
-

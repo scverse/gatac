@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 
@@ -96,9 +94,7 @@ def _query_bias_knn(
     reference_array = _as_2d_bias_array(reference_bias)
 
     if query_array.shape[1] != reference_array.shape[1]:
-        raise ValueError(
-            "Query and reference bias arrays must have the same number of features."
-        )
+        raise ValueError("Query and reference bias arrays must have the same number of features.")
     if n_neighbors < 1:
         raise ValueError("'n_neighbors' must be at least 1.")
 
@@ -137,10 +133,10 @@ def sample_bias_matched_indices(
     target_bias: np.ndarray,
     candidate_bias: np.ndarray,
     *,
-    n_samples: Optional[int] = None,
+    n_samples: int | None = None,
     n_bins: int = 50,
     replace: bool = True,
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """Sample candidate indices whose bias distribution matches the target.
 
@@ -151,9 +147,7 @@ def sample_bias_matched_indices(
     candidate_array = _as_2d_bias_array(candidate_bias)
 
     if target_array.shape[1] != candidate_array.shape[1]:
-        raise ValueError(
-            "Target and candidate bias arrays must have the same number of features."
-        )
+        raise ValueError("Target and candidate bias arrays must have the same number of features.")
     if n_bins < 1:
         raise ValueError("'n_bins' must be at least 1.")
 
@@ -161,9 +155,7 @@ def sample_bias_matched_indices(
     if sample_count < 1:
         raise ValueError("'n_samples' must be at least 1.")
     if not replace and sample_count > candidate_array.shape[0]:
-        raise ValueError(
-            "Cannot sample more unique bias-matched items than there are candidates."
-        )
+        raise ValueError("Cannot sample more unique bias-matched items than there are candidates.")
 
     rng = np.random.default_rng() if rng is None else rng
 

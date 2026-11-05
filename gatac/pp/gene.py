@@ -3,18 +3,18 @@ GPU-accelerated gene activity matrix generation from ATAC fragment data.
 
 Implements paired-insertion counting strategy matching SnapATAC2.
 """
+
 from __future__ import annotations
 
 import functools
+import gc
 import logging
 import time
-import gc
 from pathlib import Path
-from typing import Optional, Tuple, Literal, List, Union
+from typing import TYPE_CHECKING, Literal
 
 import cudf
 import cupy as cp
-import cupyx.scipy.sparse as cusp
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -22,21 +22,25 @@ import scipy.sparse as sp
 from .._readers import read_gtf, read_metrics
 from ._utils import async_memory_pool
 
+if TYPE_CHECKING:
+    from anndata import AnnData
+
+
 logger = logging.getLogger(__name__)
 
 
 def optimize_sparse_matrix_dtype(max_val: int) -> np.dtype:
     """
     Select optimal count dtype based on maximum value.
-    
+
     Automatically selects uint8, uint16, or int32 dtype to minimize memory usage
     while ensuring sufficient range for the data.
-    
+
     Parameters
     ----------
     max_val : int
         Maximum count value in the data
-        
+
     Returns
     -------
     np.dtype
@@ -51,7 +55,7 @@ def optimize_sparse_matrix_dtype(max_val: int) -> np.dtype:
     else:
         target_dtype = np.int32
         logger.info(f"Using int32 dtype (max count: {max_val})")
-    
+
     return target_dtype
 
 
@@ -104,12 +108,16 @@ def load_gene_annotation(
     # Transcripts only - SnapATAC2 always counts at transcript level
     # then aggregates to gene level using MAX (for id_type="gene").
     # We always need gene_name for gene-level aggregation.
-    df = read_gtf(gtf_path, "transcript", {
-        "gene_name": gene_name_key,
-        "gene_id": gene_id_key,
-        "transcript_name": transcript_name_key,
-        "transcript_id": transcript_id_key,
-    })
+    df = read_gtf(
+        gtf_path,
+        "transcript",
+        {
+            "gene_name": gene_name_key,
+            "gene_id": gene_id_key,
+            "transcript_name": transcript_name_key,
+            "transcript_id": transcript_id_key,
+        },
+    )
 
     # Set name/id based on id_type, and drop rows with missing name or id
     level = "gene" if id_type == "gene" else "transcript"
@@ -137,17 +145,19 @@ def load_gene_annotation(
         reg_end = np.where(plus, left + downstream, right + upstream)
 
     # gene_name is kept for the MAX aggregation across transcripts of a gene
-    result = pd.DataFrame({
-        "chrom": df["chrom"].to_numpy(),
-        "start": np.maximum(reg_start, 0),
-        "end": reg_end,
-        "name": df["name"].to_numpy(),
-        "id": df["id"].to_numpy(),
-        "gene_name": df["gene_name"].to_numpy(),
-        "strand": df["strand"].to_numpy(),
-        "feature": df["name" if id_type == "gene" else "id"].to_numpy(),
-        "order": df["order"].to_numpy(),
-    })
+    result = pd.DataFrame(
+        {
+            "chrom": df["chrom"].to_numpy(),
+            "start": np.maximum(reg_start, 0),
+            "end": reg_end,
+            "name": df["name"].to_numpy(),
+            "id": df["id"].to_numpy(),
+            "gene_name": df["gene_name"].to_numpy(),
+            "strand": df["strand"].to_numpy(),
+            "feature": df["name" if id_type == "gene" else "id"].to_numpy(),
+            "order": df["order"].to_numpy(),
+        }
+    )
 
     # Deduplicate by (chrom, start, end, id) - transcripts with same region
     result = result.drop_duplicates(subset=["chrom", "start", "end", "id"], keep="first")
@@ -172,19 +182,19 @@ def _cached_gene_annotation(resolved: str, mtime_ns: int, gtf_path: str, **kwarg
 def create_gene_matrix_gpu(
     fragments_df: cudf.DataFrame,
     gene_regions: pd.DataFrame,
-    exclude_chroms: Optional[list] = None,
+    exclude_chroms: list | None = None,
     min_fragments_per_cell: int = 100,
-    cell_metadata: Optional[cudf.DataFrame] = None,
-    filter_query: Optional[str] = None,
+    cell_metadata: cudf.DataFrame | None = None,
+    filter_query: str | None = None,
     cell_batch_size: int = 500,
-) -> Tuple[sp.csr_matrix, cudf.DataFrame, cudf.DataFrame]:
+) -> tuple[sp.csr_matrix, cudf.DataFrame, cudf.DataFrame]:
     """
     Generate a gene activity matrix from ATAC fragment data using GPU acceleration.
 
     Uses paired-insertion counting strategy: each fragment contributes insertions
     at start and end positions. If both insertions fall within the same gene,
     count +1 for that gene. If they fall in different genes, each gene gets +1.
-    
+
     Memory-efficient implementation that processes cells in batches to avoid OOM.
 
     Parameters
@@ -216,75 +226,69 @@ def create_gene_matrix_gpu(
     """
     # Convert gene regions to cudf for GPU processing
     gene_df = cudf.from_pandas(gene_regions)
-    
+
     # Get valid chromosomes (those in gene annotation, minus excluded ones)
-    valid_chroms = set(gene_df['chrom'].unique().to_arrow().to_pylist())
-    
+    valid_chroms = set(gene_df["chrom"].unique().to_arrow().to_pylist())
+
     if exclude_chroms is not None:
         if isinstance(exclude_chroms, str):
             exclude_chroms = [exclude_chroms]
         valid_chroms = valid_chroms - set(exclude_chroms)
-    
+
     valid_chroms = sorted(list(valid_chroms))  # Sort for reproducibility
-    
+
     if len(valid_chroms) == 0:
         raise ValueError("No valid chromosomes in gene annotation after exclusion")
-    
+
     # Filter fragments to valid chromosomes
     # Use categories to avoid ValueError in cudf if some valid_chroms are missing from fragments
-    cats = fragments_df['chrom'].dtype.categories.to_arrow().to_pylist()
+    cats = fragments_df["chrom"].dtype.categories.to_arrow().to_pylist()
     fetch_chroms = [c for c in valid_chroms if c in cats]
-    fragments_for_counting = fragments_df[fragments_df['chrom'].isin(fetch_chroms)]
-    
+    fragments_for_counting = fragments_df[fragments_df["chrom"].isin(fetch_chroms)]
+
     # Cell filtering (same logic as tile matrix)
     if cell_metadata is None:
         logger.debug("Filtering cells by unique fragment count")
-        barcode_counts = fragments_for_counting.groupby('barcode', observed=True).agg({
-            'count': ['sum', 'size']
-        })
-        barcode_counts.columns = ['n_total', 'n_unique']
+        barcode_counts = fragments_for_counting.groupby("barcode", observed=True).agg({"count": ["sum", "size"]})
+        barcode_counts.columns = ["n_total", "n_unique"]
         barcode_counts = barcode_counts.reset_index()
 
-        valid_barcodes = barcode_counts[
-            barcode_counts['n_unique'] >= min_fragments_per_cell
-        ]['barcode']
-        cell_metadata = barcode_counts[barcode_counts['barcode'].isin(valid_barcodes)]
+        valid_barcodes = barcode_counts[barcode_counts["n_unique"] >= min_fragments_per_cell]["barcode"]
+        cell_metadata = barcode_counts[barcode_counts["barcode"].isin(valid_barcodes)]
     else:
         logger.debug("Using provided cell metadata for filtering")
         if filter_query:
             cell_metadata = cell_metadata.query(filter_query)
-        
-        if 'n_unique' in cell_metadata.columns:
-            cell_metadata = cell_metadata[cell_metadata['n_unique'] >= min_fragments_per_cell]
+
+        if "n_unique" in cell_metadata.columns:
+            cell_metadata = cell_metadata[cell_metadata["n_unique"] >= min_fragments_per_cell]
         else:
-            subset_frags = fragments_for_counting[fragments_for_counting['barcode'].isin(cell_metadata['barcode'])]
-            barcode_counts = subset_frags.groupby('barcode', observed=True).agg({
-                'count': ['sum', 'size']
-            })
-            barcode_counts.columns = ['n_total', 'n_unique']
+            subset_frags = fragments_for_counting[fragments_for_counting["barcode"].isin(cell_metadata["barcode"])]
+            barcode_counts = subset_frags.groupby("barcode", observed=True).agg({"count": ["sum", "size"]})
+            barcode_counts.columns = ["n_total", "n_unique"]
             barcode_counts = barcode_counts.reset_index()
-            
+
             # The counts' barcodes are categorical, and cuDF's isin of a string
             # column against a categorical one matches nothing
-            valid_bc = barcode_counts[barcode_counts['n_unique'] >= min_fragments_per_cell]['barcode']
-            cell_metadata = cell_metadata[cell_metadata['barcode'].isin(valid_bc.astype(str))]
-            cell_metadata = cell_metadata.merge(barcode_counts[['barcode', 'n_unique']], on='barcode', how='left')
+            valid_bc = barcode_counts[barcode_counts["n_unique"] >= min_fragments_per_cell]["barcode"]
+            cell_metadata = cell_metadata[cell_metadata["barcode"].isin(valid_bc.astype(str))]
+            cell_metadata = cell_metadata.merge(barcode_counts[["barcode", "n_unique"]], on="barcode", how="left")
 
-        valid_barcodes = cell_metadata['barcode']
+        valid_barcodes = cell_metadata["barcode"]
 
-    # Filter fragments to valid barcodes and chromosomes  
+    # Filter fragments to valid barcodes and chromosomes
     # Use categories to avoid ValueError in cudf
-    barcode_cats = fragments_df['barcode'].dtype.categories.to_arrow().to_pylist()
+    barcode_cats = fragments_df["barcode"].dtype.categories.to_arrow().to_pylist()
     barcode_cat_pos = {b: i for i, b in enumerate(barcode_cats)}
     fetch_bc = [b for b in valid_barcodes.to_arrow().to_pylist() if b in barcode_cat_pos]
-    fragments_df = fragments_df[fragments_df['barcode'].isin(fetch_bc)]
+    fragments_df = fragments_df[fragments_df["barcode"].isin(fetch_bc)]
 
-    chrom_cats = fragments_df['chrom'].dtype.categories.to_arrow().to_pylist()
+    chrom_cats = fragments_df["chrom"].dtype.categories.to_arrow().to_pylist()
     fetch_chroms = [c for c in valid_chroms if c in chrom_cats]
-    fragments_df = fragments_df[fragments_df['chrom'].isin(fetch_chroms)]
+    fragments_df = fragments_df[fragments_df["chrom"].isin(fetch_chroms)]
 
     # Cells sorted by barcode
-    barcode_codes = fragments_df['barcode'].cat.codes.values
+    barcode_codes = fragments_df["barcode"].cat.codes.values
     barcode_list = sorted(barcode_cats[c] for c in cp.unique(barcode_codes).get().tolist())
     n_cells = len(barcode_list)
     logger.debug(f"Retained {n_cells} cells")
@@ -296,50 +300,52 @@ def create_gene_matrix_gpu(
     del barcode_codes
 
     # Fragments grouped by chromosome, each chromosome a contiguous slice
-    chrom_codes = fragments_df['chrom'].cat.codes.values.astype(cp.int32)
+    chrom_codes = fragments_df["chrom"].cat.codes.values.astype(cp.int32)
     by_chrom = cp.argsort(chrom_codes)
     chrom_codes = chrom_codes[by_chrom]
-    frag_starts = fragments_df['start'].values[by_chrom]
-    frag_ends = fragments_df['end'].values[by_chrom]
+    frag_starts = fragments_df["start"].values[by_chrom]
+    frag_ends = fragments_df["end"].values[by_chrom]
     frag_cells = frag_cells[by_chrom]
     del by_chrom, fragments_df
-    chrom_bounds = cp.searchsorted(
-        chrom_codes, cp.arange(len(chrom_cats) + 1, dtype=cp.int32)).get()
+    chrom_bounds = cp.searchsorted(chrom_codes, cp.arange(len(chrom_cats) + 1, dtype=cp.int32)).get()
     del chrom_codes
     chrom_code = {c: i for i, c in enumerate(chrom_cats)}
 
     # Filter and prepare gene data
-    gene_df = gene_df[gene_df['chrom'].isin(valid_chroms)]
+    gene_df = gene_df[gene_df["chrom"].isin(valid_chroms)]
     gene_df = gene_df.reset_index(drop=True)
-    gene_df['gene_idx'] = cp.arange(len(gene_df))
-    
+    gene_df["gene_idx"] = cp.arange(len(gene_df))
+
     # Features as SnapATAC2 makes them: one per gene name (genes sharing a
     # name are one feature) or per transcript ID, in order of first
     # appearance in the annotation
-    unique_features = (gene_df.groupby('feature').agg({'order': 'min'}).reset_index()
-                       .sort_values('order').reset_index(drop=True)[['feature']])
-    unique_features['final_feature_idx'] = cp.arange(len(unique_features))
-    n_final_features = len(unique_features)
-    
-    # Build gene_idx -> final_feature_idx mapping
-    gene_to_final = gene_df[['gene_idx', 'feature']].merge(
-        unique_features, on='feature', how='left'
+    unique_features = (
+        gene_df.groupby("feature")
+        .agg({"order": "min"})
+        .reset_index()
+        .sort_values("order")
+        .reset_index(drop=True)[["feature"]]
     )
-    
+    unique_features["final_feature_idx"] = cp.arange(len(unique_features))
+    n_final_features = len(unique_features)
+
+    # Build gene_idx -> final_feature_idx mapping
+    gene_to_final = gene_df[["gene_idx", "feature"]].merge(unique_features, on="feature", how="left")
+
     logger.debug(f"Computing matrix: {n_cells} cells × {n_final_features} features")
 
     gene_to_feature = cp.empty(len(gene_df), dtype=cp.int32)
-    gene_to_feature[gene_to_final['gene_idx'].values] = gene_to_final['final_feature_idx'].values
+    gene_to_feature[gene_to_final["gene_idx"].values] = gene_to_final["final_feature_idx"].values
 
     # Prepare chromosome-level gene data (sorted by start for searchsorted)
     chrom_gene_data = {}
     for chrom in valid_chroms:
-        chrom_genes = gene_df[gene_df['chrom'] == chrom].sort_values('start').reset_index(drop=True)
+        chrom_genes = gene_df[gene_df["chrom"] == chrom].sort_values("start").reset_index(drop=True)
         if len(chrom_genes) > 0:
             chrom_gene_data[chrom] = {
-                'starts': chrom_genes['start'].values,
-                'ends': chrom_genes['end'].values,
-                'indices': chrom_genes['gene_idx'].values,
+                "starts": chrom_genes["start"].values,
+                "ends": chrom_genes["end"].values,
+                "indices": chrom_genes["gene_idx"].values,
             }
 
     # One pass per chromosome over all cells. Transcripts are reduced to
@@ -358,15 +364,15 @@ def create_gene_matrix_gpu(
             frag_starts[lo:hi],
             frag_ends[lo:hi],
             frag_cells[lo:hi],
-            gene_data['starts'],
-            gene_data['ends'],
-            gene_data['indices'],
+            gene_data["starts"],
+            gene_data["ends"],
+            gene_data["indices"],
         )
         if len(transcript_counts) == 0:
             continue
-        transcript_counts['final_feature_idx'] = gene_to_feature[transcript_counts['gene_idx'].values]
+        transcript_counts["final_feature_idx"] = gene_to_feature[transcript_counts["gene_idx"].values]
         chrom_feature_counts.append(
-            transcript_counts.groupby(['cell_idx', 'final_feature_idx'])['count'].max().reset_index()
+            transcript_counts.groupby(["cell_idx", "final_feature_idx"])["count"].max().reset_index()
         )
         del transcript_counts
 
@@ -375,10 +381,15 @@ def create_gene_matrix_gpu(
     if chrom_feature_counts:
         feature_counts = cudf.concat(chrom_feature_counts, ignore_index=True)
         del chrom_feature_counts
-        key = (feature_counts['cell_idx'].values.astype(cp.int64) * n_final_features
-               + feature_counts['final_feature_idx'].values)
-        agg = (cudf.DataFrame({'key': key, 'count': feature_counts['count'].values})
-               .groupby('key', sort=True)['count'].max())
+        key = (
+            feature_counts["cell_idx"].values.astype(cp.int64) * n_final_features
+            + feature_counts["final_feature_idx"].values
+        )
+        agg = (
+            cudf.DataFrame({"key": key, "count": feature_counts["count"].values})
+            .groupby("key", sort=True)["count"]
+            .max()
+        )
         del feature_counts, key
         key, counts = agg.index.values, agg.values
         del agg
@@ -388,9 +399,11 @@ def create_gene_matrix_gpu(
         # one index dtype for both arrays, as scipy picks it
         idx_dtype = np.int32 if max(len(key), n_final_features) <= np.iinfo(np.int32).max else np.int64
         matrix = sp.csr_matrix(
-            (counts.astype(matrix_dtype).get(),
-             (key - cells * n_final_features).astype(idx_dtype).get(),
-             indptr.astype(idx_dtype).get()),
+            (
+                counts.astype(matrix_dtype).get(),
+                (key - cells * n_final_features).astype(idx_dtype).get(),
+                indptr.astype(idx_dtype).get(),
+            ),
             shape=(n_cells, n_final_features),
         )
         del key, counts, cells, indptr
@@ -401,29 +414,32 @@ def create_gene_matrix_gpu(
     # the feature's first transcript in the annotation, and the span of its
     # transcripts' domains on that chromosome, the region whose fragments
     # count for it. (groupby.first picked an arbitrary transcript.)
-    first = gene_df.groupby('feature').agg({'order': 'min'}).reset_index()
-    gene_metadata = gene_df[['order', 'feature', 'chrom', 'name', 'id', 'strand', 'gene_name']].merge(
-        first, on=['feature', 'order'])
-    span = (gene_df[['feature', 'chrom', 'start', 'end']]
-            .merge(gene_metadata[['feature', 'chrom']], on=['feature', 'chrom'])
-            .groupby('feature').agg({'start': 'min', 'end': 'max'}).reset_index())
-    gene_metadata = gene_metadata.merge(span, on='feature').merge(unique_features, on='feature', how='left')
-    gene_metadata = gene_metadata.sort_values('final_feature_idx').reset_index(drop=True)
-    gene_metadata = gene_metadata[['feature', 'chrom', 'start', 'end', 'name', 'id', 'strand', 'gene_name',
-                                   'final_feature_idx']]
-    gene_metadata = gene_metadata.rename(columns={'final_feature_idx': 'gene_idx'})
+    first = gene_df.groupby("feature").agg({"order": "min"}).reset_index()
+    gene_metadata = gene_df[["order", "feature", "chrom", "name", "id", "strand", "gene_name"]].merge(
+        first, on=["feature", "order"]
+    )
+    span = (
+        gene_df[["feature", "chrom", "start", "end"]]
+        .merge(gene_metadata[["feature", "chrom"]], on=["feature", "chrom"])
+        .groupby("feature")
+        .agg({"start": "min", "end": "max"})
+        .reset_index()
+    )
+    gene_metadata = gene_metadata.merge(span, on="feature").merge(unique_features, on="feature", how="left")
+    gene_metadata = gene_metadata.sort_values("final_feature_idx").reset_index(drop=True)
+    gene_metadata = gene_metadata[
+        ["feature", "chrom", "start", "end", "name", "id", "strand", "gene_name", "final_feature_idx"]
+    ]
+    gene_metadata = gene_metadata.rename(columns={"final_feature_idx": "gene_idx"})
 
     logger.debug(f"Matrix: {n_cells} cells × {n_final_features} features, nnz: {matrix.nnz:,}")
 
     # Prepare cell metadata
-    barcode_to_idx = cudf.DataFrame({
-        'barcode': cudf.Series(barcode_list),
-        'cell_idx': cp.arange(n_cells)
-    })
-    cell_metadata = barcode_to_idx.merge(cell_metadata, on='barcode', how='left')
-    cell_metadata = cell_metadata.sort_values('cell_idx').reset_index(drop=True)
-    if cell_metadata['barcode'].dtype != 'object':
-        cell_metadata['barcode'] = cell_metadata['barcode'].astype(str)
+    barcode_to_idx = cudf.DataFrame({"barcode": cudf.Series(barcode_list), "cell_idx": cp.arange(n_cells)})
+    cell_metadata = barcode_to_idx.merge(cell_metadata, on="barcode", how="left")
+    cell_metadata = cell_metadata.sort_values("cell_idx").reset_index(drop=True)
+    if cell_metadata["barcode"].dtype != "object":
+        cell_metadata["barcode"] = cell_metadata["barcode"].astype(str)
 
     return matrix, cell_metadata, gene_metadata
 
@@ -432,13 +448,13 @@ def _expand_segments(
     seg: cp.ndarray,
     cov_ptr: cp.ndarray,
     cov_transcript: cp.ndarray,
-) -> Tuple[cp.ndarray, cp.ndarray]:
+) -> tuple[cp.ndarray, cp.ndarray]:
     """Row and transcript of every (row, transcript covering ``seg[row]``) pair."""
     n = cov_ptr[seg + 1] - cov_ptr[seg]
     ends = cp.cumsum(n)
     total = int(ends[-1]) if len(ends) else 0
     k = cp.arange(total, dtype=cp.int64)
-    row = cp.searchsorted(ends, k, side='right')
+    row = cp.searchsorted(ends, k, side="right")
     return row, cov_transcript[cov_ptr[seg[row]] + k - (ends - n)[row]]
 
 
@@ -465,9 +481,13 @@ def _count_fragment_gene_overlaps(
 
     Returns aggregated (cell_idx, gene_idx, count) DataFrame.
     """
-    empty = cudf.DataFrame({'cell_idx': cp.array([], dtype=cp.int32),
-                            'gene_idx': cp.array([], dtype=cp.int32),
-                            'count': cp.array([], dtype=cp.int32)})
+    empty = cudf.DataFrame(
+        {
+            "cell_idx": cp.array([], dtype=cp.int32),
+            "gene_idx": cp.array([], dtype=cp.int32),
+            "count": cp.array([], dtype=cp.int32),
+        }
+    )
     if len(frag_starts) == 0 or len(gene_starts) == 0:
         return empty
 
@@ -482,7 +502,7 @@ def _count_fragment_gene_overlaps(
     span = last - first
     span_end = cp.cumsum(span)
     k = cp.arange(int(span_end[-1]), dtype=cp.int64)
-    transcript = cp.searchsorted(span_end, k, side='right')
+    transcript = cp.searchsorted(span_end, k, side="right")
     seg = first[transcript] + k - (span_end - span)[transcript]
     order = cp.argsort(seg)
     cov_transcript = transcript[order]
@@ -490,7 +510,7 @@ def _count_fragment_gene_overlaps(
     del transcript, seg, order, k
 
     def segment_of(pos):
-        s = cp.searchsorted(bounds, pos, side='right') - 1
+        s = cp.searchsorted(bounds, pos, side="right") - 1
         return cp.where((s >= 0) & (s < n_seg), s, -1)
 
     gene_indices = cp.asarray(gene_indices)
@@ -509,8 +529,7 @@ def _count_fragment_gene_overlaps(
 
         # The domains holding the end insertion and not the start one
         hit = (s2 >= 0) & (s2 != s1)
-        key, n = cp.unique((cells[hit] * (n_seg + 1) + s1[hit] + 1) * n_seg + s2[hit],
-                           return_counts=True)
+        key, n = cp.unique((cells[hit] * (n_seg + 1) + s1[hit] + 1) * n_seg + s2[hit], return_counts=True)
         row, t = _expand_segments(key % n_seg, cov_ptr, cov_transcript)
         start_seg = ((key // n_seg) % (n_seg + 1) - 1)[row]
         keep = (first[t] > start_seg) | (last[t] <= start_seg)
@@ -519,15 +538,22 @@ def _count_fragment_gene_overlaps(
         n_parts.append(n[row][keep])
         del cells, s1, s2, hit, key, n, row, t, start_seg, keep
 
-        counts.append(cudf.DataFrame({
-            'cell_idx': cp.concatenate(cell_parts).astype(cp.int32),
-            'gene_idx': gene_indices[cp.concatenate(t_parts)].astype(cp.int32),
-            'count': cp.concatenate(n_parts).astype(cp.int32),
-        }).groupby(['cell_idx', 'gene_idx']).sum().reset_index())
+        counts.append(
+            cudf.DataFrame(
+                {
+                    "cell_idx": cp.concatenate(cell_parts).astype(cp.int32),
+                    "gene_idx": gene_indices[cp.concatenate(t_parts)].astype(cp.int32),
+                    "count": cp.concatenate(n_parts).astype(cp.int32),
+                }
+            )
+            .groupby(["cell_idx", "gene_idx"])
+            .sum()
+            .reset_index()
+        )
 
     if len(counts) == 1:
         return counts[0]
-    return cudf.concat(counts, ignore_index=True).groupby(['cell_idx', 'gene_idx']).sum().reset_index()
+    return cudf.concat(counts, ignore_index=True).groupby(["cell_idx", "gene_idx"]).sum().reset_index()
 
 
 def gene_matrix_to_anndata(
@@ -556,11 +582,11 @@ def gene_matrix_to_anndata(
 
     # Matrix is already on CPU with optimal dtype
     obs = cell_metadata.to_pandas()
-    obs.index = obs['barcode'].values
+    obs.index = obs["barcode"].values
 
     var = gene_metadata.to_pandas()
     # Gene names, or transcript IDs, as SnapATAC2 names its features
-    var.index = var.pop('feature').values
+    var.index = var.pop("feature").values
 
     adata = sc.AnnData(X=matrix, obs=obs, var=var)
     logger.debug(f"Created AnnData: {adata.shape[0]} cells × {adata.shape[1]} genes")
@@ -569,31 +595,31 @@ def gene_matrix_to_anndata(
 
 
 def make_gene_matrix(
-    input_parquet: str | Path | List[str | Path],
+    input_parquet: str | Path | list[str | Path],
     gene_anno: str | Path,
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
     id_type: Literal["gene", "transcript"] = "gene",
     upstream: int = 2000,
     downstream: int = 0,
     include_gene_body: bool = True,
     min_fragments_per_cell: int = 100,
-    exclude_chroms: Optional[list] = None,
-    metrics: Optional[str | Path | pd.DataFrame | cudf.DataFrame] = None,
-    filter_query: Optional[str] = None,
+    exclude_chroms: list | None = None,
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
+    filter_query: str | None = None,
     low_memory: bool = False,
     cell_batch_size: int = 500,
     gene_name_key: str = "gene_name",
     gene_id_key: str = "gene_id",
     transcript_name_key: str = "transcript_name",
     transcript_id_key: str = "transcript_id",
-) -> 'sc.AnnData':
+) -> AnnData:
     """
     Process ATAC fragments parquet file and generate gene activity matrix.
 
     Uses paired-insertion counting strategy matching SnapATAC2
-    :cite:p:`Zhang2024`: each fragment 
-    contributes insertions at start and end positions. If both insertions fall 
-    within the same gene's regulatory domain, count +1. If in different genes, 
+    :cite:p:`Zhang2024`: each fragment
+    contributes insertions at start and end positions. If both insertions fall
+    within the same gene's regulatory domain, count +1. If in different genes,
     each gene gets +1.
 
     Parameters
@@ -669,7 +695,6 @@ def make_gene_matrix(
     """
 
     from ..io.fragments import read_fragments_parquet
-    import scanpy as sc
 
     if isinstance(input_parquet, (list, tuple)):
         from ._combine import _check_distinct_cells, _file_names, combine_file_matrices
@@ -681,12 +706,21 @@ def make_gene_matrix(
         start_time = time.perf_counter()
         parts = (
             make_gene_matrix(
-                path, gene_anno, id_type=id_type, upstream=upstream, downstream=downstream,
+                path,
+                gene_anno,
+                id_type=id_type,
+                upstream=upstream,
+                downstream=downstream,
                 include_gene_body=include_gene_body,
-                min_fragments_per_cell=min_fragments_per_cell, exclude_chroms=exclude_chroms,
-                metrics=metrics, filter_query=filter_query,
-                low_memory=low_memory, gene_name_key=gene_name_key, gene_id_key=gene_id_key,
-                transcript_name_key=transcript_name_key, transcript_id_key=transcript_id_key,
+                min_fragments_per_cell=min_fragments_per_cell,
+                exclude_chroms=exclude_chroms,
+                metrics=metrics,
+                filter_query=filter_query,
+                low_memory=low_memory,
+                gene_name_key=gene_name_key,
+                gene_id_key=gene_id_key,
+                transcript_name_key=transcript_name_key,
+                transcript_id_key=transcript_id_key,
             )
             for path in paths
         )
@@ -699,7 +733,7 @@ def make_gene_matrix(
 
     input_parquet = Path(input_parquet)
     gene_anno = Path(gene_anno)
-    
+
     if output_path is not None:
         output_path = Path(output_path)
 
@@ -727,7 +761,7 @@ def make_gene_matrix(
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
-    def _read_and_process(use_low_mem: bool, exclude: Optional[List[str]] = None):
+    def _read_and_process(use_low_mem: bool, exclude: list[str] | None = None):
         df = read_fragments_parquet(input_parquet, low_memory=use_low_mem)
         matrix, cell_metadata, gene_metadata = create_gene_matrix_gpu(
             fragments_df=df,
@@ -747,7 +781,7 @@ def make_gene_matrix(
     except (MemoryError, RuntimeError) as e:
         err_msg = str(e).lower()
         is_oom = "out of memory" in err_msg or "std::bad_alloc" in err_msg or "cudaerrormemoryallocation" in err_msg
-        
+
         if is_oom:
             if not low_memory:
                 logger.warning(f"CUDA Out of Memory. Retrying with low_memory=True: {e}")
@@ -767,7 +801,9 @@ def make_gene_matrix(
     if output_path is not None:
         adata.write_h5ad(str(output_path))
         total_time = time.perf_counter() - start_time
-        logger.info(f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)")
+        logger.info(
+            f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)"
+        )
     else:
         logger.info(f"Gene matrix: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)")
 

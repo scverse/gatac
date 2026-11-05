@@ -5,6 +5,7 @@ The fragment-level builders (tile, gene and metric matrices, filtering,
 doublets) are covered in ``tests/regression/test_fragment_files.py`` and the
 reproducibility suite; this file covers what operates on built matrices.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,9 +27,11 @@ def split_h5ad(tiles, tmp_path):
 
 def _binarized_tile_matrix(tiles, world):
     from pyfaidx import Fasta
+
     sizes = {c: len(s) for c, s in Fasta(str(world["fasta"])).items()}
-    a = ga.pp.make_tile_matrix(world["parquet"], chrom_sizes=sizes, tile_size=5_000,
-                               min_fragments_per_cell=100, count_strategy="binarize")
+    a = ga.pp.make_tile_matrix(
+        world["parquet"], chrom_sizes=sizes, tile_size=5_000, min_fragments_per_cell=100, count_strategy="binarize"
+    )
     return a[tiles.obs_names].copy()
 
 

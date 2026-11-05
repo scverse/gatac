@@ -184,9 +184,7 @@ def _enrichment_scores_gpu(
     n_miss = N - n_hits
 
     # Sum of weighted metric at hit positions → shape (n_perm, 1)
-    sum_correl_tag = (tag_indicators * weighted_metric[None, :]).sum(
-        axis=1, keepdims=True
-    )
+    sum_correl_tag = (tag_indicators * weighted_metric[None, :]).sum(axis=1, keepdims=True)
 
     # Normalisation factors
     norm_tag = 1.0 / cp.maximum(sum_correl_tag, 1e-10)
@@ -195,10 +193,7 @@ def _enrichment_scores_gpu(
     no_tag = 1.0 - tag_indicators
 
     # Per-position increment
-    increments = (
-        tag_indicators * weighted_metric[None, :] * norm_tag
-        - no_tag * norm_no_tag
-    )
+    increments = tag_indicators * weighted_metric[None, :] * norm_tag - no_tag * norm_no_tag
 
     # Running enrichment score = cumulative sum
     run_es = cp.cumsum(increments, axis=1)
@@ -237,19 +232,14 @@ def _enrichment_scores_and_running_gpu_batch(
     n_hits = tag_indicators.sum(axis=1, keepdims=True)
     n_miss = N - n_hits
 
-    sum_correl_tag = (tag_indicators * weighted_metric[None, :]).sum(
-        axis=1, keepdims=True
-    )
+    sum_correl_tag = (tag_indicators * weighted_metric[None, :]).sum(axis=1, keepdims=True)
 
     norm_tag = 1.0 / cp.maximum(sum_correl_tag, 1e-10)
     norm_no_tag = 1.0 / cp.maximum(n_miss, 1.0)
 
     no_tag = 1.0 - tag_indicators
 
-    increments = (
-        tag_indicators * weighted_metric[None, :] * norm_tag
-        - no_tag * norm_no_tag
-    )
+    increments = tag_indicators * weighted_metric[None, :] * norm_tag - no_tag * norm_no_tag
 
     run_es = cp.cumsum(increments, axis=1)
 
@@ -616,12 +606,14 @@ def prerank_gpu(
             nh_np[k, 0] = len(hits)
 
         pos_gpu = cp.asarray(pos_np)
-        batches.append((
-            idxs,
-            pos_gpu,
-            cp.minimum(pos_gpu, N - 1),  # in-bounds gather index for the pool
-            cp.asarray(nh_np),
-        ))
+        batches.append(
+            (
+                idxs,
+                pos_gpu,
+                cp.minimum(pos_gpu, N - 1),  # in-bounds gather index for the pool
+                cp.asarray(nh_np),
+            )
+        )
 
     # -----------------------------------------------------------------
     # Observed ES and leading-edge peak (unpermuted)
@@ -629,9 +621,7 @@ def prerank_gpu(
     all_es = np.empty(n_sets, dtype=np.float64)
     all_peak = np.empty(n_sets, dtype=np.int64)
     for idxs, pos_gpu, _pos_clamped, nh_gpu in batches:
-        es_b, peak_b = _es_from_hits_gpu(
-            weighted_metric_gpu, pos_gpu, nh_gpu, with_peaks=True
-        )
+        es_b, peak_b = _es_from_hits_gpu(weighted_metric_gpu, pos_gpu, nh_gpu, with_peaks=True)
         all_es[idxs] = cp.asnumpy(es_b)
         all_peak[idxs] = cp.asnumpy(peak_b)
 
@@ -643,9 +633,7 @@ def prerank_gpu(
     rs = cp.random.RandomState(seed)
 
     n_perm_chunks = -(-permutation_num // effective_perm_batch)
-    progress = tqdm(
-        total=n_perm_chunks * len(batches), desc="GSEA scoring blocks"
-    )
+    progress = tqdm(total=n_perm_chunks * len(batches), desc="GSEA scoring blocks")
     for p_start in range(0, permutation_num, effective_perm_batch):
         n_perm = min(effective_perm_batch, permutation_num - p_start)
         pool = _permutation_pool_gpu(N, n_perm, rs)
@@ -656,18 +644,13 @@ def prerank_gpu(
             # Where each set's members land under each permutation
             # → (n_perm, n_gs, h_max)
             perm_pos = pool[:, pos_clamped]
-            keep = (
-                cp.arange(h_max, dtype=cp.float32)[None, None, :]
-                < nh_gpu[None, :, :]
-            )
+            keep = cp.arange(h_max, dtype=cp.float32)[None, None, :] < nh_gpu[None, :, :]
             perm_pos = cp.where(keep, perm_pos, N)
             perm_pos = cp.sort(perm_pos, axis=2).reshape(n_perm * n_gs, h_max)
             nh_flat = cp.tile(nh_gpu.reshape(1, n_gs), (n_perm, 1)).reshape(-1, 1)
 
             es_p = _es_from_hits_gpu(weighted_metric_gpu, perm_pos, nh_flat)
-            esnull[idxs, p_start : p_start + n_perm] = cp.asnumpy(
-                es_p.reshape(n_perm, n_gs)
-            ).T
+            esnull[idxs, p_start : p_start + n_perm] = cp.asnumpy(es_p.reshape(n_perm, n_gs)).T
 
             del perm_pos, keep, nh_flat, es_p
             progress.update(1)
@@ -692,9 +675,7 @@ def prerank_gpu(
         nes, nesnull = _normalize_es(es_obs, null_i)
         all_nes[i] = nes
         nesnull_parts.append(nesnull)
-        all_lead_edge[i] = _leading_edge_from_peak(
-            hit_idx, es_obs, int(all_peak[i]), N
-        )
+        all_lead_edge[i] = _leading_edge_from_peak(hit_idx, es_obs, int(all_peak[i]), N)
 
     # FDR across all feature sets
     nesnull_concat = np.concatenate(nesnull_parts)
@@ -703,16 +684,18 @@ def prerank_gpu(
     # Build results
     results = []
     for i, (term, hit_idx) in enumerate(valid_sets):
-        results.append({
-            "term": term,
-            "es": float(all_es[i]),
-            "nes": float(all_nes[i]),
-            "pval": float(all_pvals[i]),
-            "fdr": float(fdrs[i]),
-            "lead_edge_n": len(all_lead_edge[i]),
-            "lead_edge_idx": all_lead_edge[i].tolist(),
-            "hits": hit_idx.tolist(),
-        })
+        results.append(
+            {
+                "term": term,
+                "es": float(all_es[i]),
+                "nes": float(all_nes[i]),
+                "pval": float(all_pvals[i]),
+                "fdr": float(fdrs[i]),
+                "lead_edge_n": len(all_lead_edge[i]),
+                "lead_edge_idx": all_lead_edge[i].tolist(),
+                "hits": hit_idx.tolist(),
+            }
+        )
 
     # Free GPU memory
     del weighted_metric_gpu, batches

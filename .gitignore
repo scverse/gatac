@@ -23,3 +23,6 @@ docs/api/generated/
 
 # llm
 agents/
+
+# CI test outputs
+test-data/

@@ -3,8 +3,8 @@ TOBIAS on the GPU: Tn5 bias correction and footprint scores per pseudobulk,
 and differential TF binding (BINDetect).
 """
 
-from .footprint import footprint, FootprintTracks, TrackLayout
-from .bindetect import bindetect, bindetect_sites, BINDetectResult, SiteSet
+from .bindetect import BINDetectResult, SiteSet, bindetect, bindetect_sites
+from .footprint import FootprintTracks, TrackLayout, footprint
 
 __all__ = [
     "footprint",

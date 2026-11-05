@@ -9,7 +9,7 @@ like a built-in namespace and command:
 ```python
 import gatac as ga
 
-ga.extensions()          # installed extensions
+ga.extensions()  # installed extensions
 ga.chromafold.predict(adata, ...)
 ```
 
@@ -56,8 +56,8 @@ chromafold = "gatac_chromafold.cli:register"
       p.add_argument("input", help="Fragments .parquet file")
       p.set_defaults(func=run)
 
-  def run(args):
-      ...
+
+  def run(args): ...
   ```
 
   An extension whose commands fail to load prints a warning and leaves the

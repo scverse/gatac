@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "GPU-accelerated ATAC-seq fragment processing and tile matrix generation"
 readme = "README.md"
 license = { text = "BSD-3-Clause" }
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "pyarrow>=22.0.0",
     "duckdb>=2.0",
@@ -21,14 +21,14 @@ archr-compat = [
     "annoy>=1.17",
 ]
 cuda12 = [
-    "cudf-cu12==26.02.*",
-    "cuml-cu12==26.02.*",
-    "cugraph-cu12==26.02.*",
+    "cudf-cu12>=26.02",
+    "cuml-cu12>=26.02",
+    "cugraph-cu12>=26.02",
 ]
 cuda13 = [
-    "cudf-cu13==26.02.*",
-    "cuml-cu13==26.02.*",
-    "cugraph-cu13==26.02.*",
+    "cudf-cu13>=26.02",
+    "cuml-cu13>=26.02",
+    "cugraph-cu13>=26.02",
 ]
 
 
@@ -69,3 +69,31 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "--strict-markers"]
+
+[tool.coverage]
+run.source_pkgs = ["gatac"]
+run.omit = ["tests/*"]
+run.data_file = "test-data/coverage"
+paths.source = ["gatac", "**/site-packages/gatac"]
+report.exclude_also = [
+  "if TYPE_CHECKING:",
+]
+xml.output = "test-data/coverage.xml"
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["notebooks", "reproducibility"]
+lint.select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort
+  "UP",  # pyupgrade
+]
+lint.ignore = [
+  "E501", # line too long -> the formatter handles code lines
+  "E731", # lambda assignments are fine
+  "E741", # I, O, l as variable names
+]
+lint.per-file-ignores."*/__init__.py" = ["F401"]
+lint.isort.known-first-party = ["gatac"]

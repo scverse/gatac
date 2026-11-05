@@ -3,12 +3,13 @@ Readers shared by every GATAC function that takes a cell metrics table, a
 BED file or a gene annotation, so they all accept the same inputs and parse
 them the same way.
 """
+
 from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping, Union
 
 import cudf
 import duckdb
@@ -17,7 +18,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def read_metrics(metrics, gpu: bool = False) -> Union[pd.DataFrame, cudf.DataFrame, None]:
+def read_metrics(metrics, gpu: bool = False) -> pd.DataFrame | cudf.DataFrame | None:
     """
     Cell metrics as a DataFrame of its own (a copy of a DataFrame input).
 
@@ -55,21 +56,26 @@ def read_metrics(metrics, gpu: bool = False) -> Union[pd.DataFrame, cudf.DataFra
         df = metrics.to_pandas()
     else:
         raise TypeError(
-            "metrics must be a CSV path or a pandas, cuDF or Polars DataFrame, "
-            f"not {type(metrics).__name__}"
+            f"metrics must be a CSV path or a pandas, cuDF or Polars DataFrame, not {type(metrics).__name__}"
         )
     return cudf.from_pandas(df) if gpu else df
 
 
 _GTF_COLUMNS = {
-    "chrom": "VARCHAR", "source": "VARCHAR", "feature": "VARCHAR", "start": "BIGINT",
-    "end": "BIGINT", "score": "VARCHAR", "strand": "VARCHAR", "frame": "VARCHAR",
+    "chrom": "VARCHAR",
+    "source": "VARCHAR",
+    "feature": "VARCHAR",
+    "start": "BIGINT",
+    "end": "BIGINT",
+    "score": "VARCHAR",
+    "strand": "VARCHAR",
+    "frame": "VARCHAR",
     "attribute": "VARCHAR",
 }
 
 
 def read_gtf(
-    path: Union[str, Path],
+    path: str | Path,
     feature: str,
     attributes: Mapping[str, str] = {},
 ) -> pd.DataFrame:
@@ -100,9 +106,7 @@ def read_gtf(
     def pattern(key):
         return rf"{key}=([^;]+)" if gff3 else rf'{key} "([^"]+)"'
 
-    extract = "".join(
-        f', nullif(regexp_extract(attribute, ?, 1), \'\') AS "{col}"' for col in attributes
-    )
+    extract = "".join(f", nullif(regexp_extract(attribute, ?, 1), '') AS \"{col}\"" for col in attributes)
     columns = ", ".join(f"'{c}': '{t}'" for c, t in _GTF_COLUMNS.items())
     # The columns are given: DuckDB's dialect sniffer fails on the "##" header
     # lines of a GTF. GTF attribute values are quoted mid-field, so no quote
@@ -119,7 +123,7 @@ def read_gtf(
         return con.execute(query, params).df()
 
 
-def read_bed(path: Union[str, Path]) -> pd.DataFrame:
+def read_bed(path: str | Path) -> pd.DataFrame:
     """
     The first three columns of a BED file: ``chrom`` (str), ``start``, ``end`` (int64).
 
@@ -128,8 +132,13 @@ def read_bed(path: Union[str, Path]) -> pd.DataFrame:
     Gzipped files are read directly.
     """
     df = pd.read_csv(
-        path, sep="\t", header=None, usecols=[0, 1, 2], names=["chrom", "start", "end"],
-        comment="#", dtype=str,
+        path,
+        sep="\t",
+        header=None,
+        usecols=[0, 1, 2],
+        names=["chrom", "start", "end"],
+        comment="#",
+        dtype=str,
     )
     df = df[~df["chrom"].str.startswith(("track", "browser"))]
     return df.astype({"start": "int64", "end": "int64"}).reset_index(drop=True)

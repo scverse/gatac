@@ -1,4 +1,5 @@
 """gatac.gpu: bincount workaround for the CuPy 14 CUB histogram crash, and the chunked host -> device copy."""
+
 import ast
 from pathlib import Path
 
@@ -16,10 +17,14 @@ def test_no_unweighted_cupy_bincount():
     found = []
     for path in Path(gatac.__file__).parent.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "bincount" and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id in ("cp", "cupy", "xp")
-                    and not any(k.arg == "weights" for k in node.keywords)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "bincount"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in ("cp", "cupy", "xp")
+                and not any(k.arg == "weights" for k in node.keywords)
+            ):
                 found.append(f"{path.name}:{node.lineno}")
     assert not found, f"use gatac.gpu.bincount: {found}"
 
@@ -59,7 +64,7 @@ def test_to_device_matches_asarray(dtype, monkeypatch):
 def test_to_device_views_casts_and_device_input(monkeypatch):
     monkeypatch.setattr(gatac.gpu, "_H2D_CHUNK", 1000)
     h = np.arange(20_000, dtype=np.int32).reshape(200, 100)
-    assert np.array_equal(to_device(h[:, ::3]).get(), h[:, ::3])        # non-contiguous view
+    assert np.array_equal(to_device(h[:, ::3]).get(), h[:, ::3])  # non-contiguous view
     d = to_device(h, cp.int64)
     assert d.dtype == cp.int64 and np.array_equal(d.get(), h)
     x = cp.arange(5)

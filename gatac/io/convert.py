@@ -4,15 +4,20 @@ ATAC fragments TSV.GZ to Parquet conversion, and back.
 
 import logging
 import os
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING
 
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .fragments import NAMED_SCHEMA, FragmentFile, write_fragments
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +26,7 @@ SAMPLE = "{sample}"
 
 def _stem(path: Path) -> str:
     """The name of the Parquet file of a fragments file, without ``.parquet``."""
-    return path.with_suffix('').with_suffix('.parquet').stem
+    return path.with_suffix("").with_suffix(".parquet").stem
 
 
 def sample_names(paths: Sequence[str | Path]) -> list[str]:
@@ -51,12 +56,12 @@ def sample_names(paths: Sequence[str | Path]) -> list[str]:
     return names
 
 
-def _fill(value: Optional[str], sample: str) -> Optional[str]:
+def _fill(value: str | None, sample: str) -> str | None:
     """``value`` with ``{sample}`` replaced by the sample name."""
     return value.replace(SAMPLE, sample) if value else value
 
 
-def _read_sample_sheet(samples) -> tuple[list[str], Optional[list[str]], Optional[list[str]]]:
+def _read_sample_sheet(samples) -> tuple[list[str], list[str] | None, list[str] | None]:
     """Input files, and output paths and barcode prefixes if given, of a sample sheet."""
     import pandas as pd
 
@@ -80,9 +85,9 @@ def _read_sample_sheet(samples) -> tuple[list[str], Optional[list[str]], Optiona
 
 def make_parquet(
     input_path: str | Path,
-    output_path: Optional[str | Path] = None,
-    separator: str = '\t',
-    barcode_prefix: Optional[str] = None,
+    output_path: str | Path | None = None,
+    separator: str = "\t",
+    barcode_prefix: str | None = None,
     row_group_size: int = 1_000_000,
 ) -> Path:
     """
@@ -135,7 +140,7 @@ def make_parquet(
     """
     input_path = Path(input_path)
     if output_path is None:
-        output_path = input_path.with_suffix('').with_suffix('.parquet')
+        output_path = input_path.with_suffix("").with_suffix(".parquet")
     else:
         output_path = Path(output_path)
     if output_path.resolve() == input_path.resolve():
@@ -180,8 +185,10 @@ def make_parquet(
                 yield pa.Table.from_batches([b]).cast(NAMED_SCHEMA)
 
         write_fragments(
-            batches, output_path,
-            row_group_size=row_group_size, barcode_stats=barcode_stats,
+            batches,
+            output_path,
+            row_group_size=row_group_size,
+            barcode_stats=barcode_stats,
             barcode_prefix=barcode_prefix,
         )
     finally:
@@ -192,15 +199,15 @@ def make_parquet(
 
 
 def make_parquet_batch(
-    input_paths: Optional[list[str | Path]] = None,
-    output_dir: Optional[str | Path] = None,
-    workers: Optional[int] = None,
-    separator: str = '\t',
-    barcode_prefix: Optional[str | Sequence[str]] = None,
+    input_paths: list[str | Path] | None = None,
+    output_dir: str | Path | None = None,
+    workers: int | None = None,
+    separator: str = "\t",
+    barcode_prefix: str | Sequence[str] | None = None,
     row_group_size: int = 1_000_000,
-    file_prefix: Optional[str | Sequence[str]] = None,
-    output_paths: Optional[str | Sequence[str | Path]] = None,
-    samples: "Optional[str | Path | pd.DataFrame]" = None,
+    file_prefix: str | Sequence[str] | None = None,
+    output_paths: str | Sequence[str | Path] | None = None,
+    samples: "str | Path | pd.DataFrame | None" = None,
 ) -> list[Path]:
     """
     Convert multiple ATAC fragment TSV.GZ files to Parquet in parallel.
@@ -318,16 +325,16 @@ def make_parquet_batch(
         return values
 
     names = sample_names(input_paths)
-    prefixes = [_fill(p, s) or None
-                for p, s in zip(per_file(barcode_prefix, "barcode prefixes"), names)]
+    prefixes = [_fill(p, s) or None for p, s in zip(per_file(barcode_prefix, "barcode prefixes"), names)]
     file_prefixes = [_fill(p, s) for p, s in zip(per_file(file_prefix, "file prefixes"), names)]
     outputs = [_fill(o, s) for o, s in zip(per_file(output_paths, "output paths"), names)]
 
     # Next to each input unless output_dir is given, as make_parquet does
     output_paths = [
-        Path(o) if o else
-        (Path(output_dir) if output_dir is not None else p.parent)
-        / (fp + p.with_suffix('').with_suffix('.parquet').name)
+        Path(o)
+        if o
+        else (Path(output_dir) if output_dir is not None else p.parent)
+        / (fp + p.with_suffix("").with_suffix(".parquet").name)
         for p, fp, o in zip(input_paths, file_prefixes, outputs)
     ]
     seen: dict[Path, Path] = {}
@@ -350,15 +357,13 @@ def make_parquet_batch(
         workers if workers is not None else (os.cpu_count() or 1),
     )
 
-    logger.info(
-        f"Converting {len(input_paths)} file(s) with {n_workers} worker(s)"
-    )
+    logger.info(f"Converting {len(input_paths)} file(s) with {n_workers} worker(s)")
 
     # Largest first, so that the largest files do not run alone at the end
     sizes = [os.path.getsize(p) for p in input_paths]
     order = sorted(range(len(input_paths)), key=lambda i: -sizes[i])
 
-    results: list[Optional[Path]] = [None] * len(input_paths)
+    results: list[Path | None] = [None] * len(input_paths)
 
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         future_to_idx = {
@@ -382,7 +387,7 @@ def make_parquet_batch(
 
 def to_tsv(
     input_path: str | Path,
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
     compresslevel: int = 6,
     overwrite: bool = False,
 ) -> Path:
@@ -421,9 +426,7 @@ def to_tsv(
     if output_path is None:
         output_path = input_path.with_suffix(".tsv.gz")
     logger.info(f"Writing {input_path.name} to TSV")
-    output_path = FragmentFile(input_path).to_tsv(
-        output_path, compresslevel=compresslevel, overwrite=overwrite
-    )
+    output_path = FragmentFile(input_path).to_tsv(output_path, compresslevel=compresslevel, overwrite=overwrite)
     logger.info(f"Created {Path(output_path).name}")
     return output_path
 
@@ -431,7 +434,7 @@ def to_tsv(
 def set_barcode_prefix(
     path: str | Path,
     barcode_prefix: str,
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
 ) -> Path:
     """
     Set the barcode prefix of a GATAC Parquet fragment file.
