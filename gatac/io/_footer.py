@@ -7,12 +7,12 @@ absolute offsets that all point before the footer, so the footer can be
 replaced without touching the data: only the key-value list (field 5) is
 re-encoded, and the rest of the footer is copied byte for byte.
 """
+
 from __future__ import annotations
 
 import os
 import struct
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
 
 _MAGIC = b"PAR1"
 
@@ -23,7 +23,7 @@ _BINARY, _LIST, _SET, _MAP, _STRUCT = 8, 9, 10, 11, 12
 _KEY_VALUE_FIELD = 5  # FileMetaData.key_value_metadata
 
 
-def _varint(buf: bytes, pos: int) -> Tuple[int, int]:
+def _varint(buf: bytes, pos: int) -> tuple[int, int]:
     value = shift = 0
     while True:
         b = buf[pos]
@@ -46,7 +46,7 @@ def _write_varint(value: int) -> bytes:
             return bytes(out)
 
 
-def _field_header(buf: bytes, pos: int, last_id: int) -> Tuple[int, int, int]:
+def _field_header(buf: bytes, pos: int, last_id: int) -> tuple[int, int, int]:
     """(field id, type, position after the header); type 0 is the struct's end."""
     b = buf[pos]
     pos += 1
@@ -60,7 +60,7 @@ def _field_header(buf: bytes, pos: int, last_id: int) -> Tuple[int, int, int]:
     return (zigzag >> 1) ^ -(zigzag & 1), ftype, pos
 
 
-def _list_header(buf: bytes, pos: int) -> Tuple[int, int, int]:
+def _list_header(buf: bytes, pos: int) -> tuple[int, int, int]:
     """(size, element type, position after the header) of a list or set."""
     b = buf[pos]
     pos += 1
@@ -108,7 +108,7 @@ def _skip(buf: bytes, pos: int, ftype: int, in_collection: bool = False) -> int:
     raise ValueError(f"Unknown Thrift type {ftype} in the Parquet footer")
 
 
-def _key_value_span(footer: bytes) -> Tuple[int, int]:
+def _key_value_span(footer: bytes) -> tuple[int, int]:
     """Start and end of the key-value list's value in the footer."""
     pos, last_id = 0, 0
     while True:
@@ -121,7 +121,7 @@ def _key_value_span(footer: bytes) -> Tuple[int, int]:
         pos = end
 
 
-def _decode_key_values(buf: bytes) -> List[Tuple[str, str]]:
+def _decode_key_values(buf: bytes) -> list[tuple[str, str]]:
     size, _, pos = _list_header(buf, 0)
     items = []
     for _ in range(size):
@@ -133,7 +133,7 @@ def _decode_key_values(buf: bytes) -> List[Tuple[str, str]]:
                 break
             if ftype == _BINARY and last_id in (1, 2):
                 n, pos = _varint(buf, pos)
-                text = buf[pos:pos + n].decode()
+                text = buf[pos : pos + n].decode()
                 pos += n
                 key, value = (text, value) if last_id == 1 else (key, text)
             else:
@@ -142,7 +142,7 @@ def _decode_key_values(buf: bytes) -> List[Tuple[str, str]]:
     return items
 
 
-def _encode_key_values(items: List[Tuple[str, str]]) -> bytes:
+def _encode_key_values(items: list[tuple[str, str]]) -> bytes:
     n = len(items)
     out = bytearray([n << 4 | _STRUCT] if n < 15 else [0xF0 | _STRUCT])
     if n >= 15:
@@ -155,7 +155,7 @@ def _encode_key_values(items: List[Tuple[str, str]]) -> bytes:
     return bytes(out)
 
 
-def update_key_value_metadata(path: Union[str, Path], updates: Dict[str, str]) -> None:
+def update_key_value_metadata(path: str | Path, updates: dict[str, str]) -> None:
     """
     Set keys of the key-value metadata of a Parquet file, in place.
 

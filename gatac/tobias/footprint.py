@@ -33,16 +33,17 @@ from __future__ import annotations
 
 import functools
 import logging
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Optional, Sequence, Union
+from typing import TYPE_CHECKING
 
 import cupy as cp
 import numpy as np
 import pandas as pd
 
-from ..gpu import bincount
 from .._readers import read_bed
+from ..gpu import bincount
 from ..io.fasta import Fasta
 from ..io.fragments import FragmentFile
 
@@ -53,12 +54,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["footprint", "FootprintTracks", "TrackLayout"]
 
-K_FLANK = 12                  # ATACorrect --k_flank
+K_FLANK = 12  # ATACorrect --k_flank
 L_KMER = 2 * K_FLANK + 1
-BG_SHIFT = 100                # --bg_shift
-WINDOW = 100                  # --window
-EXTEND = 100                  # --extend (ATACorrect and ScoreBigwig)
-SPLIT = 50_000                # RegionList.apply_method(OneRegion.split_region, 50000)
+BG_SHIFT = 100  # --bg_shift
+WINDOW = 100  # --window
+EXTEND = 100  # --extend (ATACorrect and ScoreBigwig)
+SPLIT = 50_000  # RegionList.apply_method(OneRegion.split_region, 50000)
 FP_FLANK_MIN, FP_FLANK_MAX = 10, 30
 FP_MIN, FP_MAX = 20, 50
 TRACKS = ("uncorrected", "bias", "expected", "corrected")
@@ -176,8 +177,13 @@ def _count_in(pos: np.ndarray, iv: np.ndarray) -> int:
 # =============================================================================
 
 
-def _load_cuts(parquet_path, barcode_groups: dict[str, int], chrom_sizes: dict[str, int],
-               read_length: Optional[int], deduplicate: bool) -> dict[int, dict[str, tuple]]:
+def _load_cuts(
+    parquet_path,
+    barcode_groups: dict[str, int],
+    chrom_sizes: dict[str, int],
+    read_length: int | None,
+    deduplicate: bool,
+) -> dict[int, dict[str, tuple]]:
     """Per group and chromosome: sorted forward and reverse Tn5 cut positions (0-based).
 
     Forward cut = ``start``, reverse cut = ``end - 1``. With ``read_length`` set,
@@ -193,7 +199,9 @@ def _load_cuts(parquet_path, barcode_groups: dict[str, int], chrom_sizes: dict[s
     # the frames were freed.
     pieces: dict[tuple[int, int], list] = {}
     for b in FragmentFile(parquet_path).iter_batches(
-        ["chrom", "start", "end"], chroms=chroms, cells=list(barcode_groups),
+        ["chrom", "start", "end"],
+        chroms=chroms,
+        cells=list(barcode_groups),
     ):
         key = group_of[b["cell"].values].astype(cp.int64) * n_chroms + b["chrom"].values.astype(cp.int64)
         o = cp.argsort(key)
@@ -206,7 +214,7 @@ def _load_cuts(parquet_path, barcode_groups: dict[str, int], chrom_sizes: dict[s
             pieces.setdefault(divmod(k, n_chroms), []).append((st[lo:hi], en[lo:hi]))
         del key, ks, first
     cuts: dict[int, dict[str, tuple]] = {g: {} for g in set(barcode_groups.values())}
-    for (g, ci) in sorted(pieces):
+    for g, ci in sorted(pieces):
         parts = pieces.pop((g, ci))
         c = chroms[ci]
         length = chrom_sizes[c]
@@ -257,12 +265,12 @@ def _dwm_counts(kmers: cp.ndarray, w: cp.ndarray, chunk: int = 2_000_000) -> np.
     kmers, w = kmers[keep], w[keep].astype(cp.float64)
     G = cp.zeros((L_KMER * 5, L_KMER * 5), dtype=cp.float64)
     for i in range(0, len(kmers), chunk):
-        X = _onehot(kmers[i:i + chunk].astype(cp.int64))
-        G += (X * w[i:i + chunk, None]).T @ X
+        X = _onehot(kmers[i : i + chunk].astype(cp.int64))
+        G += (X * w[i : i + chunk, None]).T @ X
     return cp.asnumpy(G.reshape(L_KMER, 5, L_KMER, 5).transpose(1, 3, 0, 2))
 
 
-def _bias_counts(cuts_fr, regions: dict, seq_d: cp.ndarray, length: int, read_length: Optional[int]):
+def _bias_counts(cuts_fr, regions: dict, seq_d: cp.ndarray, length: int, read_length: int | None):
     """bias_estimation() on one chromosome: unique cut positions per strand and region,
     weight ``min(count, 10)``, foreground k-mer at the cut, background k-mer ``BG_SHIFT``
     upstream (strand-aware).
@@ -285,9 +293,9 @@ def _bias_counts(cuts_fr, regions: dict, seq_d: cp.ndarray, length: int, read_le
         if read_length is None:
             lo, hi = iv[:, 0], iv[:, 1]
         else:
-            if strand == "forward":      # alignment [p-4, p-4+RL) overlaps [s, e)
+            if strand == "forward":  # alignment [p-4, p-4+RL) overlaps [s, e)
                 lo, hi = iv[:, 0] + 4 - read_length + 1, iv[:, 1] + 4
-            else:                        # alignment [p+5-RL, p+5) overlaps [s, e)
+            else:  # alignment [p+5-RL, p+5) overlaps [s, e)
                 lo, hi = iv[:, 0] - 5 + 1, iv[:, 1] + read_length - 5
             # cutsite (1-based) > ext_start and < ext_end
             lo, hi = np.maximum(lo, ext_s), np.minimum(hi, ext_e - 1)
@@ -311,6 +319,7 @@ def _bias_counts(cuts_fr, regions: dict, seq_d: cp.ndarray, length: int, read_le
 
 def _prepare_dwm(counts: np.ndarray, bg_counts: np.ndarray) -> dict[str, np.ndarray]:
     """DiNucleotideMatrix.prepare_mat() for the bias and background models."""
+
     def one(cnt):
         cm = np.sum(cnt, axis=(0, 2)) / float(L_KMER)
         no = np.mean(np.sum(cm[:4, :], axis=0))
@@ -321,14 +330,21 @@ def _prepare_dwm(counts: np.ndarray, bg_counts: np.ndarray) -> dict[str, np.ndar
 
     bias_pwm_log, bias_dwm_log, bias_pwm = one(counts)
     bg_pwm_log, bg_dwm_log, bg_pwm = one(bg_counts)
-    return dict(counts=counts, bg_counts=bg_counts, bias_pwm_log=bias_pwm_log, bias_dwm_log=bias_dwm_log,
-                bg_pwm_log=bg_pwm_log, bg_dwm_log=bg_dwm_log, pssm=np.log2(bias_pwm / bg_pwm))
+    return dict(
+        counts=counts,
+        bg_counts=bg_counts,
+        bias_pwm_log=bias_pwm_log,
+        bias_dwm_log=bias_dwm_log,
+        bg_pwm_log=bg_pwm_log,
+        bg_dwm_log=bg_dwm_log,
+        pssm=np.log2(bias_pwm / bg_pwm),
+    )
 
 
 def _score_tables(pwm_log: np.ndarray, dwm_log: np.ndarray):
     # T[(m, Sm), (n, a)] = DWM[Sm, a, m, n] - PWM[a, n] for m != n, else 0
-    T = dwm_log[:, :4, :, :] - pwm_log[None, :4, None, :]       # (Sm, a, m, n)
-    T = T.transpose(2, 0, 3, 1).copy()                          # (m, Sm, n, a)
+    T = dwm_log[:, :4, :, :] - pwm_log[None, :4, None, :]  # (Sm, a, m, n)
+    T = T.transpose(2, 0, 3, 1).copy()  # (m, Sm, n, a)
     for m in range(L_KMER):
         T[m, :, m, :] = 0.0
     return cp.asarray(T.reshape(L_KMER * 5, L_KMER * 4)), cp.asarray(pwm_log[:4, :].T.copy())
@@ -337,20 +353,22 @@ def _score_tables(pwm_log: np.ndarray, dwm_log: np.ndarray):
 def _dwm_score_kmers(kmers: cp.ndarray, model: dict, chunk: int = 1_000_000) -> cp.ndarray:
     """DiNucleotideMatrix.score_sequence at each k-mer centre (k-mers without N)."""
     out = cp.empty(len(kmers), dtype=cp.float64)
-    tabs = [_score_tables(model["bias_pwm_log"], model["bias_dwm_log"]),
-            _score_tables(model["bg_pwm_log"], model["bg_dwm_log"])]
+    tabs = [
+        _score_tables(model["bias_pwm_log"], model["bias_dwm_log"]),
+        _score_tables(model["bg_pwm_log"], model["bg_dwm_log"]),
+    ]
     ar = cp.arange(L_KMER)[None, :]
     for i in range(0, len(kmers), chunk):
-        kk = kmers[i:i + chunk].astype(cp.int64)
+        kk = kmers[i : i + chunk].astype(cp.int64)
         X = _onehot(kk)
         k3 = cp.minimum(kk, 3)
         tot = []
         for T, P in tabs:
-            R = (X @ T).reshape(len(kk), L_KMER, 4)                   # Σ_{m≠n} DWM - PWM, per (n, a)
+            R = (X @ T).reshape(len(kk), L_KMER, 4)  # Σ_{m≠n} DWM - PWM, per (n, a)
             Cn = cp.exp2(R + P[None]).sum(axis=2)
             cond = cp.take_along_axis(R, k3[:, :, None], axis=2)[:, :, 0]
             tot.append((cond + P[ar, k3] - cp.log2(Cn)).sum(axis=1))
-        out[i:i + chunk] = tot[0] - tot[1]
+        out[i : i + chunk] = tot[0] - tot[1]
     return out
 
 
@@ -366,7 +384,8 @@ def _relu_kernel():
 
 
 # fast_rolling_math(arr, w, "sum"): float32 accumulator, value at i + floor(w/2), NaN elsewhere
-_roll_sum = cp.RawKernel(r"""
+_roll_sum = cp.RawKernel(
+    r"""
 extern "C" __global__ void roll_sum(const double* a, const long long* offs, const int* rid,
                                     const long long n, const int w, double* out) {
     long long t = (long long)blockDim.x * blockIdx.x + threadIdx.x;
@@ -379,10 +398,14 @@ extern "C" __global__ void roll_sum(const double* a, const long long* offs, cons
     for (int j = 0; j < w; j++) v = (float)((double)v + a[o + i + j]);
     out[t] = (double)v;
 }
-""", "roll_sum", options=("--fmad=false",))
+""",
+    "roll_sum",
+    options=("--fmad=false",),
+)
 
 # tobias_footprint_array, gather form. Stage A: best score per (footprint start, footprint width)
-_fp_stage_a = cp.RawKernel(r"""
+_fp_stage_a = cp.RawKernel(
+    r"""
 extern "C" __global__ void fp_a(const float* a, const long long* offs, const int* rid, const long long n,
                                 const int flank_min, const int flank_max, const int fp_min, const int fp_max,
                                 float* best) {
@@ -409,10 +432,14 @@ extern "C" __global__ void fp_a(const float* a, const long long* offs, const int
         best[s * nfp + (fpw - fp_min)] = bmax;
     }
 }
-""", "fp_a", options=("--fmad=false",))
+""",
+    "fp_a",
+    options=("--fmad=false",),
+)
 
 # Stage B: each position takes the max over footprints covering it
-_fp_stage_b = cp.RawKernel(r"""
+_fp_stage_b = cp.RawKernel(
+    r"""
 extern "C" __global__ void fp_b(const float* best, const long long* offs, const int* rid, const long long n,
                                 const int fp_min, const int fp_max, float* out) {
     long long p = (long long)blockDim.x * blockIdx.x + threadIdx.x;
@@ -430,7 +457,10 @@ extern "C" __global__ void fp_b(const float* best, const long long* offs, const 
     }
     out[p] = m;
 }
-""", "fp_b", options=("--fmad=false",))
+""",
+    "fp_b",
+    options=("--fmad=false",),
+)
 
 
 def _launch(kernel, n, args):
@@ -453,8 +483,11 @@ class _DeviceLayout:
 
     def roll(self, a: cp.ndarray, w: int = WINDOW) -> cp.ndarray:
         out = cp.empty(self.n, dtype=cp.float64)
-        _launch(_roll_sum, self.n, (cp.ascontiguousarray(a, dtype=cp.float64), self.offs, self.rid,
-                                   cp.int64(self.n), cp.int32(w), out))
+        _launch(
+            _roll_sum,
+            self.n,
+            (cp.ascontiguousarray(a, dtype=cp.float64), self.offs, self.rid, cp.int64(self.n), cp.int32(w), out),
+        )
         return out
 
 
@@ -463,8 +496,15 @@ class _DeviceLayout:
 # =============================================================================
 
 
-def _correct_chrom(out_regions: np.ndarray, cuts_fr, seq_d: cp.ndarray, model: dict, cf: float,
-                   keep: Iterable[str] = TRACKS, bias_override: Optional[dict] = None):
+def _correct_chrom(
+    out_regions: np.ndarray,
+    cuts_fr,
+    seq_d: cp.ndarray,
+    model: dict,
+    cf: float,
+    keep: Iterable[str] = TRACKS,
+    bias_override: dict | None = None,
+):
     """bias_correction() for every output region of one chromosome at once.
 
     Returns the tracks over the concatenated ``out_regions`` (in order) and the
@@ -572,8 +612,21 @@ def _footprints_chrom(regions: np.ndarray, dense_signal: cp.ndarray) -> cp.ndarr
     a = cp.ascontiguousarray(dense_signal[lay.gpos].astype(cp.float32))
     nfp = FP_MAX - FP_MIN + 1
     best = cp.empty(lay.n * nfp, dtype=cp.float32)
-    _launch(_fp_stage_a, lay.n, (a, lay.offs, lay.rid, cp.int64(lay.n), cp.int32(FP_FLANK_MIN),
-                                 cp.int32(FP_FLANK_MAX), cp.int32(FP_MIN), cp.int32(FP_MAX), best))
+    _launch(
+        _fp_stage_a,
+        lay.n,
+        (
+            a,
+            lay.offs,
+            lay.rid,
+            cp.int64(lay.n),
+            cp.int32(FP_FLANK_MIN),
+            cp.int32(FP_FLANK_MAX),
+            cp.int32(FP_MIN),
+            cp.int32(FP_MAX),
+            best,
+        ),
+    )
     out = cp.empty(lay.n, dtype=cp.float32)
     _launch(_fp_stage_b, lay.n, (best, lay.offs, lay.rid, cp.int64(lay.n), cp.int32(FP_MIN), cp.int32(FP_MAX), out))
     del best
@@ -668,14 +721,17 @@ class FootprintTracks:
 
     def __repr__(self) -> str:
         tracks = ", ".join(self.values)
-        return (f"FootprintTracks({len(self.groups)} groups × {len(self.chrom_sizes)} chromosomes; "
-                f"tracks: {tracks}; {self.layouts['footprint'].n:,} footprint positions)")
+        return (
+            f"FootprintTracks({len(self.groups)} groups × {len(self.chrom_sizes)} chromosomes; "
+            f"tracks: {tracks}; {self.layouts['footprint'].n:,} footprint positions)"
+        )
 
     def layout(self, track: str) -> TrackLayout:
         return self.layouts["footprint" if track == "footprint" else "corrected"]
 
-    def get(self, group: str, chrom: str, start: Optional[int] = None, end: Optional[int] = None,
-            track: str = "footprint") -> pd.DataFrame:
+    def get(
+        self, group: str, chrom: str, start: int | None = None, end: int | None = None, track: str = "footprint"
+    ) -> pd.DataFrame:
         """Values of one track over a chromosome or ``[start, end)``, as ``position``/``value`` columns."""
         lay = self.layout(track)
         pos = lay.positions(chrom)
@@ -693,7 +749,7 @@ class FootprintTracks:
         out[idx >= 0] = self.values[track][group][idx[idx >= 0]]
         return out
 
-    def to_bigwig(self, path: Union[str, Path], group: str, track: str = "footprint") -> None:
+    def to_bigwig(self, path: str | Path, group: str, track: str = "footprint") -> None:
         """Write one track to a bigwig (requires ``pyBigWig``)."""
         try:
             import pyBigWig
@@ -733,18 +789,18 @@ def _peaks_from_input(peaks, adata) -> pd.DataFrame:
 
 
 def footprint(
-    adata: "AnnData",
+    adata: AnnData,
     groupby: str,
-    parquet_path: Union[str, Path],
-    genome_fasta: Union[str, Path],
+    parquet_path: str | Path,
+    genome_fasta: str | Path,
     *,
-    groups: Optional[Sequence[str]] = None,
-    peaks: Union[None, str, Path, pd.DataFrame, Sequence[str]] = None,
-    read_length: Optional[int] = None,
+    groups: Sequence[str] | None = None,
+    peaks: None | str | Path | pd.DataFrame | Sequence[str] = None,
+    read_length: int | None = None,
     tobias_compat: bool = True,
     deduplicate: bool = True,
     keep_tracks: Sequence[str] = ("corrected",),
-    chromosomes: Optional[Sequence[str]] = None,
+    chromosomes: Sequence[str] | None = None,
     verbose: bool = True,
 ) -> FootprintTracks:
     """
@@ -895,7 +951,7 @@ def footprint(
             for s in st:
                 fit_stats[g] += st[s]
             for k in keep_tracks:
-                tr[k].astype(cp.float32).get(out=values[k][name][sl_c])    # no host temporary
+                tr[k].astype(cp.float32).get(out=values[k][name][sl_c])  # no host temporary
             dense = cp.zeros(sizes[c], dtype=cp.float32)
             dense[gpos] = tr["corrected"].astype(cp.float32)
             del tr
@@ -908,13 +964,19 @@ def footprint(
     T["correct_footprint"] = time.perf_counter() - t0
     logger.info("footprint timings: " + ", ".join(f"{k} {v:.1f}s" for k, v in T.items()))
 
-    stats = pd.DataFrame({
-        "n_cells": [int((col == g).sum()) for g in groups],
-        "reads_total": reads_total, "reads_peaks": reads_peaks, "frip": frip,
-        "correction_factor": cf,
-        "windows_fit": fit_stats[:, 1], "windows_no_signal": fit_stats[:, 0],
-        "windows_fallback": fit_stats[:, 2] + fit_stats[:, 3],
-    }, index=pd.Index(groups, name="group"))
+    stats = pd.DataFrame(
+        {
+            "n_cells": [int((col == g).sum()) for g in groups],
+            "reads_total": reads_total,
+            "reads_peaks": reads_peaks,
+            "frip": frip,
+            "correction_factor": cf,
+            "windows_fit": fit_stats[:, 1],
+            "windows_no_signal": fit_stats[:, 0],
+            "windows_fallback": fit_stats[:, 2] + fit_stats[:, 3],
+        },
+        index=pd.Index(groups, name="group"),
+    )
     return FootprintTracks(
         groups=groups,
         chrom_sizes=sizes,
@@ -923,6 +985,12 @@ def footprint(
         values=values,
         stats=stats,
         bias_models={g: models[i] for i, g in enumerate(groups)},
-        params=dict(groupby=groupby, read_length=rl, tobias_compat=tobias_compat,
-                    deduplicate=deduplicate, genome_fasta=str(genome_fasta), timings=T),
+        params=dict(
+            groupby=groupby,
+            read_length=rl,
+            tobias_compat=tobias_compat,
+            deduplicate=deduplicate,
+            genome_fasta=str(genome_fasta),
+            timings=T,
+        ),
     )

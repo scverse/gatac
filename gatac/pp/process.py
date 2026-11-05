@@ -1,27 +1,24 @@
 """
 Fragment processing pipeline for generating tile and gene matrices.
 """
+
 from __future__ import annotations
 
-import logging
-import time
 import gc
+import logging
 from pathlib import Path
-from typing import Optional, Tuple, List, Literal
 
-import cudf
-import cupy as cp
+import anndata as ad
 import numpy as np
 import pandas as pd
-import anndata as ad
 import scanpy as sc
 import scipy.sparse as sp
 from tqdm import tqdm
 
-from .genome import HG38, HG19, MM10, MM39  # For type checking if needed in other modules, but actually not used here.
 # Actually, let's just remove the .tile and .gene imports.
 
 logger = logging.getLogger(__name__)
+
 
 # Predefined dtypes to minimize memory footprint
 def combine(
@@ -62,10 +59,10 @@ def combine(
     logger.info(f"Combining {len(input_paths)} h5ad files")
 
     # Get reference var from first file
-    first_adata = sc.read_h5ad(str(input_paths[0]), backed='r')
+    first_adata = sc.read_h5ad(str(input_paths[0]), backed="r")
     n_vars = first_adata.n_vars
     var_df = first_adata.var.copy()
-    
+
     # Determine the highest dtype across all inputs and collect cell counts
     logger.info("Checking feature consistency and determining optimal dtype...")
     total_cells = 0
@@ -73,13 +70,10 @@ def combine(
     dtypes = []
 
     for fpath in tqdm(input_paths, desc="Scanning files"):
-        adata = sc.read_h5ad(str(fpath), backed='r')
+        adata = sc.read_h5ad(str(fpath), backed="r")
         if adata.n_vars != n_vars:
-            raise ValueError(
-                f"Feature mismatch: {fpath.name} has {adata.n_vars} features, "
-                f"expected {n_vars}"
-            )
-        
+            raise ValueError(f"Feature mismatch: {fpath.name} has {adata.n_vars} features, expected {n_vars}")
+
         # Collect dtype
         if sp.issparse(adata.X):
             dtypes.append(adata.X.dtype)
@@ -87,7 +81,7 @@ def combine(
         else:
             dtypes.append(adata.X.dtype)
             total_nnz += np.count_nonzero(adata.X)
-            
+
         total_cells += adata.n_obs
         del adata
 
@@ -104,14 +98,14 @@ def combine(
     indices_list = []
     indptr_list = []
     obs_list = []
-    
+
     current_nnz = 0
     total_cells_processed = 0
 
     for fpath in tqdm(input_paths, desc="Stream loading"):
         adata = sc.read_h5ad(str(fpath))
         n_obs = adata.n_obs
-        
+
         X = adata.X
         if not sp.issparse(X):
             X = sp.csr_matrix(X)
@@ -119,14 +113,14 @@ def combine(
             X = X.tocsr()
 
         nnz = X.nnz
-        
+
         # Collect matrix components with optimal dtype
         data_list.append(X.data.astype(optimal_dtype))
-            
+
         # Determine optimal index dtype
         index_dtype = np.uint32 if n_vars > 65535 else np.uint16
         indices_list.append(X.indices.astype(index_dtype))
-        
+
         # Adjust indptr for concatenation
         if total_cells_processed == 0:
             indptr_list.append(X.indptr.astype(np.uint64))
@@ -137,12 +131,12 @@ def combine(
 
         # Collect obs metadata
         obs_df = adata.obs.copy()
-        obs_df['source_file'] = fpath.name
+        obs_df["source_file"] = fpath.name
         obs_list.append(obs_df)
 
         current_nnz += nnz
         total_cells_processed += n_obs
-        
+
         del adata, X
         gc.collect()
 
@@ -150,7 +144,7 @@ def combine(
     # Final Assembly
     # =========================================================================
     logger.info("Final assembly...")
-    
+
     # Concatenate sparse components
     all_data = np.concatenate(data_list)
     del data_list
@@ -161,26 +155,23 @@ def combine(
     gc.collect()
 
     # Build final sparse matrix
-    combined_X = sp.csr_matrix(
-        (all_data, all_indices, all_indptr),
-        shape=(total_cells_processed, n_vars)
-    )
+    combined_X = sp.csr_matrix((all_data, all_indices, all_indptr), shape=(total_cells_processed, n_vars))
     del all_data, all_indices, all_indptr
     gc.collect()
 
     # Build combined obs
     combined_obs = pd.concat(obs_list)
     del obs_list
-    
+
     # Make barcodes unique
-    combined_obs.index.name = 'barcode'
-    if 'barcode' in combined_obs.columns:
-        combined_obs.drop(columns=['barcode'], inplace=True)
+    combined_obs.index.name = "barcode"
+    if "barcode" in combined_obs.columns:
+        combined_obs.drop(columns=["barcode"], inplace=True)
     combined_obs.reset_index(inplace=True)
 
-    if not combined_obs['barcode'].is_unique:
-        n_dups = combined_obs['barcode'].duplicated().sum()
-        dup_examples = combined_obs['barcode'][combined_obs['barcode'].duplicated(keep=False)].unique()[:5].tolist()
+    if not combined_obs["barcode"].is_unique:
+        n_dups = combined_obs["barcode"].duplicated().sum()
+        dup_examples = combined_obs["barcode"][combined_obs["barcode"].duplicated(keep=False)].unique()[:5].tolist()
         raise ValueError(
             f"Detected {n_dups:,} duplicate cell barcode(s) across the input files "
             f"(e.g. {dup_examples}). "
@@ -190,8 +181,8 @@ def combine(
             "its matrix."
         )
     else:
-        combined_obs.index = combined_obs['barcode'].values
-        combined_obs.drop(columns=['barcode'], inplace=True)
+        combined_obs.index = combined_obs["barcode"].values
+        combined_obs.drop(columns=["barcode"], inplace=True)
 
     # Build combined AnnData
     combined_adata = ad.AnnData(
@@ -202,4 +193,4 @@ def combine(
 
     # Save
     combined_adata.write_h5ad(str(output_path))
-    logger.info(f"Saved combined matrix ({total_cells_processed :,} cells × {n_vars:,} features) to {output_path}")
+    logger.info(f"Saved combined matrix ({total_cells_processed:,} cells × {n_vars:,} features) to {output_path}")

@@ -1,4 +1,5 @@
 """gatac.io.Fasta, the genome reader behind the motif, chromVAR and TOBIAS functions."""
+
 import gzip
 import os
 
@@ -15,7 +16,7 @@ def _write(path, width=7, newline="\n"):
     with open(path, "w", newline="") as fh:
         for c, s in SEQS.items():
             fh.write(f">{c} some description{newline}")
-            fh.write("".join(s[i:i + width] + newline for i in range(0, len(s), width)))
+            fh.write("".join(s[i : i + width] + newline for i in range(0, len(s), width)))
     return path
 
 
@@ -23,10 +24,15 @@ def _write(path, width=7, newline="\n"):
 def test_fetch_matches_slicing(tmp_path, width, newline):
     with ga.io.Fasta(_write(tmp_path / "g.fa", width, newline)) as fa:
         assert fa.chrom_sizes == {c: len(s) for c, s in SEQS.items()}
-        regions = [f"{c}:{s}-{e}" for c, seq in SEQS.items()
-                   for s in range(0, len(seq), 3) for e in (s, s + 1, s + 8, len(seq))]
-        assert fa.fetch(regions) == [SEQS[r.split(":")[0]][int(r.split(":")[1].split("-")[0]):int(r.split("-")[1])]
-                                     for r in regions]
+        regions = [
+            f"{c}:{s}-{e}"
+            for c, seq in SEQS.items()
+            for s in range(0, len(seq), 3)
+            for e in (s, s + 1, s + 8, len(seq))
+        ]
+        assert fa.fetch(regions) == [
+            SEQS[r.split(":")[0]][int(r.split(":")[1].split("-")[0]) : int(r.split("-")[1])] for r in regions
+        ]
         for c, s in SEQS.items():
             assert fa.chrom(c).tobytes().decode() == s
         got = fa.region_bytes("chr1", np.array([0, 5, 30]), np.array([3, 12, 31])).tobytes().decode()
@@ -40,14 +46,15 @@ def test_fetch_matches_pyfaidx(tmp_path):
     ref = Faidx(str(path), one_based_attributes=False)
     regions = ["chr1:3-40", "chr2:0-10", "chr2:5-500", "chrM:2-9", "chr1:50-40"]
     with ga.io.Fasta(path) as fa:
-        assert fa.fetch(regions) == [str(ref[r.split(":")[0]][int(r.split(":")[1].split("-")[0]):int(r.split("-")[1])])
-                                     for r in regions]
+        assert fa.fetch(regions) == [
+            str(ref[r.split(":")[0]][int(r.split(":")[1].split("-")[0]) : int(r.split("-")[1])]) for r in regions
+        ]
 
 
 def test_fetch_one_based_and_bad_regions(tmp_path, caplog):
     with ga.io.Fasta(_write(tmp_path / "g.fa")) as fa:
         assert fa.fetch(["chr2:1-3", "chr2:8-10"], one_based=True) == ["GGG", "AAT"]
-        assert fa.fetch(["chr2:0-3"], one_based=True) == ["GGG"]           # start clipped to 0
+        assert fa.fetch(["chr2:0-3"], one_based=True) == ["GGG"]  # start clipped to 0
         assert fa.fetch(["chrNope:1-5", "garbage", "chr2:x-5", "chr2:1-3"]) == ["", "", "", "GG"]
     assert caplog.text.count("Failed to fetch sequence") == 3
     assert "chrNope not in" in caplog.text
@@ -65,9 +72,9 @@ def test_gzipped_fasta_decompressed_once(tmp_path, monkeypatch):
     for _ in range(3):
         with ga.io.Fasta(gz) as fa:
             assert fa.fetch(["chr1:2-30"]) == [SEQS["chr1"][2:30]]
-    assert len(calls) == 1                                       # reopened from the same copy
-    assert os.listdir(gz.parent) == ["g.fa.gz"]                  # nothing written next to the input
-    os.utime(gz, ns=(0, 0))                                      # a changed file is decompressed again
+    assert len(calls) == 1  # reopened from the same copy
+    assert os.listdir(gz.parent) == ["g.fa.gz"]  # nothing written next to the input
+    os.utime(gz, ns=(0, 0))  # a changed file is decompressed again
     ga.io.Fasta(gz).close()
     assert len(calls) == 2
 
@@ -89,8 +96,10 @@ def test_index_matches_samtools(tmp_path, layout):
     (tmp_path / "g.fa").write_bytes(text.encode())
     fa = ga.io.Fasta(tmp_path / "g.fa")
     assert (tmp_path / "g.fa.fai").read_text() == fai
-    seqs = {r.split("\n", 1)[0].split()[0]: r.split("\n", 1)[1].replace("\r", "").replace("\n", "")
-            for r in text.split(">")[1:]}
+    seqs = {
+        r.split("\n", 1)[0].split()[0]: r.split("\n", 1)[1].replace("\r", "").replace("\n", "")
+        for r in text.split(">")[1:]
+    }
     assert fa.fetch([f"{c}:0-100" for c in seqs]) == list(seqs.values())
     assert fa.fetch(["b:1-4"]) == [seqs["b"][1:4]]
 
@@ -99,7 +108,7 @@ def test_stale_index_is_rebuilt(tmp_path):
     path = _write(tmp_path / "g.fa")
     ga.io.Fasta(path).close()
     path.write_text(">chr9\nTTTT\n")
-    os.utime(path.with_name("g.fa.fai"), (0, 0))                # index older than the FASTA
+    os.utime(path.with_name("g.fa.fai"), (0, 0))  # index older than the FASTA
     with ga.io.Fasta(path) as fa:
         assert fa.chrom_sizes == {"chr9": 4}
     assert not list(tmp_path.glob("*.tmp"))

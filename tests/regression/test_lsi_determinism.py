@@ -12,6 +12,7 @@ solver path this failed badly — repeated runs of ``iterative_lsi`` on the PBMC
 oracle agreed on only 74-95 % of their selected features and reached a
 cluster ARI of 0.75-0.86 with themselves.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -25,8 +26,7 @@ import scipy.sparse as sp
 pytest.importorskip("cupy")
 
 
-def _synthetic(n_cells: int = 900, n_features: int = 4000, n_groups: int = 4,
-               seed: int = 0) -> "sp.csr_matrix":
+def _synthetic(n_cells: int = 900, n_features: int = 4000, n_groups: int = 4, seed: int = 0) -> sp.csr_matrix:
     """A binary cells x features matrix with real group structure."""
     rng = np.random.default_rng(seed)
     group = rng.integers(0, n_groups, n_cells)
@@ -42,13 +42,13 @@ def _synthetic(n_cells: int = 900, n_features: int = 4000, n_groups: int = 4,
         cols.append(idx)
     rows = np.concatenate(rows)
     cols = np.concatenate(cols)
-    X = sp.csr_matrix((np.ones(rows.size, np.float32), (rows, cols)),
-                      shape=(n_cells, n_features))
+    X = sp.csr_matrix((np.ones(rows.size, np.float32), (rows, cols)), shape=(n_cells, n_features))
     return X
 
 
 def _adata(X):
     import anndata as ad
+
     a = ad.AnnData(X.copy())
     a.obs["n_unique"] = np.asarray(X.sum(axis=1)).ravel().astype(float)
     a.var["selected"] = True
@@ -71,8 +71,7 @@ def test_spmv_matches_cusparse_and_repeats_bitwise():
     out = _spmv(X, v, cp.empty(X.shape[0], dtype=cp.float32))
     assert float(cp.abs(out - ref).max() / cp.abs(ref).max()) < 1e-5
     for _ in range(4):
-        assert bool((_spmv(X, v, cp.empty(X.shape[0], dtype=cp.float32))
-                     == out).all())
+        assert bool((_spmv(X, v, cp.empty(X.shape[0], dtype=cp.float32)) == out).all())
 
     refm = X @ B
     outm = _spmm(X, B)
@@ -89,7 +88,7 @@ def test_lsi_is_bitwise_reproducible():
     X = _synthetic()
     runs = []
     for i in range(3):
-        if i:                      # unrelated draws must not move the result
+        if i:  # unrelated draws must not move the result
             np.random.default_rng(i).random(101)
             cp.random.seed(i + 17)
             cp.random.random(53)
@@ -115,13 +114,21 @@ def test_iterative_lsi_is_bitwise_reproducible():
     for _ in range(2):
         a = _adata(X)
         ga.dr.iterative_lsi(
-            a, 10, iterations=2, n_features=800, total_features=3000,
-            cluster_params={"k": 15, "max_clusters": 4}, random_state=1)
-        out.append((
-            a.obsm["X_iterative_lsi"],
-            np.where(a.var["selected_iterative_lsi"].to_numpy())[0],
-            a.obs["iterative_lsi_clusters_iter1"].to_numpy().astype(str),
-        ))
+            a,
+            10,
+            iterations=2,
+            n_features=800,
+            total_features=3000,
+            cluster_params={"k": 15, "max_clusters": 4},
+            random_state=1,
+        )
+        out.append(
+            (
+                a.obsm["X_iterative_lsi"],
+                np.where(a.var["selected_iterative_lsi"].to_numpy())[0],
+                a.obs["iterative_lsi_clusters_iter1"].to_numpy().astype(str),
+            )
+        )
     assert np.array_equal(out[0][0], out[1][0]), "embedding differs"
     assert np.array_equal(out[0][1], out[1][1]), "selected features differ"
     assert np.array_equal(out[0][2], out[1][2]), "cluster labels differ"
@@ -138,10 +145,10 @@ def test_lsi_reproducible_across_processes():
         ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
         sys.stdout.buffer.write(a.obsm["X_lsi"].tobytes())
     """).format(tests=__file__.rsplit("/", 1)[0])
-    out = subprocess.run([sys.executable, "-c", script], check=True,
-                         capture_output=True).stdout
+    out = subprocess.run([sys.executable, "-c", script], check=True, capture_output=True).stdout
 
     import gatac as ga
+
     a = _adata(_synthetic())
     ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
     assert a.obsm["X_lsi"].tobytes() == out
@@ -155,10 +162,8 @@ def test_deterministic_false_still_runs_and_agrees_numerically():
     a = _adata(X)
     ga.dr.lsi(a, 10, random_state=3, outlier_quantiles=(0.02, 0.98))
     b = _adata(X)
-    ga.dr.lsi(b, 10, random_state=3, outlier_quantiles=(0.02, 0.98),
-              deterministic=False)
-    r = np.array([abs(np.corrcoef(a.obsm["X_lsi"][:, i], b.obsm["X_lsi"][:, i])[0, 1])
-                  for i in range(10)])
+    ga.dr.lsi(b, 10, random_state=3, outlier_quantiles=(0.02, 0.98), deterministic=False)
+    r = np.array([abs(np.corrcoef(a.obsm["X_lsi"][:, i], b.obsm["X_lsi"][:, i])[0, 1]) for i in range(10)])
     assert r.min() > 0.999, r
     sa, sb = a.uns["lsi"]["singular_values"], b.uns["lsi"]["singular_values"]
     assert np.abs(sa - sb).max() / sa.max() < 1e-5

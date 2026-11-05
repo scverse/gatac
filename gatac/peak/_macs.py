@@ -49,12 +49,13 @@ License:
     NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
     SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
+
 from __future__ import annotations
 
 import logging
 import math
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 
 import cupy as cp
 import numpy as np
@@ -63,8 +64,7 @@ from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
-PEAK_COLUMNS = ["chrom", "start", "end", "name", "score", "strand",
-                "signal_value", "p_value", "q_value", "peak"]
+PEAK_COLUMNS = ["chrom", "start", "end", "name", "score", "strand", "signal_value", "p_value", "q_value", "peak"]
 
 # Positions and chromosomes share one int64 key, chromosome in the high bits,
 # so a whole batch of chromosomes sorts and scans as one array.
@@ -79,8 +79,9 @@ _BYTES_PER_FRAGMENT = 450
 @dataclass(frozen=True)
 class Params:
     """MACS3 options, named as in ``macs3 callpeak``."""
+
     gsize: int
-    log_qvalue: float          # -log10 of the q-value cutoff
+    log_qvalue: float  # -log10 of the q-value cutoff
     extsize: int = 200
     shift: int = -100
     llocal: int = 10000
@@ -142,8 +143,7 @@ def _segments(pos, cid, minus, n_chrom, p: Params, lambda_bg, ctrl_scale):
     c_key, c_val = _track(pos, cid, minus, p.llocal // 2, p.llocal - p.llocal // 2)
     key = cp.unique(cp.concatenate((t_key, c_key)))
     bounds = cp.arange(1, n_chrom + 1, dtype=cp.int64) << _POS_BITS
-    limit = cp.minimum(t_key[cp.searchsorted(t_key, bounds) - 1],
-                       c_key[cp.searchsorted(c_key, bounds) - 1])
+    limit = cp.minimum(t_key[cp.searchsorted(t_key, bounds) - 1], c_key[cp.searchsorted(c_key, bounds) - 1])
     key = key[key <= limit[key >> _POS_BITS]]
     treat = t_val[cp.searchsorted(t_key, key)]
     ctrl = c_val[cp.searchsorted(c_key, key)].astype(cp.float32) * cp.float32(ctrl_scale)
@@ -261,8 +261,14 @@ def _log10_poisson_upper_gpu(k: np.ndarray, lam: np.ndarray, sums: np.ndarray):
     logs = np.zeros(sums.size, np.float64)
     logs[1:] = _libm_log(np.arange(1, sums.size, dtype=np.float64))
     raw, unsure = _POISSON_KERNEL(
-        cp.asarray(k), cp.asarray(lam.astype(np.float64)), cp.asarray(ln_lam),
-        cp.asarray(sums), cp.asarray(logs), sums.size, math.log(10.0))
+        cp.asarray(k),
+        cp.asarray(lam.astype(np.float64)),
+        cp.asarray(ln_lam),
+        cp.asarray(sums),
+        cp.asarray(logs),
+        sums.size,
+        math.log(10.0),
+    )
     return raw.get(), unsure.get()
 
 
@@ -384,11 +390,11 @@ def _padded(signal, o, L, h, s0, sl, q):
     return sl + abs(np.int64(signal[o + L - 2 - (q - h - L)]) - sl)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _sg_kernel(window: int) -> np.ndarray:
     """First-derivative Savitzky-Golay coefficients, as MACS3 computes them."""
     half = (window - 1) // 2
-    b = np.array([[1, k, k ** 2] for k in range(-half, half + 1)], dtype="i8")
+    b = np.array([[1, k, k**2] for k in range(-half, half + 1)], dtype="i8")
     return np.linalg.pinv(b)[1]
 
 
@@ -403,15 +409,15 @@ def _numpy_signs(signal: np.ndarray, js: np.ndarray, window: int) -> np.ndarray:
     """
     half = (window - 1) // 2
     m = _sg_kernel(window)
-    first = signal[0] - np.abs(signal[1:half + 1][::-1] - signal[0])
-    last = signal[-1] + np.abs(signal[-half - 1:-1][::-1] - signal[-1])
+    first = signal[0] - np.abs(signal[1 : half + 1][::-1] - signal[0])
+    last = signal[-1] + np.abs(signal[-half - 1 : -1][::-1] - signal[-1])
     padded = np.concatenate((first, signal, last)).astype("f8")
     out = np.empty(js.size, np.int8)
     for i, j in enumerate(js):
         if j + window < padded.size:
-            v = np.convolve(m[::-1], padded[j:j + window + 1], mode="valid").round(16)[0]
+            v = np.convolve(m[::-1], padded[j : j + window + 1], mode="valid").round(16)[0]
         else:
-            v = np.convolve(m[::-1], padded[j - 1:j + window], mode="valid").round(16)[1]
+            v = np.convolve(m[::-1], padded[j - 1 : j + window], mode="valid").round(16)[1]
         out[i] = np.sign(v)
     return out
 
@@ -488,14 +494,12 @@ def _peaky(signal, o, L, maxima, n_max, version31, out):
     for i in range(n - 1):
         thr = max(signal[o + minima[i]], signal[o + minima[i + 1]])
         thr = np.float32(thr + _f32_sqrt(thr))
-        if _valid_peak(signal, o + minima[i], o + minima[i + 1], thr, zero,
-                       maxima[i + 1] - minima[i], version31):
+        if _valid_peak(signal, o + minima[i], o + minima[i + 1], thr, zero, maxima[i + 1] - minima[i], version31):
             out[j] = maxima[i + 1]
             j += 1
     thr = signal[o + minima[n - 1]]
     thr = np.float32(thr + _f32_sqrt(thr))
-    if _valid_peak(signal, o + minima[n - 1], o + L, thr, zero,
-                   maxima[n_max - 1] - minima[n - 1], version31):
+    if _valid_peak(signal, o + minima[n - 1], o + L, thr, zero, maxima[n_max - 1] - minima[n - 1], version31):
         out[j] = maxima[n_max - 1]
         j += 1
     return j
@@ -598,7 +602,7 @@ def _resolve_zero_slopes(signal, sign, offset, lo, length, window):
     bounds = np.flatnonzero(np.diff(region)) + 1
     for a, b in zip(np.concatenate(([0], bounds)), np.concatenate((bounds, [zero.size]))):
         r = region[a]
-        sign[zero[a:b]] = _numpy_signs(signal[offset[r]:offset[r + 1]], j[a:b], window)
+        sign[zero[a:b]] = _numpy_signs(signal[offset[r] : offset[r + 1]], j[a:b], window)
 
 
 def _summits(a_start, a_end, a_treat, g0, g1, p: Params):
@@ -622,12 +626,10 @@ def _summits(a_start, a_end, a_treat, g0, g1, p: Params):
         index = np.empty(total, np.int64)
         sign = np.empty(total, np.int8)
         version31 = p.macs3_version == "3.1"
-        _fill_regions(a_start, a_end, a_treat, g0[sl], g1[sl], offset, signal, index, sign,
-                      window // 2, version31)
+        _fill_regions(a_start, a_end, a_treat, g0[sl], g1[sl], offset, signal, index, sign, window // 2, version31)
         _resolve_zero_slopes(signal, sign, offset, ps[sl] - starts[sl], pe[sl] - ps[sl], window)
         mark = np.zeros(total, np.int64)
-        _mark_summits(a_start, a_end, a_treat, g0[sl], g1[sl], offset, signal, index, sign,
-                      mark, version31)
+        _mark_summits(a_start, a_end, a_treat, g0[sl], g1[sl], offset, signal, index, sign, mark, version31)
         hits = np.flatnonzero(mark)
         region = np.searchsorted(offset, hits, side="right") - 1
         runs.append(g0[sl][region] + mark[hits] - 1)
@@ -676,9 +678,15 @@ def _run_starts(end):
 
 
 def _empty() -> pd.DataFrame:
-    return pd.DataFrame({c: pd.Series(dtype=t) for c, t in zip(
-        PEAK_COLUMNS, [object, np.int64, np.int64, object, np.int64, object,
-                       np.float64, np.float64, np.float64, np.int64])})
+    return pd.DataFrame(
+        {
+            c: pd.Series(dtype=t)
+            for c, t in zip(
+                PEAK_COLUMNS,
+                [object, np.int64, np.int64, object, np.int64, object, np.float64, np.float64, np.float64, np.int64],
+            )
+        }
+    )
 
 
 def callpeak(fragments: dict, p: Params, budget_bytes: int | None = None) -> pd.DataFrame:
@@ -807,18 +815,20 @@ def _callpeak(fragments: dict, p: Params, budget_bytes: int | None) -> pd.DataFr
         fc = ((t.astype(np.float64) + 1.0) / (c.astype(np.float64) + 1.0)).astype(np.float32)
         q = key_q[k]
         start = a_start_h[g0[region]]
-        df = pd.DataFrame({
-            "chrom": np.asarray(names_b, dtype=object)[chrom[region]],
-            "start": start,
-            "end": a_end_h[g1[region] - 1],
-            "name": ".",
-            "score": np.minimum(np.floor(np.clip(q.astype(np.float64) * 10.0, 0, 65535)), 1000).astype(np.int64),
-            "strand": ".",
-            "signal_value": fc.astype(np.float64),
-            "p_value": key_p[k].astype(np.float64),
-            "q_value": q.astype(np.float64),
-            "peak": summit - start,
-        })
+        df = pd.DataFrame(
+            {
+                "chrom": np.asarray(names_b, dtype=object)[chrom[region]],
+                "start": start,
+                "end": a_end_h[g1[region] - 1],
+                "name": ".",
+                "score": np.minimum(np.floor(np.clip(q.astype(np.float64) * 10.0, 0, 65535)), 1000).astype(np.int64),
+                "strand": ".",
+                "signal_value": fc.astype(np.float64),
+                "p_value": key_p[k].astype(np.float64),
+                "q_value": q.astype(np.float64),
+                "peak": summit - start,
+            }
+        )
         out.append(df[fc.astype(np.float64) >= p.fe_cutoff])
         del a_start_h, a_end_h, a_key, a_treat
     if not out:

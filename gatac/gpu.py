@@ -70,5 +70,5 @@ def to_device(a, dtype=None) -> cp.ndarray:
     flat_h, flat_d = h.reshape(-1), d.reshape(-1)
     step = max(1, _H2D_CHUNK // h.itemsize)
     for i in range(0, flat_h.size, step):
-        flat_d[i:i + step].set(flat_h[i:i + step])
+        flat_d[i : i + step].set(flat_h[i : i + step])
     return d

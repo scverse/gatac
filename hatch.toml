@@ -10,10 +10,9 @@ extra_index_urls = [
 default-args = []
 dependency-groups = ["test"]
 
-# The cudaXX extras pin RAPIDS 26.02, which publishes no cp314 wheels
 overrides.matrix.deps.python = [
-  { if = ["stable"], value = "3.12" },
-  { if = ["dev"], value = "3.13" },
+  { if = ["stable"], value = "3.13" },
+  { if = ["dev"], value = "3.14" },
   { if = ["rapids_prerelease"], value = "3.14" },
 ]
 
@@ -37,10 +36,24 @@ overrides.matrix.deps.extra-dependencies = [
   ], value = "scanpy @ git+https://github.com/scverse/scanpy.git" },
 ]
 
-# stable/dev install RAPIDS through the pinned cudaXX extras. Prerelease cannot:
-# those pins exclude the nightlies, so it lists the RAPIDS closure itself below.
-overrides.name."(stable|dev)-12$".features = ["cuda12"]
-overrides.name."(stable|dev)-13$".features = ["cuda13"]
+# Select CUDA feature per matrix
+overrides.matrix.cuda.features = [
+  { if = ["12"], value = "cuda12" },
+  { if = ["13"], value = "cuda13" },
+]
+
+# stable tests the oldest RAPIDS the extras allow; dev takes the latest release,
+# rapids_prerelease the nightlies. Keep these in step with the floor in pyproject.toml.
+overrides.name."stable-12$".extra-dependencies = [
+  "cudf-cu12==26.02.*",
+  "cuml-cu12==26.02.*",
+  "cugraph-cu12==26.02.*",
+]
+overrides.name."stable-13$".extra-dependencies = [
+  "cudf-cu13==26.02.*",
+  "cuml-cu13==26.02.*",
+  "cugraph-cu13==26.02.*",
+]
 
 # uv honours prerelease markers only on direct requirements, so list the whole RAPIDS
 # closure. The floor must name the nightly series: with `>=0a0` uv falls back to the
@@ -105,4 +118,3 @@ overrides.name."rapids_prerelease-13$".extra-dependencies = [
 [[envs.hatch-test.matrix]]
 deps = ["stable", "dev", "rapids_prerelease"]
 cuda = ["12", "13"]
-

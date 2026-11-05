@@ -14,8 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # before any mock context is entered.
 # Inspired by scverse/rapids-singlecell docs/conf.py.
 import anndata  # noqa: E402, F401
-import scanpy   # noqa: E402, F401
-
+import scanpy  # noqa: E402, F401
 
 # -- Project information -----------------------------------------------------
 project = "GATAC"
@@ -25,6 +24,7 @@ author = "GATAC contributors"
 # The full version, including alpha/beta/rc tags
 try:
     from gatac import __version__
+
     release = __version__
     version = ".".join(release.split(".")[:2])
 except ImportError:
@@ -170,7 +170,7 @@ def _relink_notebooks(app, doctree):
     for node in doctree.findall(pending_xref):
         target = node.get("reftarget", "")
         if node.get("reftype") == "myst" and target.startswith(_NOTEBOOKS):
-            node["reftarget"] = "notebooks/" + target[len(_NOTEBOOKS):]
+            node["reftarget"] = "notebooks/" + target[len(_NOTEBOOKS) :]
 
 
 # myst-nb renders every stdout/stderr chunk of a cell as its own block, so a
@@ -181,9 +181,7 @@ def _merge_stream_outputs(app, doctree):
     from docutils import nodes
 
     def is_stream(node):
-        return isinstance(node, nodes.literal_block) and (
-            "stream" in node["classes"] or "stderr" in node["classes"]
-        )
+        return isinstance(node, nodes.literal_block) and ("stream" in node["classes"] or "stderr" in node["classes"])
 
     for container in doctree.findall(nodes.container):
         if "cell_output" not in container["classes"]:
@@ -196,9 +194,7 @@ def _merge_stream_outputs(app, doctree):
             if run:
                 text = "".join(node.astext() for node in run)
                 block = run[0]
-                block["classes"] = [
-                    "stream" if c == "stderr" else c for c in block["classes"]
-                ]
+                block["classes"] = ["stream" if c == "stderr" else c for c in block["classes"]]
                 block.rawsource = text
                 block.children = []
                 block += nodes.Text(text)

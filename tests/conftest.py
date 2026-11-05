@@ -11,6 +11,7 @@ Session-scoped fixtures build each object once; the function-scoped
 fixtures hand every test its own copy, so in-place functions cannot leak
 state between tests.
 """
+
 from __future__ import annotations
 
 import gzip
@@ -42,7 +43,7 @@ def _genome(rng, hot: pd.DataFrame) -> dict[str, str]:
     for h in hot.itertuples():
         m = np.frombuffer(MOTIFS[f"M{h.group}"].encode(), "S1")
         s = h.centre - len(m) // 2
-        seqs[h.chrom][s:s + len(m)] = m
+        seqs[h.chrom][s : s + len(m)] = m
     return {c: s.tobytes().decode() for c, s in seqs.items()}
 
 
@@ -54,17 +55,25 @@ def _fragments(rng, hot: pd.DataFrame) -> pd.DataFrame:
             n = int(rng.integers(800, 3_000))
             in_hot = rng.random(n) < 0.5
             pick = mine.iloc[rng.integers(len(mine), size=n)]
-            chrom = np.where(in_hot, pick.chrom.to_numpy(),
-                             rng.choice(list(CHROM_SIZES), n, p=[0.45, 0.35, 0.2]))
+            chrom = np.where(in_hot, pick.chrom.to_numpy(), rng.choice(list(CHROM_SIZES), n, p=[0.45, 0.35, 0.2]))
             size = np.array([CHROM_SIZES[c] for c in chrom])
             length = rng.integers(40, 400, n)
-            start = np.where(in_hot, pick.centre.to_numpy() - length // 2 + rng.integers(-150, 150, n),
-                             (rng.random(n) * (size - 2_000)).astype(np.int64))
-            rows.append(pd.DataFrame({"chrom": chrom, "start": start, "end": start + length,
-                                      "barcode": f"g{g}c{i:03d}-1", "count": 1}))
+            start = np.where(
+                in_hot,
+                pick.centre.to_numpy() - length // 2 + rng.integers(-150, 150, n),
+                (rng.random(n) * (size - 2_000)).astype(np.int64),
+            )
+            rows.append(
+                pd.DataFrame(
+                    {"chrom": chrom, "start": start, "end": start + length, "barcode": f"g{g}c{i:03d}-1", "count": 1}
+                )
+            )
     df = pd.concat(rows)
-    return df.sort_values(["chrom", "start", "end", "barcode"]).drop_duplicates(
-        ["chrom", "start", "end", "barcode"]).reset_index(drop=True)
+    return (
+        df.sort_values(["chrom", "start", "end", "barcode"])
+        .drop_duplicates(["chrom", "start", "end", "barcode"])
+        .reset_index(drop=True)
+    )
 
 
 @pytest.fixture(scope="session")
@@ -77,12 +86,14 @@ def world(tmp_path_factory):
     fasta = d / "genome.fa"
     with open(fasta, "w") as fh:
         for c, seq in _genome(rng, hot).items():
-            fh.write(f">{c}\n" + "\n".join(seq[i:i + 60] for i in range(0, len(seq), 60)) + "\n")
+            fh.write(f">{c}\n" + "\n".join(seq[i : i + 60] for i in range(0, len(seq), 60)) + "\n")
 
     meme = d / "motifs.meme"
     with open(meme, "w") as fh:
-        fh.write("MEME version 4\n\nALPHABET= ACGT\n\nstrands: + -\n\n"
-                 "Background letter frequencies\nA 0.25 C 0.25 G 0.25 T 0.25\n\n")
+        fh.write(
+            "MEME version 4\n\nALPHABET= ACGT\n\nstrands: + -\n\n"
+            "Background letter frequencies\nA 0.25 C 0.25 G 0.25 T 0.25\n\n"
+        )
         for name, seq in MOTIFS.items():
             fh.write(f"MOTIF {name} {name}\nletter-probability matrix: alength= 4 w= {len(seq)} nsites= 20 E= 0\n")
             for b in seq:
@@ -94,8 +105,7 @@ def world(tmp_path_factory):
     with gzip.open(tsv, "wt") as fh:
         df.to_csv(fh, sep="\t", header=False, index=False)
     parquet = ga.io.make_parquet(tsv, d / "frags.parquet")
-    return {"dir": d, "fasta": fasta, "meme": meme, "tsv": tsv, "parquet": parquet,
-            "fragments": df, "hotspots": hot}
+    return {"dir": d, "fasta": fasta, "meme": meme, "tsv": tsv, "parquet": parquet, "fragments": df, "hotspots": hot}
 
 
 def _group(a: ad.AnnData) -> pd.Categorical:
@@ -104,8 +114,7 @@ def _group(a: ad.AnnData) -> pd.Categorical:
 
 @pytest.fixture(scope="session")
 def _tiles(world):
-    a = ga.pp.make_tile_matrix(world["parquet"], chrom_sizes=CHROM_SIZES, tile_size=5_000,
-                               min_fragments_per_cell=100)
+    a = ga.pp.make_tile_matrix(world["parquet"], chrom_sizes=CHROM_SIZES, tile_size=5_000, min_fragments_per_cell=100)
     a.obs["group"] = _group(a)
     return a
 

@@ -1,11 +1,11 @@
 """
 GPU-accelerated feature selection for ATAC-seq tile matrices.
 """
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Literal
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp
@@ -89,7 +89,7 @@ def _find_most_accessible_features_gpu(
         if n_to_select < n:
             # Partial sort: only the top-N need to be identified, not fully ordered
             partition_idx = cp.argpartition(feature_count, n - n_to_select)
-            selected = partition_idx[n - n_to_select:]
+            selected = partition_idx[n - n_to_select :]
         else:
             selected = cp.arange(n)
     else:
@@ -99,17 +99,17 @@ def _find_most_accessible_features_gpu(
         sorted_counts = feature_count[sorted_indices]
         nonzero_mask = sorted_counts > 0
         first_nonzero_idx = int(cp.argmax(nonzero_mask))
-        
+
         # Filter to non-zero features only
         nonzero_indices = sorted_indices[first_nonzero_idx:]
         n_nonzero = len(nonzero_indices)
-        
+
         # Apply quantile filtering on non-zero features only
         n_lower = int(filter_lower_quantile * n_nonzero)
         n_upper = int(filter_upper_quantile * n_nonzero)
-        
-        valid_range = nonzero_indices[n_lower:n_nonzero - n_upper]
-        
+
+        valid_range = nonzero_indices[n_lower : n_nonzero - n_upper]
+
         # Select top N from valid range (reversed to get highest counts first)
         n_to_select = min(total_features, len(valid_range))
         selected = valid_range[-n_to_select:]
@@ -117,10 +117,7 @@ def _find_most_accessible_features_gpu(
     return selected
 
 
-def _compute_feature_counts_gpu(
-    X,
-    chunk_size: int = 2000
-) -> cp.ndarray:
+def _compute_feature_counts_gpu(X, chunk_size: int = 2000) -> cp.ndarray:
     """
     Compute per-feature (column) counts from a sparse matrix.
 
@@ -208,7 +205,7 @@ def select_features(
     filter_lower_quantile: float = 0.005,
     filter_upper_quantile: float = 0.005,
     inplace: bool = True,
-    output_path: Optional[str | Path] = None,
+    output_path: str | Path | None = None,
 ):
     """
     GPU-accelerated feature selection for ATAC-seq tile matrices.
@@ -282,11 +279,7 @@ def select_features(
 
     # Select features
     selected_indices = _find_most_accessible_features_gpu(
-        feature_counts,
-        filter_lower_quantile,
-        filter_upper_quantile,
-        n_features,
-        is_binary=is_binary
+        feature_counts, filter_lower_quantile, filter_upper_quantile, n_features, is_binary=is_binary
     )
 
     n_selected = len(selected_indices)
@@ -297,13 +290,13 @@ def select_features(
     selected_mask_cpu[selected_indices.get()] = True
 
     if inplace:
-        adata.var['selected'] = selected_mask_cpu
-        adata.var['accessibility_count'] = feature_counts.get()
+        adata.var["selected"] = selected_mask_cpu
+        adata.var["accessibility_count"] = feature_counts.get()
         result = None
     else:
         adata = adata.copy()
-        adata.var['selected'] = selected_mask_cpu
-        adata.var['accessibility_count'] = feature_counts.get()
+        adata.var["selected"] = selected_mask_cpu
+        adata.var["accessibility_count"] = feature_counts.get()
         result = adata
 
     if output_path:

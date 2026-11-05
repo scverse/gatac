@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 
 from .._readers import read_metrics
@@ -14,19 +14,19 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import cudf
-    import pandas as pd
     import matplotlib.figure
+    import pandas as pd
 
 
 def qc_metrics(
-    metrics: "Union[str, Path, pd.DataFrame, cudf.DataFrame]",
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame,
     *,
     tsse_threshold: float = 5.0,
     n_unique_threshold: int = 1000,
     bins: int = 80,
     gridsize: int = 60,
     figsize: tuple[float, float] = (14, 4),
-) -> "matplotlib.figure.Figure":
+) -> matplotlib.figure.Figure:
     """Plot TSS enrichment and fragment count QC metrics.
 
     Displays three panels:
@@ -78,7 +78,9 @@ def qc_metrics(
     # Panel 1: TSS enrichment score
     axes[0].hist(tsse, bins=bins, color="#2ea44f", edgecolor="none")
     axes[0].axvline(
-        tsse_threshold, color="#d62728", linestyle="--",
+        tsse_threshold,
+        color="#d62728",
+        linestyle="--",
         label=f"threshold = {tsse_threshold:g}",
     )
     axes[0].set_xlabel("TSS enrichment score")
@@ -89,7 +91,9 @@ def qc_metrics(
     # Panel 2: Unique fragment count
     axes[1].hist(log_unique, bins=bins, color="#0969da", edgecolor="none")
     axes[1].axvline(
-        log_threshold, color="#d62728", linestyle="--",
+        log_threshold,
+        color="#d62728",
+        linestyle="--",
         label=f"threshold = {n_unique_threshold:,}",
     )
     axes[1].set_xlabel("log10(unique fragments)")
@@ -106,4 +110,3 @@ def qc_metrics(
 
     sns.despine()
     plt.tight_layout()
-

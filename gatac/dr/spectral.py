@@ -34,7 +34,6 @@ streamed from page-locked host memory at every product.
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp
@@ -144,8 +143,12 @@ def _normalize_rows_inplace(X: cusp.csr_matrix, weights: cp.ndarray) -> None:
     norms_sq = cp.empty(n_rows, dtype=cp.float32)
     indptr32 = X.indptr.astype(cp.int32, copy=False)
     _launch_1d(
-        _row_norms_sq_kernel, n_rows,
-        X.data, indptr32, norms_sq, np.int32(n_rows),
+        _row_norms_sq_kernel,
+        n_rows,
+        X.data,
+        indptr32,
+        norms_sq,
+        np.int32(n_rows),
     )
 
     norms = cp.sqrt(norms_sq)
@@ -156,8 +159,12 @@ def _normalize_rows_inplace(X: cusp.csr_matrix, weights: cp.ndarray) -> None:
     inv_norms = (cp.float32(1.0) / norms).astype(cp.float32)
     del norms
     _launch_1d(
-        _scale_rows_kernel, n_rows,
-        X.data, indptr32, inv_norms, np.int32(n_rows),
+        _scale_rows_kernel,
+        n_rows,
+        X.data,
+        indptr32,
+        inv_norms,
+        np.int32(n_rows),
     )
 
 
@@ -200,8 +207,7 @@ def _spectral_mf(
         XT = X.T.tocsr()
 
         def dot(A, v):
-            return _spmv(A, cp.ascontiguousarray(v, dtype=cp.float32),
-                         cp.empty(A.shape[0], dtype=cp.float32))
+            return _spmv(A, cp.ascontiguousarray(v, dtype=cp.float32), cp.empty(A.shape[0], dtype=cp.float32))
     else:
         XT = X.T
 
@@ -231,8 +237,12 @@ def _spectral_mf(
     sqrt_dinv = cp.sqrt(degree_inv).astype(cp.float32)
     indptr32 = X.indptr.astype(cp.int32, copy=False)
     _launch_1d(
-        _scale_rows_kernel, n_cells,
-        X.data, indptr32, sqrt_dinv, np.int32(n_cells),
+        _scale_rows_kernel,
+        n_cells,
+        X.data,
+        indptr32,
+        sqrt_dinv,
+        np.int32(n_cells),
     )
     if deterministic:
         # Xᵀ was materialised before the scaling; scale its columns to match
@@ -314,10 +324,7 @@ def _spectral_chunked(
         degree = rinv * C.dot(w * col_sum) - cp.float32(1.0)
         n_zero = int(cp.sum(degree <= 0))
         if n_zero > 0:
-            raise ValueError(
-                f"{n_zero} cell(s) have degree ≤ 0. "
-                "Filter empty cells before running spectral embedding."
-            )
+            raise ValueError(f"{n_zero} cell(s) have degree ≤ 0. Filter empty cells before running spectral embedding.")
         logger.info("Degree computation done.")
 
         a = (rinv / cp.sqrt(degree)).astype(cp.float32)
@@ -473,8 +480,7 @@ def spectral(
             feat_mask = adata.var[features].to_numpy().astype(bool)
         else:
             raise KeyError(
-                f"Column '{features}' not found in adata.var. "
-                "Call `pp.select_features` first or set `features=None`."
+                f"Column '{features}' not found in adata.var. Call `pp.select_features` first or set `features=None`."
             )
     elif features is not None:
         feat_mask = np.asarray(features, dtype=bool)
@@ -493,10 +499,7 @@ def spectral(
     n, m = X.shape
     max_comps = min(n - 1, m - 1)
     if n_comps > max_comps:
-        logger.warning(
-            f"Requested n_comps={n_comps} exceeds matrix rank; "
-            f"clamping to {max_comps}."
-        )
+        logger.warning(f"Requested n_comps={n_comps} exceeds matrix rank; clamping to {max_comps}.")
         n_comps = max_comps
 
     # ---- Set chunk_size if number of cells exceeds 100k ----
@@ -521,7 +524,11 @@ def spectral(
                 fw = fw[feat_mask]
 
         evals, evecs = _spectral_chunked(
-            X_cpu, n_comps, random_state, fw, chunk_size,
+            X_cpu,
+            n_comps,
+            random_state,
+            fw,
+            chunk_size,
         )
         del X_cpu
     else:
@@ -564,10 +571,7 @@ def spectral(
     evecs_np = cp.asnumpy(evecs)
     cp.get_default_memory_pool().free_all_blocks()
 
-    logger.info(
-        f"Spectral embedding complete: {evecs_np.shape[1]} components "
-        f"(top eigenvalue = {evals_np[0]:.4f})."
-    )
+    logger.info(f"Spectral embedding complete: {evecs_np.shape[1]} components (top eigenvalue = {evals_np[0]:.4f}).")
 
     if inplace:
         adata.uns["spectral_eigenvalue"] = evals_np

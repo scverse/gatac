@@ -1,4 +1,5 @@
 """GPU motif scan of tobias.bindetect against MOODS itself (the scanner TOBIAS uses)."""
+
 import numpy as np
 import pytest
 
@@ -13,7 +14,7 @@ def _random_case(seed):
     # ACGT with N runs of 1-12 bp: many runs shorter than the 7-bp MOODS window
     seq = rng.integers(0, 4, 30_000).astype(np.uint8)
     for s in rng.integers(0, len(seq) - 12, 1500):
-        seq[s:s + rng.integers(1, 13)] = 4
+        seq[s : s + rng.integers(1, 13)] = 4
     bg = np.array([0.3, 0.2, 0.2, 0.3])
     mats = []
     for length in [3, 4, 5, 5, 6, 7, 8, 11, 15, 24]:
@@ -33,12 +34,13 @@ def test_scan_matches_moods(seed):
     t2 = np.concatenate([thr, thr])
     hm, hp, hs = _scan(seq, allm, orders, t2)
     sm, sp, ss = _short_run_hits(seq, allm, orders, t2, n)
-    got = set(zip(np.concatenate([hm, sm]).tolist(), np.concatenate([hp, sp]).tolist(),
-                  np.concatenate([hs, ss]).tolist()))
+    got = set(
+        zip(np.concatenate([hm, sm]).tolist(), np.concatenate([hp, sp]).tolist(), np.concatenate([hs, ss]).tolist())
+    )
 
     text = "".join("ACGTN"[c] for c in seq)
     want = set()
-    for offset, ms, b in ((0, mats, bg), (n, rev, bg[::-1])):      # one scanner per strand, as TOBIAS
+    for offset, ms, b in ((0, mats, bg), (n, rev, bg[::-1])):  # one scanner per strand, as TOBIAS
         sc = MOODS.Scanner(7)
         sc.set_motifs([m.tolist() for m in ms], b.tolist(), thr.tolist())
         for k, hits in enumerate(sc.scan(text)):

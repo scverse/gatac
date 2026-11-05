@@ -197,7 +197,7 @@ import pyarrow.parquet as pq
 
 pf = pq.ParquetFile("pbmc.parquet")
 meta = pf.metadata.metadata
-chroms = json.loads(meta[b"gatac.chroms"])           # chrom_id -> name
+chroms = json.loads(meta[b"gatac.chroms"])  # chrom_id -> name
 n_barcodes = int(meta[b"gatac.n_barcodes"])
 prefix = meta.get(b"gatac.barcode_prefix", b"").decode()
 names = pf.read(columns=["bc_name"])["bc_name"][:n_barcodes]

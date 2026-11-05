@@ -5,6 +5,7 @@ Peak calling, merging and the cell × peak matrix.
 ``_macs``), with SnapATAC2's settings by default; ``merge`` and
 ``make_matrix`` follow SnapATAC2's ``merge_peaks`` and peak counting.
 """
+
 from __future__ import annotations
 
 import gc
@@ -12,7 +13,7 @@ import logging
 from collections import defaultdict
 from math import log
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import TYPE_CHECKING, Literal
 
 import cudf
 import cupy as cp
@@ -20,14 +21,18 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 
-from ..gpu import bincount
 from .._readers import read_bed
+from ..gpu import bincount
 from ..io.fragments import FragmentFile
-from ..pp.genome import get_chrom_sizes
 from ..pp._utils import async_memory_pool, cleanup_gpu_memory
 from ..pp.gene import optimize_sparse_matrix_dtype
+from ..pp.genome import get_chrom_sizes
 from ..pp.tile import _iter_slabs
 from . import _macs
+
+if TYPE_CHECKING:
+    from anndata import AnnData
+
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +135,7 @@ def _read_groups(
     cells: np.ndarray,
     cell_group: np.ndarray,
     out: list,
-    chroms: Optional[list],
+    chroms: list | None,
     batch_size: int,
 ) -> None:
     """
@@ -175,14 +180,14 @@ def _concat_group(chunks: dict) -> dict:
 
 
 def call(
-    adata: "AnnData",
+    adata: AnnData,
     groupby: str,
-    parquet_path: Union[str, Path],
+    parquet_path: str | Path,
     *,
-    genome: Union[str, dict] = "hg38",
+    genome: str | dict = "hg38",
     q_thresh: float = 0.05,
     d_treat: int = 200,
-    shift: Optional[int] = None,
+    shift: int | None = None,
     d_ctrl: int = 10000,
     max_gap: int = 30,
     peak_amp: int = 200,
@@ -194,8 +199,8 @@ def call(
     verbose: bool = True,
     batch_size: int = 10,
     filter_chromosomes: bool = True,
-    host_memory_gb: Optional[float] = None,
-) -> Optional[dict]:
+    host_memory_gb: float | None = None,
+) -> dict | None:
     """
     Call peaks per group of cells with MACS3, on the GPU.
 
@@ -262,8 +267,8 @@ def call(
         Number of parquet row groups to load at once (default: 10).
         Increase for faster processing, decrease to reduce memory usage.
     filter_chromosomes : bool
-        If True, only keep fragments from chromosomes recognized by the 
-        provided genome (keys if genome is a dict, or standard chromosomes 
+        If True, only keep fragments from chromosomes recognized by the
+        provided genome (keys if genome is a dict, or standard chromosomes
         for the named genome) (default: True).
     host_memory_gb : float, optional
         Host memory for the fragments held at once, in GB (8 bytes per
@@ -279,7 +284,7 @@ def call(
         end, name, score, strand, signal_value (fold enrichment), p_value and
         q_value (-log10) and peak (summit offset from start), one row per
         summit.
-        
+
     Examples
     --------
     >>> import gatac
@@ -334,12 +339,12 @@ def call(
     # (file, cells, their groups) to read
     if parquet_path.is_dir():
         # Directory mode - use source_file obs
-        if 'source_file' not in adata.obs.columns:
+        if "source_file" not in adata.obs.columns:
             raise ValueError(
                 "parquet_path is a directory but 'source_file' not in adata.obs. "
                 "Please provide a single parquet file path instead."
             )
-        source = adata.obs['source_file'].to_numpy()
+        source = adata.obs["source_file"].to_numpy()
         source_files = pd.unique(source[has_group])
         logger.info(f"Using {len(source_files)} source files from source_file obs")
         sources = []
@@ -415,10 +420,10 @@ def _iterative_merge_numba(
 ) -> np.ndarray:
     """
     Numba-accelerated iterative merge for all groups at once.
-    
+
     For each group of overlapping peaks, repeatedly select the most significant
     peak (highest p_value = -log10(p)), remove all overlapping peaks, repeat.
-    
+
     Parameters
     ----------
     starts : np.ndarray
@@ -431,7 +436,7 @@ def _iterative_merge_numba(
         Group ID for each peak (peaks with same ID are overlapping)
     n_groups : int
         Total number of groups
-        
+
     Returns
     -------
     np.ndarray
@@ -439,85 +444,81 @@ def _iterative_merge_numba(
     """
     n = len(starts)
     keep_mask = np.zeros(n, dtype=np.bool_)
-    
+
     # Pre-compute group boundaries for faster access
     # Find first and last index of each group
     group_start_idx = np.zeros(n_groups, dtype=np.int64)
     group_end_idx = np.zeros(n_groups, dtype=np.int64)
-    
-    # Since data is sorted by position and groups are contiguous, 
+
+    # Since data is sorted by position and groups are contiguous,
     # we can find boundaries efficiently
     if n > 0:
         group_start_idx[0] = 0
         for i in range(1, n):
-            if group_ids[i] != group_ids[i-1]:
-                group_end_idx[group_ids[i-1]] = i
+            if group_ids[i] != group_ids[i - 1]:
+                group_end_idx[group_ids[i - 1]] = i
                 group_start_idx[group_ids[i]] = i
-        group_end_idx[group_ids[n-1]] = n
-    
+        group_end_idx[group_ids[n - 1]] = n
+
     # Process each group in parallel
     for group_id in prange(n_groups):
         start_i = group_start_idx[group_id]
         end_i = group_end_idx[group_id]
         n_group = end_i - start_i
-        
+
         if n_group == 0:
             continue
-        
+
         if n_group == 1:
             keep_mask[start_i] = True
             continue
-        
+
         # Track which peaks in the group are still available
         available = np.ones(n_group, dtype=np.bool_)
-        
+
         while True:
             # Find the best available peak (highest p_value); among equal
             # p-values the last in position order, as Rust's max_by in SnapATAC2
             best_local_idx = -1
             best_pval = -np.inf
-            
+
             for i in range(n_group):
                 if available[i]:
                     idx = start_i + i
                     if p_values[idx] >= best_pval:
                         best_pval = p_values[idx]
                         best_local_idx = i
-            
+
             if best_local_idx == -1:
                 break
-            
+
             # Keep this peak
             best_idx = start_i + best_local_idx
             keep_mask[best_idx] = True
-            
+
             # Remove all overlapping peaks
             best_start = starts[best_idx]
             best_end = ends[best_idx]
-            
+
             for i in range(n_group):
                 if available[i]:
                     idx = start_i + i
                     # Check overlap: start < best_end AND end > best_start
                     if starts[idx] < best_end and ends[idx] > best_start:
                         available[i] = False
-    
+
     return keep_mask
 
 
 @njit(cache=True)
-def _find_overlapping_groups_with_chroms_numba(
-    starts: np.ndarray, 
-    ends: np.ndarray, 
-    chroms: np.ndarray
-) -> tuple:
+def _find_overlapping_groups_with_chroms_numba(starts: np.ndarray, ends: np.ndarray, chroms: np.ndarray) -> tuple:
     """
     Numba-accelerated function to find groups of overlapping intervals with chromosome awareness.
-    
+
     Given sorted intervals by (chromosome, start), assigns a group ID to each interval.
     Intervals that overlap (or are adjacent) within the same chromosome get the same group ID.
     Chromosome changes always start a new group.
-    
+
     Parameters
     ----------
     starts : np.ndarray
@@ -526,7 +527,7 @@ def _find_overlapping_groups_with_chroms_numba(
         End positions
     chroms : np.ndarray
         Chromosome codes (integers)
-        
+
     Returns
     -------
     tuple
@@ -535,12 +536,12 @@ def _find_overlapping_groups_with_chroms_numba(
     n = len(starts)
     if n == 0:
         return np.zeros(0, dtype=np.int64), 0
-    
+
     group_ids = np.zeros(n, dtype=np.int64)
     current_group = 0
     current_end = ends[0]
     current_chrom = chroms[0]
-    
+
     for i in range(1, n):
         # New group if chromosome changes or no overlap
         if chroms[i] != current_chrom:
@@ -557,18 +558,18 @@ def _find_overlapping_groups_with_chroms_numba(
             current_group += 1
             current_end = ends[i]
         group_ids[i] = current_group
-    
+
     return group_ids, current_group + 1
 
 
 def merge(
-    peaks: Union[dict[str, pd.DataFrame], "AnnData"],
-    chrom_sizes: Optional[Union[str, dict[str, int]]] = None,
+    peaks: dict[str, pd.DataFrame] | AnnData,
+    chrom_sizes: str | dict[str, int] | None = None,
     half_width: int = 250,
     use_rep: str = "gmacs",
     key_added: str = "peaks",
     inplace: bool = True,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """Merge peaks from different groups into fixed-width, non-overlapping peaks.
 
     This mirrors the behavior of SnapATAC2's ``merge`` :cite:p:`Zhang2024`.
@@ -577,7 +578,7 @@ def merge(
     sorts peaks by genomic position, groups overlapping or adjacent intervals,
     and then iteratively keeps the most significant peak in each overlap group
     while discarding the overlapping alternatives.
-     
+
     This algorithm matches SnapATAC2's Rust implementation which uses merge_sorted_bed_with
     to group overlapping intervals before applying iterative_merge.
 
@@ -621,37 +622,28 @@ def merge(
     """
 
     # Handle AnnData input
-    if hasattr(peaks, 'uns'):
+    if hasattr(peaks, "uns"):
         adata = peaks
         if use_rep not in adata.uns:
             raise ValueError(f"'{use_rep}' not found in adata.uns")
         peaks_dict = adata.uns[use_rep]
-        
+
         # Try to infer chrom_sizes if not provided
         if chrom_sizes is None:
-            if 'reference_sequences' in adata.uns:
-                ref_seqs = adata.uns['reference_sequences']
+            if "reference_sequences" in adata.uns:
+                ref_seqs = adata.uns["reference_sequences"]
                 if isinstance(ref_seqs, pd.DataFrame):
-                    chrom_sizes = dict(zip(
-                        ref_seqs['reference_seq_name'],
-                        ref_seqs['reference_seq_length']
-                    ))
+                    chrom_sizes = dict(zip(ref_seqs["reference_seq_name"], ref_seqs["reference_seq_length"]))
                 else:
-                    raise ValueError(
-                        "chrom_sizes must be provided when reference_sequences "
-                        "is not a DataFrame"
-                    )
+                    raise ValueError("chrom_sizes must be provided when reference_sequences is not a DataFrame")
             else:
-                raise ValueError(
-                    "chrom_sizes must be provided when AnnData lacks "
-                    "reference_sequences in uns"
-                )
+                raise ValueError("chrom_sizes must be provided when AnnData lacks reference_sequences in uns")
     else:
         peaks_dict = peaks
         adata = None
         if chrom_sizes is None:
             raise ValueError("chrom_sizes must be provided when peaks is a dict")
-    
+
     if isinstance(chrom_sizes, str):
         chrom_sizes = get_chrom_sizes(chrom_sizes)
 
@@ -674,7 +666,7 @@ def merge(
             raise ValueError(f"Missing required columns in peaks: {sorted(missing)}")
 
         df_copy = df.copy()
-        
+
         # Calculate summit position using numpy for speed
         start_vals = df_copy["start"].values.astype(np.int64)
         if "peak" in df_copy.columns:
@@ -702,17 +694,16 @@ def merge(
     # Concatenate all peaks and move to GPU
     all_peaks = pd.concat(expanded_peaks, ignore_index=True)
     all_peaks_gpu = cudf.DataFrame(all_peaks)
-    
+
     # Get arrays on GPU
-    starts_cp = all_peaks_gpu['start'].to_cupy().astype(cp.int64)
-    ends_cp = all_peaks_gpu['end'].to_cupy().astype(cp.int64)
-    p_values_cp = all_peaks_gpu['p_value'].to_cupy().astype(cp.float64)
-    
+    starts_cp = all_peaks_gpu["start"].to_cupy().astype(cp.int64)
+    ends_cp = all_peaks_gpu["end"].to_cupy().astype(cp.int64)
+    p_values_cp = all_peaks_gpu["p_value"].to_cupy().astype(cp.float64)
+
     # Create chromosome encoding on GPU
-    chrom_cat = all_peaks_gpu['chrom'].astype('category')
+    chrom_cat = all_peaks_gpu["chrom"].astype("category")
     chrom_codes_cp = chrom_cat.cat.codes.to_cupy().astype(cp.int32)
-    unique_chroms = chrom_cat.cat.categories.to_pandas().tolist()
-    
+
     # Peaks are merged unclipped (start saturating at 0) and clipped to the
     # chromosome afterwards, as SnapATAC2 does
     starts_cp = cp.maximum(starts_cp, 0)
@@ -720,47 +711,42 @@ def merge(
     # Global sort: by chromosome code, then by start, then by end
     # Use composite key for stable sorting on GPU
     max_pos = int(cp.max(ends_cp)) + 1
-    sort_key = (chrom_codes_cp.astype(cp.int64) * (max_pos * max_pos) + 
-                starts_cp * max_pos + ends_cp)
+    sort_key = chrom_codes_cp.astype(cp.int64) * (max_pos * max_pos) + starts_cp * max_pos + ends_cp
     global_sort_idx = cp.argsort(sort_key)
-    
+
     # Apply sort to all arrays
     sorted_starts = starts_cp[global_sort_idx]
     sorted_ends = ends_cp[global_sort_idx]
     sorted_pvals = p_values_cp[global_sort_idx]
     sorted_chroms = chrom_codes_cp[global_sort_idx]
-    
+
     # Process ALL chromosomes in ONE batch using combined approach:
     # 1. Find overlapping groups (treating chromosome changes as group boundaries)
     # 2. Run iterative merge on all groups in parallel
-    
+
     # Find overlapping groups with chromosome boundaries
     # A new group starts when: (a) chromosome changes OR (b) no overlap with previous
-    n = len(sorted_starts)
-    
     # Transfer to CPU once for the grouping/merge algorithm
     sorted_starts_np = cp.asnumpy(sorted_starts)
     sorted_ends_np = cp.asnumpy(sorted_ends)
     sorted_pvals_np = cp.asnumpy(sorted_pvals)
     sorted_chroms_np = cp.asnumpy(sorted_chroms)
-    
+
     # Use optimized numba function for grouping with chromosome awareness
     group_ids_np, n_groups = _find_overlapping_groups_with_chroms_numba(
         sorted_starts_np, sorted_ends_np, sorted_chroms_np
     )
-    
+
     # Run parallel iterative merge across all groups
-    keep_mask_np = _iterative_merge_numba(
-        sorted_starts_np, sorted_ends_np, sorted_pvals_np, group_ids_np, n_groups
-    )
-    
+    keep_mask_np = _iterative_merge_numba(sorted_starts_np, sorted_ends_np, sorted_pvals_np, group_ids_np, n_groups)
+
     # Transfer result back to GPU
     keep_mask_cp = cp.asarray(keep_mask_np)
-    
+
     # Get kept indices in original order
     kept_sorted_indices = cp.where(keep_mask_cp)[0]
     kept_original_indices = global_sort_idx[kept_sorted_indices]
-    
+
     # Filter on GPU and convert back
     if len(kept_original_indices) == 0:
         result = pd.DataFrame(columns=all_peaks.columns)
@@ -768,37 +754,34 @@ def merge(
         # Use GPU filtering
         result_gpu = all_peaks_gpu.iloc[cp.asnumpy(kept_original_indices)]
         result = result_gpu.to_pandas()
-    
+
     # Cleanup GPU memory
     del all_peaks_gpu, starts_cp, ends_cp, p_values_cp, chrom_codes_cp
     del sorted_starts, sorted_ends, sorted_pvals, sorted_chroms, global_sort_idx
     mempool.free_all_blocks()
     pinned_mempool.free_all_blocks()
-    
+
     # Deduplicate exact duplicates (same chrom, start, end) keeping most significant
-    if len(result) > 0 and 'p_value' in result.columns:
+    if len(result) > 0 and "p_value" in result.columns:
         logger.debug(f"Deduplicating {len(result):,} peaks...")
-        
+
         # Convert to cuDF for GPU-accelerated groupby
         result_gpu = cudf.DataFrame(result)
-        
+
         # Sort by p-value to ensure most significant is first in each group
         # p-values are -log10(p), so higher values are MORE significant
-        result_gpu = result_gpu.sort_values('p_value', ascending=False)
-        
+        result_gpu = result_gpu.sort_values("p_value", ascending=False)
+
         # Drop duplicates based on (chrom, start, end), keeping first (most significant)
-        result_gpu = result_gpu.drop_duplicates(
-            subset=['chrom', 'start', 'end'],
-            keep='first'
-        )
-        
+        result_gpu = result_gpu.drop_duplicates(subset=["chrom", "start", "end"], keep="first")
+
         # Convert back to pandas
         result = result_gpu.to_pandas()
-        
+
         del result_gpu
         mempool.free_all_blocks()
         pinned_mempool.free_all_blocks()
-        
+
         logger.debug(f"After deduplication: {len(result):,} peaks")
 
     # Clip to the chromosomes, as SnapATAC2's clip_peak
@@ -818,7 +801,7 @@ def merge(
     if adata is not None and inplace:
         adata.uns[key_added] = result
         return None
-    
+
     return result
 
 
@@ -830,7 +813,7 @@ def _expand_ranges(lo: cp.ndarray, hi: cp.ndarray) -> tuple[cp.ndarray, cp.ndarr
         return cp.empty(0, dtype=cp.int64), cp.empty(0, dtype=cp.int64)
     ends = cp.cumsum(n)
     k = cp.arange(total, dtype=cp.int64)
-    i = cp.searchsorted(ends, k, side='right')
+    i = cp.searchsorted(ends, k, side="right")
     return i, k - (ends - n)[i] + lo[i]
 
 
@@ -842,10 +825,10 @@ def _peak_keys(peaks_df: pd.DataFrame, chroms: list) -> tuple:
     widest peak and whether the peaks are disjoint.
     """
     code = pd.Series(np.arange(len(chroms), dtype=np.int64), index=chroms)
-    on = peaks_df['chrom'].isin(chroms).to_numpy()
-    chrom = code.reindex(peaks_df['chrom'].to_numpy()[on]).to_numpy() << 32
-    starts = cp.asarray(chrom | peaks_df['start'].to_numpy()[on].astype(np.int64))
-    ends = cp.asarray(chrom | peaks_df['end'].to_numpy()[on].astype(np.int64))
+    on = peaks_df["chrom"].isin(chroms).to_numpy()
+    chrom = code.reindex(peaks_df["chrom"].to_numpy()[on]).to_numpy() << 32
+    starts = cp.asarray(chrom | peaks_df["start"].to_numpy()[on].astype(np.int64))
+    ends = cp.asarray(chrom | peaks_df["end"].to_numpy()[on].astype(np.int64))
     cols = cp.asarray(np.flatnonzero(on), dtype=cp.int64)
     order = cp.argsort(starts)
     starts, ends, cols = starts[order], ends[order], cols[order]
@@ -872,15 +855,15 @@ def _peak_key_counts_gpu(
     ``chrom << 32 | position``, so all chromosomes are counted at once.
     """
     peak_starts, peak_ends, peak_cols, max_width, disjoint = peaks
-    chrom = df['chrom'].values.astype(cp.int64) << 32
-    start = chrom | df['start'].values.astype(cp.int64)
-    end = chrom | df['end'].values.astype(cp.int64)
+    chrom = df["chrom"].values.astype(cp.int64) << 32
+    start = chrom | df["start"].values.astype(cp.int64)
+    end = chrom | df["end"].values.astype(cp.int64)
     del chrom
 
     if counting_strategy == "fragment":
         # Frag overlaps peak if: frag_start < peak_end AND frag_end > peak_start
-        lo = cp.searchsorted(peak_starts, start - max_width, side='right')
-        hi = cp.searchsorted(peak_starts, end, side='left')
+        lo = cp.searchsorted(peak_starts, start - max_width, side="right")
+        hi = cp.searchsorted(peak_starts, end, side="left")
         f, p = _expand_ranges(lo, hi)
         keep = peak_ends[p] > start[f]
         f, p = f[keep], p[keep]
@@ -889,9 +872,9 @@ def _peak_key_counts_gpu(
         # overlap, so the peak holding a position is the last one starting
         # at or before it
         ins2 = end - 1
-        idx1 = cp.searchsorted(peak_starts, start, side='right') - 1
+        idx1 = cp.searchsorted(peak_starts, start, side="right") - 1
         valid1 = (idx1 >= 0) & (start < peak_ends[idx1])
-        idx2 = cp.searchsorted(peak_starts, ins2, side='right') - 1
+        idx2 = cp.searchsorted(peak_starts, ins2, side="right") - 1
         valid2 = (idx2 >= 0) & (ins2 < peak_ends[idx2])
         if counting_strategy == "paired-insertion":
             # Both insertions in one peak: count the fragment once
@@ -904,8 +887,8 @@ def _peak_key_counts_gpu(
         # within the widest peak's width before the position is a candidate
         fs, ps = [], []
         for pos in (start, end - 1):
-            lo = cp.searchsorted(peak_starts, pos - max_width, side='right')
-            hi = cp.searchsorted(peak_starts, pos, side='right')
+            lo = cp.searchsorted(peak_starts, pos - max_width, side="right")
+            hi = cp.searchsorted(peak_starts, pos, side="right")
             f, p = _expand_ranges(lo, hi)
             keep = pos[f] < peak_ends[p]
             fs.append(f[keep])
@@ -917,9 +900,9 @@ def _peak_key_counts_gpu(
             f, p = pair // len(peak_starts), pair % len(peak_starts)
     del start, end
 
-    key = df['cell'].values.astype(cp.int64)[f] * n_peaks + peak_cols[p]
+    key = df["cell"].values.astype(cp.int64)[f] * n_peaks + peak_cols[p]
     del f, p
-    agg = cudf.DataFrame({'key': key}).groupby('key', sort=True).size()
+    agg = cudf.DataFrame({"key": key}).groupby("key", sort=True).size()
     return agg.index.values, agg.values.astype(cp.int32, copy=False)
 
 
@@ -939,7 +922,7 @@ def _count_file_peaks(
     the rows are summed and assembled there a slab of cells at a time.
     """
     keys, counts = [], []
-    for df in fragments.iter_batches(['chrom', 'start', 'end'], batch_size, chroms=chroms, cells=cells):
+    for df in fragments.iter_batches(["chrom", "start", "end"], batch_size, chroms=chroms, cells=cells):
         if len(df) > 0:
             k, c = _peak_key_counts_gpu(df, peaks, n_peaks, counting_strategy)
             keys.append(k)
@@ -995,8 +978,8 @@ def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
         # they are consecutive (rows are sorted)
         if rows[-1] - rows[0] + 1 == len(rows):
             lo = int(indptr[rows[0]])
-            data[lo:lo + len(d)] = d
-            indices[lo:lo + len(c)] = c
+            data[lo : lo + len(d)] = d
+            indices[lo : lo + len(c)] = c
             continue
         dest = np.repeat(indptr[rows] - (np.cumsum(n) - n), n) + np.arange(len(c))
         data[dest] = d
@@ -1005,18 +988,18 @@ def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
 
 
 def make_matrix(
-    adata: "AnnData",
-    parquet_path: Union[str, Path, list[Union[str, Path]]],
+    adata: AnnData,
+    parquet_path: str | Path | list[str | Path],
     *,
     use_rep: str = "peaks",
-    peak_file: Optional[Path] = None,
-    genome: Union[str, dict] = "hg38",
+    peak_file: Path | None = None,
+    genome: str | dict = "hg38",
     counting_strategy: str = "paired-insertion",
     inplace: bool = False,
     batch_size: int = 50,
-    verbose: Union[bool, str] = True,
+    verbose: bool | str = True,
     filter_chromosomes: bool = True,
-) -> Optional["AnnData"]:
+) -> AnnData | None:
     """Generate cell by peak count matrix.
 
     This function counts fragment insertions overlapping with peak regions to create
@@ -1061,8 +1044,8 @@ def make_matrix(
         ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` prints
         one line per file with ETA for non-interactive environments.
     filter_chromosomes : bool
-        If True, only keep fragments from chromosomes recognized by the 
-        provided genome (keys if genome is a dict, or standard chromosomes 
+        If True, only keep fragments from chromosomes recognized by the
+        provided genome (keys if genome is a dict, or standard chromosomes
         for the named genome) (default: True).
 
     Returns
@@ -1098,9 +1081,8 @@ def make_matrix(
     ...     inplace=False,
     ... )
     """
-    import scipy.sparse as sp
     from anndata import AnnData as AD
-    
+
     # Get peaks: a peak_file takes precedence over use_rep
     if peak_file is not None:
         # Read from BED file
@@ -1111,34 +1093,34 @@ def make_matrix(
         peaks_df = adata.uns[use_rep]
         if not isinstance(peaks_df, pd.DataFrame):
             raise ValueError(f"adata.uns['{use_rep}'] must be a DataFrame")
-        if not all(col in peaks_df.columns for col in ['chrom', 'start', 'end']):
+        if not all(col in peaks_df.columns for col in ["chrom", "start", "end"]):
             raise ValueError("Peaks DataFrame must have 'chrom', 'start', 'end' columns")
-        peaks_df = peaks_df[['chrom', 'start', 'end']].copy()
+        peaks_df = peaks_df[["chrom", "start", "end"]].copy()
     else:
         raise ValueError("Must specify either peak_file or use_rep")
-    
+
     # Get chrom sizes for filtering
     if isinstance(genome, str):
         chrom_sizes = get_chrom_sizes(genome)
     else:
         chrom_sizes = genome
     chrom_names = list(chrom_sizes.keys()) if chrom_sizes is not None else None
-    
+
     logger.info(f"Counting fragments in {len(peaks_df):,} peaks")
-    
+
     # Sort peaks
-    peaks_df = peaks_df.sort_values(['chrom', 'start']).reset_index(drop=True)
+    peaks_df = peaks_df.sort_values(["chrom", "start"]).reset_index(drop=True)
     n_cells = len(adata.obs)
     n_peaks = len(peaks_df)
 
     # Only fragments on chromosomes with peaks can overlap one
     allowed = set(chrom_names) if filter_chromosomes and chrom_names is not None else None
-    chroms = [c for c in pd.unique(peaks_df['chrom'].astype(str)) if allowed is None or c in allowed]
+    chroms = [c for c in pd.unique(peaks_df["chrom"].astype(str)) if allowed is None or c in allowed]
 
     # Create cell index mapping (barcode -> row index)
     barcode_to_idx = {cell: idx for idx, cell in enumerate(adata.obs.index)}
     all_barcodes = set(adata.obs.index)
-    
+
     # Determine parquet files to process
     if isinstance(parquet_path, list):
         # List of parquet files provided directly
@@ -1147,21 +1129,19 @@ def make_matrix(
         logger.info(f"Processing {len(parquet_files)} parquet files (list mode)")
     else:
         parquet_path = Path(parquet_path)
-        
+
         if parquet_path.is_dir():
             # Directory mode - use source_file obs to map cells to files
-            if 'source_file' not in adata.obs.columns:
-                raise ValueError(
-                    "parquet_path is a directory but 'source_file' not in adata.obs"
-                )
-            
+            if "source_file" not in adata.obs.columns:
+                raise ValueError("parquet_path is a directory but 'source_file' not in adata.obs")
+
             # Group barcodes by source file
             file_to_barcodes = defaultdict(set)
-            for barcode, src_file in adata.obs['source_file'].items():
+            for barcode, src_file in adata.obs["source_file"].items():
                 parquet_name = _source_parquet_name(src_file)
                 parquet_file = parquet_path / parquet_name
                 file_to_barcodes[parquet_file].add(barcode)
-            
+
             parquet_files = list(file_to_barcodes.keys())
             logger.info(f"Processing {len(parquet_files)} parquet files (directory mode)")
         else:
@@ -1169,16 +1149,18 @@ def make_matrix(
             parquet_files = [parquet_path]
             file_to_barcodes = {parquet_path: all_barcodes}
             logger.info("Processing single parquet file")
-    
+
     # Process each parquet file
     n_files = len(parquet_files)
     if verbose == "tqdm" or verbose is True:
         from tqdm.auto import tqdm
+
         file_iter = tqdm(parquet_files, desc="Parquet files")
     else:
         file_iter = parquet_files
-    
+
     import time
+
     start_time = time.time()
 
     # Per file: the output rows of its cells and their peak counts
@@ -1214,8 +1196,13 @@ def make_matrix(
             # The file's cells in matrix order
             cells = sorted(barcodes_for_file, key=barcode_to_idx.__getitem__)
             row_nnz, cols, data = _count_file_peaks(
-                FragmentFile(parquet_file), cells, chroms, peaks, n_peaks,
-                batch_size, counting_strategy,
+                FragmentFile(parquet_file),
+                cells,
+                chroms,
+                peaks,
+                n_peaks,
+                batch_size,
+                counting_strategy,
             )
             if len(cols) > 0:
                 rows = np.fromiter((barcode_to_idx[b] for b in cells), dtype=np.int64, count=len(cells))
@@ -1227,33 +1214,32 @@ def make_matrix(
 
     count_matrix = _assemble_rows(parts, n_cells, n_peaks)
     del parts
-    
-    
+
     logger.info(f"Peak matrix: {n_cells:,} cells × {n_peaks:,} peaks")
     if n_cells * n_peaks > 0:
         logger.info(f"Sparsity: {100 * (1 - count_matrix.nnz / (n_cells * n_peaks)):.2f}%")
-    
+
     # Create peak names (vectorized)
-    peak_names = (peaks_df['chrom'].astype(str) + ':' + 
-                  peaks_df['start'].astype(str) + '-' + 
-                  peaks_df['end'].astype(str)).tolist()
-    
+    peak_names = (
+        peaks_df["chrom"].astype(str) + ":" + peaks_df["start"].astype(str) + "-" + peaks_df["end"].astype(str)
+    ).tolist()
+
     if inplace:
         # Replace .X with peak matrix (not recommended)
         adata.X = count_matrix
         # Update var to match peaks
         adata.var = pd.DataFrame(index=peak_names)
         for col in peaks_df.columns:
-            if col not in ['chrom', 'start', 'end']:
+            if col not in ["chrom", "start", "end"]:
                 adata.var[col] = peaks_df[col].values
         return None
     else:
         # Create new AnnData
         var_df = pd.DataFrame(index=peak_names)
         for col in peaks_df.columns:
-            if col not in ['chrom', 'start', 'end']:
+            if col not in ["chrom", "start", "end"]:
                 var_df[col] = peaks_df[col].values
-        
+
         new_adata = AD(
             X=count_matrix,
             obs=adata.obs.copy(),

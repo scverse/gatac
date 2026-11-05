@@ -1,4 +1,5 @@
 """Private utilities shared across ``gatac.pp`` modules."""
+
 from __future__ import annotations
 
 import gc
