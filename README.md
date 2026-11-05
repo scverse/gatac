@@ -1,3 +1,6 @@
+[![CI-Pass](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml)
+[![codecov](https://codecov.io/gh/scverse/gatac/graph/badge.svg?token=YMSDUHQRBB)](https://codecov.io/gh/scverse/gatac)
+
 # GATAC: GPU-Accelerated scATACseq Analysis
 
 GATAC is a GPU-accelerated toolkit for end-to-end ATAC-seq data processing.
@@ -110,41 +113,30 @@ metrics = ga.pp.compute_metrics("fragments.parquet", "annotations.gtf")
 
 # Create tile matrix (pre-filtered by unique fragments)
 adata = ga.pp.make_tile_matrix(
-    "fragments.parquet", 
-    chrom_sizes="hg38", 
+    "fragments.parquet",
+    chrom_sizes="hg38",
     min_fragments_per_cell=500,
 )
 
 # Create tile matrix using pre-computed metrics for filtering
 # metrics can be a path to a CSV or a cuDF DataFrame
-adata = ga.pp.make_tile_matrix(
-    "fragments.parquet", 
-    chrom_sizes="hg38",
-    metrics=metrics, 
-    filter_query="tsse_score > 5"
-)
+adata = ga.pp.make_tile_matrix("fragments.parquet", chrom_sizes="hg38", metrics=metrics, filter_query="tsse_score > 5")
 
 # Create gene activity matrix
 adata_gene = ga.pp.make_gene_matrix(
-    "fragments.parquet",
-    gene_anno="annotations.gtf",
-    upstream=2000,
-    include_gene_body=True
+    "fragments.parquet", gene_anno="annotations.gtf", upstream=2000, include_gene_body=True
 )
 
 # Create gene activity matrix with filtering
 adata_gene = ga.pp.make_gene_matrix(
-    "fragments.parquet",
-    gene_anno="annotations.gtf",
-    metrics=metrics,
-    filter_query="tsse_score > 5"
+    "fragments.parquet", gene_anno="annotations.gtf", metrics=metrics, filter_query="tsse_score > 5"
 )
 
 # Create ArchR-style distance-weighted gene activity SCORE matrix
 # (faithful GPU port of ArchR addGeneScoreMatrix; defaults match ArchR)
 adata_score = ga.pp.make_gene_score_matrix(
     "fragments.parquet",
-    gene_anno="annotations.gtf",      # GTF/GFF, or CSV: symbol,seqnames,start,end,strand
+    gene_anno="annotations.gtf",  # GTF/GFF, or CSV: symbol,seqnames,start,end,strand
     gene_model="exp(-abs(x)/5000) + exp(-1)",
     tile_size=500,
     extend_upstream=(1000, 100000),
@@ -154,24 +146,17 @@ adata_score = ga.pp.make_gene_score_matrix(
 )
 
 # Filter fragments by minimum fragment count
-ga.pp.filter_fragments(
-    "fragments.parquet",
-    min_fragments_per_cell=500
-)
+ga.pp.filter_fragments("fragments.parquet", min_fragments_per_cell=500)
 
 # Filter fragments using metrics with quality threshold
-ga.pp.filter_fragments(
-    "fragments.parquet",
-    metrics=metrics,
-    filter_query="tsse_score > 5"
-)
+ga.pp.filter_fragments("fragments.parquet", metrics=metrics, filter_query="tsse_score > 5")
 
 # Filter multiple files with genome-based chromosome filtering
 ga.pp.filter_fragments(
     ["sample1.parquet", "sample2.parquet"],
     metrics=metrics,
     filter_query="tsse_score > 5 and n_unique > 1000",
-    chrom_sizes="hg38"
+    chrom_sizes="hg38",
 )
 
 # Select features (single AnnData)
@@ -179,23 +164,12 @@ ga.pp.select_features(adata, n_features=50000)
 
 # One tile matrix of several samples, most accessible tiles only
 ga.pp.make_tile_matrix(
-    ["sample1.parquet", "sample2.parquet"],
-    chrom_sizes="hg38",
-    n_features=500000,
-    output_path="combined.h5ad"
+    ["sample1.parquet", "sample2.parquet"], chrom_sizes="hg38", n_features=500000, output_path="combined.h5ad"
 )
 
 # One gene matrix of several samples, written as it is built
-ga.pp.make_gene_matrix(
-    ["sample1.parquet", "sample2.parquet"],
-    gene_anno="annotations.gtf",
-    output_path="genes.h5ad"
-)
+ga.pp.make_gene_matrix(["sample1.parquet", "sample2.parquet"], gene_anno="annotations.gtf", output_path="genes.h5ad")
 
 # Merge multiple AnnData files
-ga.pp.combine(
-    input_paths=["sample1.h5ad", "sample2.h5ad"],
-    output_path="merged.h5ad"
-)
+ga.pp.combine(input_paths=["sample1.h5ad", "sample2.h5ad"], output_path="merged.h5ad")
 ```
-

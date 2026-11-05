@@ -119,17 +119,29 @@ source = "vcs"
 only-include = ["gatac", "tests"]
 
 [tool.ruff]
+line-length = 120
 # The package, its tests and the docs config; not the submodules
 extend-exclude = ["reproducibility", "tutorials"]
 
 [tool.ruff.lint]
-# Pyflakes and bugbear: likely bugs only. There is no formatter (yet), so no
-# style rules either.
-select = ["F", "B"]
-# zip(strict=) on every zip is noise here: the zips pair arrays of one length
-ignore = ["B905"]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # bugbear
+]
+ignore = [
+  "E501", # line too long -> the formatter handles code lines
+  "E731", # lambda assignments are fine
+  "E741", # I, O, l as variable names
+  "B905", # zip(strict=) on every zip is noise here: the zips pair arrays of one length
+]
+isort.known-first-party = ["gatac"]
 
 [tool.ruff.lint.per-file-ignores]
+"*/__init__.py" = ["F401"]
 # The closures of the motif scan and the background sampling read the loop's
 # variables, but each runs in the iteration that defines it
 "gatac/tobias/bindetect.py" = ["B023"]
@@ -144,6 +156,7 @@ addopts = ["--import-mode=importlib", "--strict-markers", "--timeout=120", "-n",
 
 [tool.coverage]
 run.source_pkgs = ["gatac"]
+paths.source = ["gatac", "**/site-packages/gatac"]
 run.patch = ["subprocess"]  # test_lsi_reproducible_across_processes runs LSI in a child process
 # Hidden: coverage combines every file named like it, and coverage.xml would be one
 run.data_file = "test-data/.coverage"

@@ -4,6 +4,7 @@ What ``gatac.dr`` promises its callers, checked on the synthetic world of ``test
 LSI determinism lives in ``tests/regression/test_lsi_determinism.py`` and
 ArchR / SnapATAC2 parity in the reproducibility suite; neither is repeated here.
 """
+
 from __future__ import annotations
 
 import anndata as ad
@@ -98,6 +99,7 @@ def test_spectral_chunks_on_gpu_or_streamed(selected, monkeypatch, on_gpu):
     and leave ``adata.X`` as it was."""
     import functools
     import sys
+
     from gatac.dr._stream import StreamedCounts
 
     ref = selected.copy()
@@ -105,8 +107,11 @@ def test_spectral_chunks_on_gpu_or_streamed(selected, monkeypatch, on_gpu):
     X = selected.X.copy()
     nbytes = X.nnz * (X.data.itemsize + 4)
     free = __import__("cupy").cuda.Device().mem_info[0]
-    monkeypatch.setattr(sys.modules["gatac.dr.spectral"], "StreamedCounts",
-                        functools.partial(StreamedCounts, memory_fraction=on_gpu * nbytes / free))
+    monkeypatch.setattr(
+        sys.modules["gatac.dr.spectral"],
+        "StreamedCounts",
+        functools.partial(StreamedCounts, memory_fraction=on_gpu * nbytes / free),
+    )
     ga.dr.spectral(selected, N_COMPS, features=None, chunk_size=37)
     assert _abs_corr(selected.obsm["X_spectral"], ref.obsm["X_spectral"]).min() > 0.9999
     assert selected.X.dtype == X.dtype and (selected.X != X).nnz == 0
@@ -168,8 +173,9 @@ def test_stored_models_survive_h5ad_and_project_cells_back(selected, tmp_path):
     """
     labels = _true_labels(selected)
     ga.dr.lsi(selected, N_COMPS, outlier_quantiles=(0.02, 0.98), store_model=True)
-    ga.dr.iterative_lsi(selected, N_COMPS, total_features=selected.n_vars, n_features=300, store_model=True,
-                        cluster_fn=lambda z: labels)
+    ga.dr.iterative_lsi(
+        selected, N_COMPS, total_features=selected.n_vars, n_features=300, store_model=True, cluster_fn=lambda z: labels
+    )
     selected.write_h5ad(tmp_path / "a.h5ad")
     back = ad.read_h5ad(tmp_path / "a.h5ad")
 
@@ -185,8 +191,7 @@ def test_stored_models_survive_h5ad_and_project_cells_back(selected, tmp_path):
         held = _held_out(back, key)
         np.testing.assert_array_equal(proj[held], emb[held], err_msg=key)
         # Fitted cells: U·S from the solver vs X·V — equal up to tol=1e-5
-        np.testing.assert_allclose(proj[~held], emb[~held], rtol=1e-3,
-                                   atol=1e-3 * np.abs(emb).max(), err_msg=key)
+        np.testing.assert_allclose(proj[~held], emb[~held], rtol=1e-3, atol=1e-3 * np.abs(emb).max(), err_msg=key)
 
 
 def _held_out(a, key):
@@ -215,12 +220,12 @@ def test_cluster_fn_drives_feature_selection(selected, world):
         seen.append(z.shape)
         return labels
 
-    ga.dr.iterative_lsi(selected, N_COMPS, total_features=selected.n_vars, iterations=3,
-                        n_features=150, cluster_fn=oracle)
+    ga.dr.iterative_lsi(
+        selected, N_COMPS, total_features=selected.n_vars, iterations=3, n_features=150, cluster_fn=oracle
+    )
     assert len(seen) == 2 and all(s[0] == selected.n_obs and s[1] >= 2 for s in seen)
     for it in (1, 2):
-        np.testing.assert_array_equal(
-            selected.obs[f"iterative_lsi_clusters_iter{it}"].astype(int).to_numpy(), labels)
+        np.testing.assert_array_equal(selected.obs[f"iterative_lsi_clusters_iter{it}"].astype(int).to_numpy(), labels)
     assert selected.uns["iterative_lsi"]["params"]["cluster_fn_supplied"]
 
     tile = selected.var_names.to_series().str.extract(r"(\w+):(\d+)-(\d+)").astype({1: int, 2: int})
@@ -245,7 +250,9 @@ def test_cluster_params_reach_the_clusterer_and_are_recorded(selected, monkeypat
 
     monkeypatch.setattr(clustering, "snn_cluster", spy)
     override = {"resolution": 0.7, "quantize": 0, "max_resolution_retries": 1}
-    ga.dr.iterative_lsi(selected, N_COMPS, total_features=selected.n_vars, n_features=300, cluster_params=override, random_state=5)
+    ga.dr.iterative_lsi(
+        selected, N_COMPS, total_features=selected.n_vars, n_features=300, cluster_params=override, random_state=5
+    )
     assert {k: got[k] for k in override} == override and got["random_state"] == 5
     params = selected.uns["iterative_lsi"]["params"]
     assert {k: params[f"cluster_{k}"] for k in override} == override

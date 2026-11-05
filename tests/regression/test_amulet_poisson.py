@@ -1,4 +1,5 @@
 """AMULET per-cell Poisson scoring edge cases."""
+
 import numpy as np
 
 from gatac.pp.amulet import _get_doublets

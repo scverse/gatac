@@ -3,36 +3,36 @@ GPU-accelerated filtering of ATAC fragment parquet files.
 
 This module provides functions to filter fragment data based on cell quality metrics.
 """
+
 from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional, Union, List
 
 import cudf
 import cupy as cp
 import pandas as pd
 
-from ._utils import async_memory_pool, cleanup_gpu_memory
 from .._readers import read_metrics
 from ..io.fragments import FragmentFile, _write_cells
+from ._utils import async_memory_pool, cleanup_gpu_memory
 
 logger = logging.getLogger(__name__)
 
 
 def filter_fragments(
-    input_parquet: Union[str, Path, List[Union[str, Path]]],
-    output_parquet: Optional[Union[str, Path, List[Union[str, Path]]]] = None,
-    metrics: Optional[Union[str, Path, pd.DataFrame, cudf.DataFrame]] = None,
+    input_parquet: str | Path | list[str | Path],
+    output_parquet: str | Path | list[str | Path] | None = None,
+    metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
     min_fragments_per_cell: int = 100,
-    filter_query: Optional[str] = None,
+    filter_query: str | None = None,
     barcode_column: str = "barcode",
-    barcode_prefix: Optional[str | List[str]] = None,
+    barcode_prefix: str | list[str] | None = None,
     row_groups_per_batch: int = 64,
-    chrom_sizes: Optional[Union[dict, object, str]] = None,
+    chrom_sizes: dict | object | str | None = None,
     workers: int = 4,
-) -> Union[Path, List[Path]]:
+) -> Path | list[Path]:
     """
     Filter ATAC fragment parquet file(s) based on cell quality metrics.
 
@@ -69,8 +69,8 @@ def filter_fragments(
         - String genome name (e.g., 'hg38', 'mm10') - will use built-in genome
         - Dictionary of chromosome names to sizes
         - Genome object with chrom_sizes attribute
-        Only fragments on these chromosomes will be counted. If None, all 
-        chromosomes are included. This matches SnapATAC2's behavior of 
+        Only fragments on these chromosomes will be counted. If None, all
+        chromosomes are included. This matches SnapATAC2's behavior of
         excluding non-standard contigs (GL*, KI*).
     workers : int, default 4
         Number of files filtered at once. Each holds up to about 2 GB of
@@ -109,7 +109,7 @@ def filter_fragments(
             # String genome name (e.g., 'hg38')
             chrom_sizes_dict = get_chrom_sizes(chrom_sizes)
             valid_chroms = set(chrom_sizes_dict.keys())
-        elif hasattr(chrom_sizes, 'chrom_sizes'):
+        elif hasattr(chrom_sizes, "chrom_sizes"):
             # Genome object with chrom_sizes attribute
             valid_chroms = set(chrom_sizes.chrom_sizes.keys())
         elif isinstance(chrom_sizes, dict):
@@ -156,7 +156,7 @@ def filter_fragments(
     if metrics_df is not None:
         if barcode_column not in metrics_df.columns:
             raise ValueError(f"Barcode column '{barcode_column}' not found in metrics")
-        
+
         if filter_query:
             logger.info(f"Applying filter: {filter_query}")
             try:
@@ -164,11 +164,11 @@ def filter_fragments(
             except Exception as e:
                 raise ValueError(f"Invalid filter query '{filter_query}': {e}") from e
             logger.info(f"Retained {len(metrics_df):,} cells after query filter")
-        
-        if 'n_unique' in metrics_df.columns:
-            metrics_df = metrics_df[metrics_df['n_unique'] >= min_fragments_per_cell]
+
+        if "n_unique" in metrics_df.columns:
+            metrics_df = metrics_df[metrics_df["n_unique"] >= min_fragments_per_cell]
             logger.info(f"Retained {len(metrics_df):,} cells after min_fragments filter")
-        
+
         valid_barcodes = cudf.Series(metrics_df[barcode_column].astype(str).to_numpy(), dtype="str")
         logger.info(f"Total valid barcodes from metrics: {len(valid_barcodes):,}")
 
@@ -199,7 +199,7 @@ def filter_fragments(
             f.result()
 
     cleanup_gpu_memory()
-    
+
     if single_input:
         return output_paths[0]
     return output_paths
@@ -208,12 +208,12 @@ def filter_fragments(
 def _filter_single_file_streaming(
     input_path: Path,
     output_path: Path,
-    valid_barcodes: Optional[cudf.Series] = None,
+    valid_barcodes: cudf.Series | None = None,
     min_fragments_per_cell: int = 100,
     barcode_column: str = "barcode",
-    barcode_prefix: Optional[str] = None,
+    barcode_prefix: str | None = None,
     row_groups_per_batch: int = 64,
-    valid_chroms: Optional[set] = None,
+    valid_chroms: set | None = None,
 ) -> None:
     """
     Filter a single parquet file using streaming writes.
@@ -268,5 +268,7 @@ def _filter_single_file_streaming(
 
     prefix = fragments.barcode_prefix if barcode_prefix is None else barcode_prefix
     n_in, n_out = _write_cells(fragments, output_path, cells, chroms=chroms, barcode_prefix=prefix)
-    logger.info(f"Filtered {input_path.name}: {n_in:,} -> {n_out:,} fragments "
-                f"({100 * n_out / max(n_in, 1):.1f}% retained), {len(cells):,} cells")
+    logger.info(
+        f"Filtered {input_path.name}: {n_in:,} -> {n_out:,} fragments "
+        f"({100 * n_out / max(n_in, 1):.1f}% retained), {len(cells):,} cells"
+    )

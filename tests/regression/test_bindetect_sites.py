@@ -1,11 +1,20 @@
 """GPU site bookkeeping of tobias.bindetect against its sequential references."""
+
 import cupy as cp
 import numpy as np
 import scipy.stats
 
 from gatac.tobias.bindetect import (
-    _count_kernel, _count_overlaps, _launch, _resolve_kernel, _resolve_overlaps, _sample_changes,
-    _sample_changes_exact_null, _segments, _stable_order, _strkey_kernel,
+    _count_kernel,
+    _count_overlaps,
+    _launch,
+    _resolve_kernel,
+    _resolve_overlaps,
+    _sample_changes,
+    _sample_changes_exact_null,
+    _segments,
+    _stable_order,
+    _strkey_kernel,
 )
 
 
@@ -18,7 +27,7 @@ def _random_sites(seed, n=200_000, n_mot=40):
     o = np.lexsort((start, chrom, chunk, motif))
     motif, chunk, chrom, start = motif[o], chunk[o], chrom[o], start[o]
     end = start + rng.integers(4, 25, n)
-    score = np.round(rng.normal(8, 2, n), 2)          # ties on purpose
+    score = np.round(rng.normal(8, 2, n), 2)  # ties on purpose
     return motif, chunk, chrom.astype(np.int32), start, end, score
 
 
@@ -28,8 +37,19 @@ def test_resolve_kernel_matches_reference():
     ref = np.ones(len(motif), np.bool_)
     _resolve_overlaps(gstart, chrom, start, end, score, ref)
     keep = cp.ones(len(motif), cp.uint8)
-    _launch(_resolve_kernel, len(gstart) - 1, (cp.asarray(gstart), cp.int64(len(gstart) - 1), cp.asarray(chrom),
-                                               cp.asarray(start), cp.asarray(end), cp.asarray(score), keep))
+    _launch(
+        _resolve_kernel,
+        len(gstart) - 1,
+        (
+            cp.asarray(gstart),
+            cp.int64(len(gstart) - 1),
+            cp.asarray(chrom),
+            cp.asarray(start),
+            cp.asarray(end),
+            cp.asarray(score),
+            keep,
+        ),
+    )
     assert ref.sum() < len(ref)
     assert np.array_equal(keep.get().astype(bool), ref)
 
@@ -37,7 +57,7 @@ def test_resolve_kernel_matches_reference():
 def test_count_kernel_matches_reference():
     n_mot = 40
     motif, chunk, chrom, start, end, _ = _random_sites(1, n_mot=n_mot)
-    o = np.lexsort((motif, end, start, chrom, chunk))           # loc_sort per chunk, name last
+    o = np.lexsort((motif, end, start, chrom, chunk))  # loc_sort per chunk, name last
     motif, chunk, chrom, start, end = motif[o], chunk[o], chrom[o], start[o], end[o]
     gstart = np.concatenate([[0], np.flatnonzero(np.diff(chunk) != 0) + 1, [len(chunk)]])
     ov_ref = np.zeros((n_mot, n_mot), np.int64)
@@ -45,14 +65,28 @@ def test_count_kernel_matches_reference():
     _count_overlaps(gstart, chrom, start, end, motif, n_mot, ov_ref, tot_ref)
 
     join = np.zeros(len(start), bool)
-    join[1:] = (chunk[1:] == chunk[:-1]) & (chrom[1:] == chrom[:-1]) & (motif[1:] == motif[:-1]) & (start[1:] < end[:-1])
+    join[1:] = (
+        (chunk[1:] == chunk[:-1]) & (chrom[1:] == chrom[:-1]) & (motif[1:] == motif[:-1]) & (start[1:] < end[:-1])
+    )
     first = np.flatnonzero(~join)
     last = np.append(first[1:], len(start)) - 1
     ov = cp.zeros(n_mot * n_mot, cp.uint64)
     tot = cp.zeros(n_mot, cp.uint64)
-    _launch(_count_kernel, len(first), (cp.int64(len(first)), cp.asarray(chunk[first].astype(np.int32)),
-                                        cp.asarray(chrom[first]), cp.asarray(start[first]), cp.asarray(end[last]),
-                                        cp.asarray(motif[first].astype(np.int32)), cp.int64(n_mot), ov, tot))
+    _launch(
+        _count_kernel,
+        len(first),
+        (
+            cp.int64(len(first)),
+            cp.asarray(chunk[first].astype(np.int32)),
+            cp.asarray(chrom[first]),
+            cp.asarray(start[first]),
+            cp.asarray(end[last]),
+            cp.asarray(motif[first].astype(np.int32)),
+            cp.int64(n_mot),
+            ov,
+            tot,
+        ),
+    )
     assert ov_ref.sum() > 0
     assert np.array_equal(ov.get().view(np.int64).reshape(n_mot, n_mot), ov_ref)
     assert np.array_equal(tot.get().view(np.int64), tot_ref)
@@ -60,7 +94,7 @@ def test_count_kernel_matches_reference():
 
 def test_string_order_key():
     rng = np.random.default_rng(2)
-    s = np.concatenate([rng.integers(0, 10**rng.integers(1, 10, 5000)), [0, 9, 10, 99, 100, 999999999]])
+    s = np.concatenate([rng.integers(0, 10 ** rng.integers(1, 10, 5000)), [0, 9, 10, 99, 100, 999999999]])
     e = s + rng.integers(1, 30, len(s))
     hi, lo = _strkey_kernel(cp.asarray(s), cp.asarray(e))
     got = _stable_order(hi, lo).get()

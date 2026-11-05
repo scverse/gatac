@@ -6,6 +6,7 @@ group's fragments pile up on that group's hotspots) and, for counting, against
 a brute-force per-peak count. Parity with MACS/SnapATAC2 on real data is the
 reproducibility suite's job.
 """
+
 from __future__ import annotations
 
 import gzip
@@ -52,9 +53,11 @@ def _brute_force_counts(frags: pd.DataFrame, cells, peaks: pd.DataFrame, strateg
         f = f.iloc[lo:hi]
         in1 = (f.start >= p.start) & (f.start < p.end)
         in2 = (f.end - 1 >= p.start) & (f.end - 1 < p.end)
-        n = {"insertion": in1.astype(int) + in2.astype(int),
-             "paired-insertion": (in1 | in2).astype(int),
-             "fragment": ((f.start < p.end) & (f.end > p.start)).astype(int)}[strategy]
+        n = {
+            "insertion": in1.astype(int) + in2.astype(int),
+            "paired-insertion": (in1 | in2).astype(int),
+            "fragment": ((f.start < p.end) & (f.end > p.start)).astype(int),
+        }[strategy]
         np.add.at(out[:, j], f.row.to_numpy(), n.to_numpy())
     return out
 
@@ -62,6 +65,7 @@ def _brute_force_counts(frags: pd.DataFrame, cells, peaks: pd.DataFrame, strateg
 @pytest.fixture(scope="module")
 def chrom_sizes(world):
     from pyfaidx import Fasta
+
     return {c: len(s) for c, s in Fasta(str(world["fasta"])).items()}
 
 
@@ -75,8 +79,7 @@ def split_parquets(world, tmp_path_factory):
     source = pd.Series(np.where(odd, "S2_tile.h5ad", "S1_tile.h5ad"), index=barcodes)
     for name in ("S1", "S2"):
         with gzip.open(d / f"{name}.tsv.gz", "wt") as fh:
-            df[source.loc[df.barcode].to_numpy() == f"{name}_tile.h5ad"].to_csv(
-                fh, sep="\t", header=False, index=False)
+            df[source.loc[df.barcode].to_numpy() == f"{name}_tile.h5ad"].to_csv(fh, sep="\t", header=False, index=False)
         ga.io.make_parquet(d / f"{name}.tsv.gz", d / f"{name}.parquet")
     return d, source
 
@@ -101,6 +104,7 @@ def test_call_finds_each_groups_own_hotspots(tiles, world, chrom_sizes):
 def test_call_is_independent_of_chromosome_batches(tiles, world, chrom_sizes, monkeypatch):
     """Calling one chromosome per batch (a tiny GPU budget) gives the peaks of a single batch."""
     from gatac.peak import _macs
+
     one = ga.peak.call(tiles, "group", world["parquet"], genome=chrom_sizes, inplace=False, verbose=False)
     callpeak = _macs.callpeak
     monkeypatch.setattr(_macs, "callpeak", lambda f, p, budget_bytes=None: callpeak(f, p, budget_bytes=1))
@@ -123,6 +127,7 @@ def test_call_is_independent_of_read_passes(tiles, world, split_parquets, chrom_
 def test_group_passes_fit_the_cap():
     """Groups are packed into passes of at most ``cap`` fragments; a group above it gets its own pass."""
     from gatac.peak.peaks import _group_passes
+
     n = np.array([5, 1, 7, 3, 12, 2])
     passes = _group_passes(n, 8)
     assert sorted(i for p in passes for i in p) == list(range(n.size))
@@ -134,8 +139,9 @@ def test_group_passes_fit_the_cap():
 def test_call_without_summits_gives_one_row_per_peak(tiles, world, chrom_sizes):
     """``call_summits=False``: the same peaks, each once, with its summit inside it."""
     sub = ga.peak.call(tiles, "group", world["parquet"], genome=chrom_sizes, inplace=False, verbose=False)
-    single = ga.peak.call(tiles, "group", world["parquet"], genome=chrom_sizes, inplace=False, verbose=False,
-                          call_summits=False)
+    single = ga.peak.call(
+        tiles, "group", world["parquet"], genome=chrom_sizes, inplace=False, verbose=False, call_summits=False
+    )
     for g, df in single.items():
         key = ["chrom", "start", "end"]
         assert not df.duplicated(key).any()
@@ -160,10 +166,24 @@ def test_merge_keeps_most_significant_of_each_overlap_chain(chrom_sizes):
     """Fixed width 2*half_width+1 around the summit; iteratively keep the best and drop what overlaps it."""
     # a—b and b—c overlap at half_width=50, a and c do not; b is weakest, so a and c survive.
     # d overlaps nothing but sits on another group; e duplicates c's summit with a lower score.
-    g1 = pd.DataFrame({"chrom": ["chr1", "chr1"], "start": [1_000, 1_160], "end": [1_100, 1_260],
-                       "peak": [50, 50], "p_value": [9.0, 8.0]})          # a: summit 1050, c: 1210
-    g2 = pd.DataFrame({"chrom": ["chr1", "chr2", "chr1"], "start": [1_080, 5_000, 1_200], "end": [1_180, 5_100, 1_220],
-                       "peak": [50, 50, 10], "p_value": [3.0, 1.0, 2.0]})  # b: 1130, d: chr2 5050, e: 1210
+    g1 = pd.DataFrame(
+        {
+            "chrom": ["chr1", "chr1"],
+            "start": [1_000, 1_160],
+            "end": [1_100, 1_260],
+            "peak": [50, 50],
+            "p_value": [9.0, 8.0],
+        }
+    )  # a: summit 1050, c: 1210
+    g2 = pd.DataFrame(
+        {
+            "chrom": ["chr1", "chr2", "chr1"],
+            "start": [1_080, 5_000, 1_200],
+            "end": [1_180, 5_100, 1_220],
+            "peak": [50, 50, 10],
+            "p_value": [3.0, 1.0, 2.0],
+        }
+    )  # b: 1130, d: chr2 5050, e: 1210
     out = ga.peak.merge({"g1": g1, "g2": g2}, chrom_sizes=chrom_sizes, half_width=50)
     got = sorted(zip(out.chrom, out.start, out.end, out.p_value))
     assert got == [("chr1", 1_000, 1_101, 9.0), ("chr1", 1_160, 1_261, 8.0), ("chr2", 5_000, 5_101, 1.0)]
@@ -190,8 +210,7 @@ def test_make_matrix_counts_as_documented(peaks, world, strategy, chrom_sizes):
     """Each counting strategy counts exactly what its docstring says, per cell and peak."""
     merged = ga.peak.merge(peaks.uns["gmacs"], chrom_sizes=chrom_sizes)
     peaks.uns["peaks"] = merged
-    got = ga.peak.make_matrix(peaks, world["parquet"], genome=chrom_sizes, counting_strategy=strategy,
-                              verbose=False)
+    got = ga.peak.make_matrix(peaks, world["parquet"], genome=chrom_sizes, counting_strategy=strategy, verbose=False)
     expected = _brute_force_counts(world["fragments"], got.obs_names, _coords(got.var_names), strategy)
     np.testing.assert_array_equal(got.X.toarray(), expected)
 
@@ -202,8 +221,7 @@ def test_make_matrix_counts_overlapping_peaks_from_file(peaks, world, tmp_path, 
     shifted = merged.assign(start=merged.start + 200, end=merged.end + 200)
     bed = tmp_path / "overlapping.bed"
     pd.concat([merged, shifted]).to_csv(bed, sep="\t", header=False, index=False)
-    got = ga.peak.make_matrix(peaks, world["parquet"], peak_file=bed, use_rep=None, genome=chrom_sizes,
-                              verbose=False)
+    got = ga.peak.make_matrix(peaks, world["parquet"], peak_file=bed, use_rep=None, genome=chrom_sizes, verbose=False)
     expected = _brute_force_counts(world["fragments"], got.obs_names, _coords(got.var_names), "paired-insertion")
     np.testing.assert_array_equal(got.X.toarray(), expected)
 

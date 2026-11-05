@@ -1,4 +1,4 @@
-# As rapids_singlecell (from scanpy / anndata)
+# Based on pydata/xarray/anndata/scanpy
 codecov:
   require_ci_to_pass: false
 
@@ -6,6 +6,7 @@ coverage:
   status:
     project:
       default:
+        # Require 75% coverage
         target: 75
     changes: false
 

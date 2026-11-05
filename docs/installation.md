@@ -81,10 +81,12 @@ make html
 
 ```python
 import gatac as ga
+
 print(ga.__version__)
 
 # Check that GPU is available
 import cudf
+
 print(cudf.get_device_info())
 ```
 

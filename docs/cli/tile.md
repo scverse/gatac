@@ -194,8 +194,7 @@ adata = ga.pp.make_tile_matrix(
 adata.write_h5ad("pbmc_tile.h5ad")
 
 # Top 500,000 tiles of 5 kb, without building the full matrix
-adata = ga.pp.make_tile_matrix("pbmc.parquet", chrom_sizes="hg38",
-                               tile_size=5000, n_features=500_000)
+adata = ga.pp.make_tile_matrix("pbmc.parquet", chrom_sizes="hg38", tile_size=5000, n_features=500_000)
 
 # Several samples, without per-sample matrices
 adata = ga.pp.make_tile_matrix(
@@ -208,7 +207,7 @@ adata = ga.pp.make_tile_matrix(
 
 # Or step by step, to choose the tiles another way
 tiles = ga.pp.scan_tiles(["sample1.parquet", "sample2.parquet"], chrom_sizes="hg38")
-ga.pp.select_features(tiles, n_features=500_000)     # or set tiles.var["selected"]
+ga.pp.select_features(tiles, n_features=500_000)  # or set tiles.var["selected"]
 adata = ga.pp.build_tile_matrix(tiles, output_path="combined.h5ad")
 ```
 

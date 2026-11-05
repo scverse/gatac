@@ -1,6 +1,6 @@
 runners:
-  # T4 (g4dn.xlarge), spot first then on-demand. The scverse-standard AMI in
-  # eu-west-1, built by scverse/gpu-ci-config, as for anndata and rapids_singlecell.
+  # T4 for stable, dev and prerelease (cu13). scverse-standard AMI, eu-west-1.
+  # Only T4 capacity is available; g5 (A10G) and g6 (L4) are not.
   - name: aws-gpu-runner-g4dn
     cloud: aws
     instance_type: g4dn.xlarge

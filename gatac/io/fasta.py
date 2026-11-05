@@ -12,6 +12,7 @@ same file (same path, size and modification time) reuses that copy and its
 index, so functions that open the genome several times, or several
 functions in a row, do not decompress it again.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -21,8 +22,8 @@ import os
 import shutil
 import tempfile
 import threading
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence, Union
 
 import numpy as np
 
@@ -63,7 +64,7 @@ class Fasta:
     ...     fa.fetch(["chr19:1000000-1000010"])
     """
 
-    def __init__(self, path: Union[str, Path]):
+    def __init__(self, path: str | Path):
         self.path = Path(path)
         if self.path.name.endswith(".gz"):
             fasta, self.index = _plain_copy(self.path)
@@ -74,7 +75,7 @@ class Fasta:
     def __repr__(self) -> str:
         return f"Fasta({str(self.path)!r}, {len(self.index)} sequences)"
 
-    def __enter__(self) -> "Fasta":
+    def __enter__(self) -> Fasta:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -98,7 +99,7 @@ class Fasta:
         if length == 0:
             return np.zeros(0, dtype=np.uint8)
         n_bytes = (length // lb) * lw + length % lb
-        blk = np.asarray(self._mm[off:off + n_bytes])
+        blk = np.asarray(self._mm[off : off + n_bytes])
         if lw == lb:
             return blk.copy()
         return blk[(blk != 10) & (blk != 13)][:length]
@@ -149,7 +150,7 @@ class Fasta:
                 out.append("")
                 continue
             # one contiguous block of the file, line ends removed
-            seq = self._mm[off + (s // lb) * lw + s % lb:off + (e // lb) * lw + e % lb].tobytes()
+            seq = self._mm[off + (s // lb) * lw + s % lb : off + (e // lb) * lw + e % lb].tobytes()
             if lw != lb:
                 seq = seq.replace(b"\n", b"").replace(b"\r", b"")
             out.append(seq.decode("ascii"))
@@ -198,7 +199,7 @@ def _load_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
             index[f[0]] = (int(f[1]), int(f[2]), int(f[3]), int(f[4]))
         return index
     index = _build_index(fasta)
-    tmp = fai.with_name(f"{fai.name}.{os.getpid()}.tmp")       # readers never see a partial index
+    tmp = fai.with_name(f"{fai.name}.{os.getpid()}.tmp")  # readers never see a partial index
     try:
         with open(tmp, "w") as f:
             f.writelines(f"{c}\t{n}\t{o}\t{lb}\t{lw}\n" for c, (n, o, lb, lw) in index.items())
@@ -217,8 +218,9 @@ def _build_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
     logger.info(f"Indexing {fasta.name}...")
     mm = np.memmap(fasta, dtype=np.uint8, mode="r")
     n = len(mm)
-    nl = np.concatenate([np.flatnonzero(mm[i:i + _CHUNK] == 10) + i for i in range(0, n, _CHUNK)]
-                        + [np.zeros(0, np.int64)])
+    nl = np.concatenate(
+        [np.flatnonzero(mm[i : i + _CHUNK] == 10) + i for i in range(0, n, _CHUNK)] + [np.zeros(0, np.int64)]
+    )
     # line k is [ls[k], le[k]), without its "\n"
     ls = np.concatenate([[0], nl + 1])
     le = np.append(nl, n)
@@ -230,7 +232,7 @@ def _build_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
     header = np.flatnonzero((le > ls) & (mm[np.minimum(ls, n - 1)] == ord(">")))
     index = {}
     for k, h in enumerate(header):
-        name = bytes(mm[ls[h] + 1:le[h] - cr[h]]).decode().split()[0]
+        name = bytes(mm[ls[h] + 1 : le[h] - cr[h]]).decode().split()[0]
         if name in index:
             raise ValueError(f"{fasta}: duplicate sequence name {name}")
         a = h + 1
@@ -239,10 +241,10 @@ def _build_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
         if len(filled) == 0:
             index[name] = (0, int(ls[a]) if a < len(ls) else n, 0, 0)
             continue
-        b = a + filled[-1] + 1                       # trailing blank lines are not sequence
+        b = a + filled[-1] + 1  # trailing blank lines are not sequence
         lb = int(bases[a])
         lw = int(ls[a + 1] - ls[a]) if b - a > 1 else lb + 1 + int(cr[a])
-        if (bases[a:b - 1] != lb).any() or bases[b - 1] > lb or (np.diff(ls[a:b]) != lw).any():
+        if (bases[a : b - 1] != lb).any() or bases[b - 1] > lb or (np.diff(ls[a:b]) != lw).any():
             raise ValueError(f"{fasta}: lines of {name} have different lengths; it cannot be indexed")
         index[name] = (int(bases[a:b].sum()), int(ls[a]), lb, lw)
     return index

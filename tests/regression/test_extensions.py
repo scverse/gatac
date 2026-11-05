@@ -1,4 +1,5 @@
 """Extensions: packages reached as gatac.<name> and `gatac <command>` through entry points."""
+
 import sys
 from importlib.metadata import EntryPoint
 
@@ -21,10 +22,11 @@ def ext(tmp_path, monkeypatch):
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     eps = {
-        "gatac.ext": [EntryPoint("demo", "gatac_demo", "gatac.ext"),
-                      EntryPoint("io", "gatac_demo", "gatac.ext")],
-        "gatac.cli": [EntryPoint("demo", "gatac_demo:register", "gatac.cli"),
-                      EntryPoint("bad", "gatac_demo:broken", "gatac.cli")],
+        "gatac.ext": [EntryPoint("demo", "gatac_demo", "gatac.ext"), EntryPoint("io", "gatac_demo", "gatac.ext")],
+        "gatac.cli": [
+            EntryPoint("demo", "gatac_demo:register", "gatac.cli"),
+            EntryPoint("bad", "gatac_demo:broken", "gatac.cli"),
+        ],
     }
     fake = lambda group: eps.get(group, [])
     monkeypatch.setattr(gatac, "entry_points", fake)
@@ -38,7 +40,7 @@ def test_extension_namespace(ext):
     assert set(gatac.extensions()) == {"demo", "io"}
     assert "demo" in dir(gatac)
     assert gatac.demo.hello() == "hi"
-    assert gatac.io.__name__ == "gatac.io"                       # core names win
+    assert gatac.io.__name__ == "gatac.io"  # core names win
     with pytest.raises(AttributeError):
         _ = gatac.nothing_here
 
@@ -48,5 +50,4 @@ def test_extension_command(ext, monkeypatch, capsys):
     gatac.cli.main()
     out = capsys.readouterr()
     assert "demo ran 3" in out.out
-    assert "extension 'bad'" in out.err and "boom" in out.err    # a broken extension only warns
-
+    assert "extension 'bad'" in out.err and "boom" in out.err  # a broken extension only warns

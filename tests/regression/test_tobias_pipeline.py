@@ -1,4 +1,5 @@
 """footprint -> bindetect end to end on a small synthetic genome."""
+
 import gzip
 
 import numpy as np
@@ -14,13 +15,34 @@ import matplotlib.pyplot as plt  # noqa: E402
 import gatac as ga  # noqa: E402
 
 CHROMS = {"chr1": 400_000, "chr2": 300_000}
-MOTIFS = {                                   # A C G T per position
-    "AP1": ["0.9 0.0 0.1 0.0", "0.0 0.0 0.0 1.0", "0.0 0.0 1.0 0.0", "1.0 0.0 0.0 0.0",
-            "0.0 1.0 0.0 0.0", "0.0 0.0 0.0 1.0", "1.0 0.0 0.0 0.0"],
-    "CTCFLIKE": ["0.0 1.0 0.0 0.0", "0.0 1.0 0.0 0.0", "1.0 0.0 0.0 0.0", "0.0 0.0 1.0 0.0",
-                 "0.0 0.0 1.0 0.0", "0.0 0.0 1.0 0.0", "0.0 0.0 1.0 0.0", "0.0 1.0 0.0 0.0"],
-    "GATA": ["1.0 0.0 0.0 0.0", "0.0 0.0 1.0 0.0", "1.0 0.0 0.0 0.0", "0.0 0.0 0.0 1.0",
-             "1.0 0.0 0.0 0.0", "1.0 0.0 0.0 0.0"],
+MOTIFS = {  # A C G T per position
+    "AP1": [
+        "0.9 0.0 0.1 0.0",
+        "0.0 0.0 0.0 1.0",
+        "0.0 0.0 1.0 0.0",
+        "1.0 0.0 0.0 0.0",
+        "0.0 1.0 0.0 0.0",
+        "0.0 0.0 0.0 1.0",
+        "1.0 0.0 0.0 0.0",
+    ],
+    "CTCFLIKE": [
+        "0.0 1.0 0.0 0.0",
+        "0.0 1.0 0.0 0.0",
+        "1.0 0.0 0.0 0.0",
+        "0.0 0.0 1.0 0.0",
+        "0.0 0.0 1.0 0.0",
+        "0.0 0.0 1.0 0.0",
+        "0.0 0.0 1.0 0.0",
+        "0.0 1.0 0.0 0.0",
+    ],
+    "GATA": [
+        "1.0 0.0 0.0 0.0",
+        "0.0 0.0 1.0 0.0",
+        "1.0 0.0 0.0 0.0",
+        "0.0 0.0 0.0 1.0",
+        "1.0 0.0 0.0 0.0",
+        "1.0 0.0 0.0 0.0",
+    ],
 }
 
 
@@ -33,7 +55,7 @@ def inputs(tmp_path_factory):
     with open(fasta, "w") as fh:
         for c, n in CHROMS.items():
             seq = "".join(rng.choice(list("ACGT"), n))
-            fh.write(f">{c}\n" + "\n".join(seq[i:i + 60] for i in range(0, n, 60)) + "\n")
+            fh.write(f">{c}\n" + "\n".join(seq[i : i + 60] for i in range(0, n, 60)) + "\n")
 
     peaks = []
     for c, n in CHROMS.items():
@@ -62,14 +84,18 @@ def inputs(tmp_path_factory):
 
     meme = d / "motifs.meme"
     with open(meme, "w") as fh:
-        fh.write("MEME version 4\n\nALPHABET= ACGT\n\nstrands: + -\n\n"
-                 "Background letter frequencies\nA 0.25 C 0.25 G 0.25 T 0.25\n\n")
+        fh.write(
+            "MEME version 4\n\nALPHABET= ACGT\n\nstrands: + -\n\n"
+            "Background letter frequencies\nA 0.25 C 0.25 G 0.25 T 0.25\n\n"
+        )
         for name, rows_ in MOTIFS.items():
             fh.write(f"MOTIF {name} {name}\nletter-probability matrix: alength= 4 w= {len(rows_)} nsites= 20 E= 0\n")
             fh.write("\n".join(f" {r}" for r in rows_) + "\n\n")
 
-    obs = pd.DataFrame({"group": pd.Categorical([g for g, bcs in cells.items() for _ in bcs])},
-                       index=[b for bcs in cells.values() for b in bcs])
+    obs = pd.DataFrame(
+        {"group": pd.Categorical([g for g, bcs in cells.items() for _ in bcs])},
+        index=[b for bcs in cells.values() for b in bcs],
+    )
     adata = ad.AnnData(obs=obs)
     tracks = ga.tobias.footprint(adata, "group", parquet, fasta, peaks=peaks, verbose=False)
     return dict(tracks=tracks, meme=meme)
@@ -80,22 +106,22 @@ def inputs(tmp_path_factory):
 def test_load_cuts_matches_unique_rows(tmp_path, deduplicate, read_length):
     # Reference: the former implementation (unique over all rows, then partition)
     from gatac.tobias.footprint import _load_cuts
+
     rng = np.random.default_rng(3)
     n = 30_000
     chrom = rng.choice(list(CHROMS), n)
     start = rng.integers(0, 300_000, n)
-    start[rng.random(n) < 0.3] = 150_000                      # many shared coordinates
+    start[rng.random(n) < 0.3] = 150_000  # many shared coordinates
     end = start + rng.integers(20, 600, n)
     end[chrom == "chr2"] = np.minimum(end[chrom == "chr2"], CHROMS["chr2"])
     bcs = np.array([f"c{i:02d}-1" for i in range(20)])
-    df = pd.DataFrame({"chrom": chrom, "start": start, "end": end,
-                       "barcode": bcs[rng.integers(0, 20, n)], "count": 1})
+    df = pd.DataFrame({"chrom": chrom, "start": start, "end": end, "barcode": bcs[rng.integers(0, 20, n)], "count": 1})
     df = df.sort_values(["chrom", "start", "end"]).drop_duplicates(["chrom", "start", "end", "barcode"])
     tsv = tmp_path / "f.tsv.gz"
     with gzip.open(tsv, "wt") as fh:
         df.to_csv(fh, sep="\t", header=False, index=False)
     parquet = ga.io.make_parquet(tsv, tmp_path / "f.parquet")
-    groups = {b: i % 3 for i, b in enumerate(bcs[:18])}       # two barcodes in no group
+    groups = {b: i % 3 for i, b in enumerate(bcs[:18])}  # two barcodes in no group
     got = _load_cuts(parquet, groups, CHROMS, read_length, deduplicate)
 
     ref = df[df["barcode"].isin(groups)].assign(g=lambda d: d["barcode"].map(groups))
@@ -106,8 +132,11 @@ def test_load_cuts_matches_unique_rows(tmp_path, deduplicate, read_length):
         for c, length in CHROMS.items():
             sub = ref[(ref["g"] == g) & (ref["chrom"] == c)]
             s, e = sub["start"].to_numpy().astype(np.int64), sub["end"].to_numpy().astype(np.int64)
-            ok = ((s >= 0) & (e <= length) if read_length is None else
-                  (s - 4 >= 0) & (e + 4 - read_length >= 0) & (e + 4 <= length) & (s - 4 + read_length <= length))
+            ok = (
+                (s >= 0) & (e <= length)
+                if read_length is None
+                else (s - 4 >= 0) & (e + 4 - read_length >= 0) & (e + 4 <= length) & (s - 4 + read_length <= length)
+            )
             fwd, rev = got[g][c]
             assert np.array_equal(fwd, np.sort(s[ok])) and np.array_equal(rev, np.sort(e[ok] - 1))
             assert fwd.dtype == np.int64 and rev.dtype == np.int64
@@ -131,7 +160,9 @@ def test_bindetect_site_table_and_log2fc(bindetect_res):
     expected = np.round(np.log2((s1 + res.pseudo) / (s2 + res.pseudo)), 5)
     assert l2.name == "a_b_log2fc" and l2.index.equals(res.sites.index)
     assert np.array_equal(l2.to_numpy(), expected)
-    assert np.array_equal(res.site_log2fc("b", "a").to_numpy(), np.round(np.log2((s2 + res.pseudo) / (s1 + res.pseudo)), 5))
+    assert np.array_equal(
+        res.site_log2fc("b", "a").to_numpy(), np.round(np.log2((s2 + res.pseudo) / (s1 + res.pseudo)), 5)
+    )
     with pytest.raises(ValueError):
         res.site_log2fc("a", "c")
 

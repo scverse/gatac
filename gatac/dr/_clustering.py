@@ -135,8 +135,7 @@ def _knn_exact(X: np.ndarray, k: int) -> np.ndarray:
     return cp.asnumpy(idx).astype(np.int32)
 
 
-def _knn_annoy(X: np.ndarray, k: int, *, random_state: int,
-               n_trees: int = _ANNOY_TREES) -> np.ndarray:
+def _knn_annoy(X: np.ndarray, k: int, *, random_state: int, n_trees: int = _ANNOY_TREES) -> np.ndarray:
     """
     Annoy's approximate kNN — the search ``Seurat::FindNeighbors`` uses.
 
@@ -169,8 +168,7 @@ def _knn_annoy(X: np.ndarray, k: int, *, random_state: int,
     return idx
 
 
-def _knn_indices(X: np.ndarray, k: int, *, knn: str = "exact",
-                 random_state: int = 0) -> np.ndarray:
+def _knn_indices(X: np.ndarray, k: int, *, knn: str = "exact", random_state: int = 0) -> np.ndarray:
     """Euclidean kNN indices, ``(n, k)``, self included; see *knn* choices."""
     if knn == "exact":
         return _knn_exact(X, k)
@@ -220,9 +218,7 @@ def snn_graph(
 
     rows = cp.repeat(cp.arange(n, dtype=cp.int32), k)
     cols = cp.asarray(idx.ravel())
-    A = cusp.csr_matrix(
-        (cp.ones(rows.size, dtype=cp.float32), (rows, cols)), shape=(n, n)
-    )
+    A = cusp.csr_matrix((cp.ones(rows.size, dtype=cp.float32), (rows, cols)), shape=(n, n))
     del rows, cols
 
     shared = (A @ A.T).tocoo()
@@ -232,20 +228,14 @@ def snn_graph(
     # Jaccard, then prune. Seurat keeps weights strictly greater than `prune`.
     w = shared.data / (cp.float32(2 * k) - shared.data)
     keep = (w > cp.float32(prune)) & (shared.row != shared.col)
-    graph = cusp.csr_matrix(
-        (w[keep], (shared.row[keep], shared.col[keep])), shape=(n, n)
-    )
-    logger.info(
-        f"SNN graph: {n:,} cells, k={k}, {graph.nnz:,} edges after pruning "
-        f"at {prune:.4g}"
-    )
+    graph = cusp.csr_matrix((w[keep], (shared.row[keep], shared.col[keep])), shape=(n, n))
+    logger.info(f"SNN graph: {n:,} cells, k={k}, {graph.nnz:,} edges after pruning at {prune:.4g}")
     del shared, w, keep
     cp.get_default_memory_pool().free_all_blocks()
     return graph
 
 
-def _communities(graph: cusp.csr_matrix, resolution: float, flavor: str,
-             random_state: int) -> np.ndarray:
+def _communities(graph: cusp.csr_matrix, resolution: float, flavor: str, random_state: int) -> np.ndarray:
     """Community detection on the SNN graph via cuGraph."""
     cugraph = _import_cugraph()
     import cudf  # noqa: PLC0415
@@ -264,14 +254,16 @@ def _communities(graph: cusp.csr_matrix, resolution: float, flavor: str,
 
     G = cugraph.Graph(directed=False)
     G.from_cudf_edgelist(
-        df, source="src", destination="dst", edge_attr="weight",
+        df,
+        source="src",
+        destination="dst",
+        edge_attr="weight",
         symmetrize=True,
     )
     del df
 
     if flavor == "leiden":
-        parts, _ = cugraph.leiden(G, resolution=resolution,
-                                  random_state=random_state)
+        parts, _ = cugraph.leiden(G, resolution=resolution, random_state=random_state)
     elif flavor == "louvain":
         parts, _ = cugraph.louvain(G, resolution=resolution)
     else:
@@ -322,18 +314,17 @@ def _reassign_small_clusters(
     Xg = cp.asarray(embedding, dtype=cp.float32)
     for cl in small:
         idxi = np.where(labels == cl)[0]
-        if idxi.size == 0:                     # already absorbed
+        if idxi.size == 0:  # already absorbed
             continue
         pool = np.where(labels != cl)[0]
         if pool.size == 0:
             continue
         k = int(min(knn_assign, pool.size))
-        nn = NearestNeighbors(n_neighbors=k, metric="euclidean",
-                              output_type="cupy")
+        nn = NearestNeighbors(n_neighbors=k, metric="euclidean", output_type="cupy")
         nn.fit(Xg[cp.asarray(pool)])
         _, nbr = nn.kneighbors(Xg[cp.asarray(idxi)])
         nbr = cp.asnumpy(nbr)
-        cand = labels[pool][nbr]               # (len(idxi), k)
+        cand = labels[pool][nbr]  # (len(idxi), k)
         for row, cell in enumerate(idxi):
             vals, cnt = np.unique(cand[row], return_counts=True)
             labels[cell] = vals[np.argmax(cnt)]
@@ -342,9 +333,7 @@ def _reassign_small_clusters(
     return labels
 
 
-def _merge_to_max_clusters(
-    embedding: np.ndarray, labels: np.ndarray, max_clusters: int
-) -> np.ndarray:
+def _merge_to_max_clusters(embedding: np.ndarray, labels: np.ndarray, max_clusters: int) -> np.ndarray:
     """
     Merge down to *max_clusters* by clustering the cluster centroids.
 
@@ -358,22 +347,15 @@ def _merge_to_max_clusters(
     uniq = np.unique(labels)
     if uniq.size <= max_clusters:
         return labels
-    centroids = np.vstack(
-        [embedding[labels == cl].mean(axis=0) for cl in uniq]
-    )
+    centroids = np.vstack([embedding[labels == cl].mean(axis=0) for cl in uniq])
     Z = linkage(centroids, method="complete", metric="euclidean")
     merged = fcluster(Z, t=max_clusters, criterion="maxclust")
-    logger.info(
-        f"Merging {uniq.size} cluster(s) down to {len(np.unique(merged))} "
-        f"(max_clusters={max_clusters})."
-    )
+    logger.info(f"Merging {uniq.size} cluster(s) down to {len(np.unique(merged))} (max_clusters={max_clusters}).")
     mapping = dict(zip(uniq, merged))
     return np.asarray([mapping[c] for c in labels])
 
 
-def _relabel_by_dendrogram(
-    embedding: np.ndarray, labels: np.ndarray
-) -> np.ndarray:
+def _relabel_by_dendrogram(embedding: np.ndarray, labels: np.ndarray) -> np.ndarray:
     """
     Renumber clusters 0..k-1 in dendrogram order, as ArchR does last.
 
@@ -542,9 +524,7 @@ def snn_cluster(
         emb = np.ascontiguousarray(np.round(emb, quantize).astype(np.float32))
     n = emb.shape[0]
     if n <= k:
-        raise ValueError(
-            f"Need more cells than neighbours: n_cells={n}, k={k}."
-        )
+        raise ValueError(f"Need more cells than neighbours: n_cells={n}, k={k}.")
 
     graph = snn_graph(emb, k=k, prune=prune, knn=knn, random_state=random_state)
 
@@ -579,17 +559,12 @@ def snn_cluster(
             "or a smaller `k`, or supply your own clusterer via `cluster_fn`."
         )
     if res != resolution:
-        logger.warning(
-            f"Using resolution {res:g} rather than the requested "
-            f"{resolution:g}; see the warning above."
-        )
+        logger.warning(f"Using resolution {res:g} rather than the requested {resolution:g}; see the warning above.")
     del graph
     cp.get_default_memory_pool().free_all_blocks()
     logger.info(f"{flavor.capitalize()} found {len(np.unique(labels))} cluster(s).")
 
-    labels = _reassign_small_clusters(
-        emb, labels, n_outlier=n_outlier, knn_assign=knn_assign
-    )
+    labels = _reassign_small_clusters(emb, labels, n_outlier=n_outlier, knn_assign=knn_assign)
     if max_clusters is not None:
         labels = _merge_to_max_clusters(emb, labels, max_clusters)
     labels = _relabel_by_dendrogram(emb, labels)

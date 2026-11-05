@@ -11,6 +11,7 @@ Chunks are kept on the GPU while they fit in a share of its free memory;
 the others are streamed from page-locked host memory at every product,
 the next chunk copied while the current one is used.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,8 +24,12 @@ from ..gpu import bincount
 
 logger = logging.getLogger(__name__)
 
-_DTYPES = {np.dtype(np.uint8): "unsigned char", np.dtype(np.uint16): "unsigned short",
-           np.dtype(np.int32): "int", np.dtype(np.float32): "float"}
+_DTYPES = {
+    np.dtype(np.uint8): "unsigned char",
+    np.dtype(np.uint16): "unsigned short",
+    np.dtype(np.int32): "int",
+    np.dtype(np.float32): "float",
+}
 
 # One warp per row; ``indptr`` is the whole matrix's, ``base`` the index of the
 # chunk's first entry in it, ``r0`` the chunk's first row.
@@ -98,7 +103,7 @@ class _Chunk:
 
     def __init__(self, r0, r1, e0, e1):
         self.r0, self.r1, self.e0, self.e1 = r0, r1, e0, e1
-        self.data = self.indices = None   # device arrays while resident
+        self.data = self.indices = None  # device arrays while resident
 
 
 class StreamedCounts:
@@ -118,7 +123,7 @@ class StreamedCounts:
     """
 
     def __init__(self, X: sp.csr_matrix, chunk_size: int, memory_fraction: float = 0.5) -> None:
-        if hasattr(X, "get"):   # a CuPy sparse matrix
+        if hasattr(X, "get"):  # a CuPy sparse matrix
             X = X.get()
         X = X.tocsr()
         self.shape = X.shape
@@ -141,8 +146,8 @@ class StreamedCounts:
             c = _Chunk(r0, r1, int(indptr[r0]), int(indptr[r1]))
             size = (c.e1 - c.e0) * entry_bytes
             if used + size <= budget:
-                c.data = cp.asarray(data[c.e0:c.e1])
-                c.indices = cp.asarray(indices[c.e0:c.e1])
+                c.data = cp.asarray(data[c.e0 : c.e1])
+                c.indices = cp.asarray(indices[c.e0 : c.e1])
                 used += size
             self.chunks.append(c)
         self._streamed = [c for c in self.chunks if c.data is None]
@@ -158,8 +163,7 @@ class StreamedCounts:
                     cp.cuda.runtime.hostRegister(part.ctypes.data, part.nbytes, 0)
                     self._registered.append(part)
             biggest = max(c.e1 - c.e0 for c in self._streamed)
-            self._buffers = [(cp.empty(biggest, dtype=data.dtype), cp.empty(biggest, dtype=np.int32))
-                             for _ in range(2)]
+            self._buffers = [(cp.empty(biggest, dtype=data.dtype), cp.empty(biggest, dtype=np.int32)) for _ in range(2)]
             self._stream = cp.cuda.Stream(non_blocking=True)
         logger.info(
             f"Count matrix: {len(self.chunks)} chunks of <= {chunk_size:,} rows, "
@@ -188,8 +192,8 @@ class StreamedCounts:
         d, i = self._buffers[slot]
         n = c.e1 - c.e0
         with self._stream:
-            d[:n].set(self._data[c.e0:c.e1], stream=self._stream)
-            i[:n].set(self._indices[c.e0:c.e1], stream=self._stream)
+            d[:n].set(self._data[c.e0 : c.e1], stream=self._stream)
+            i[:n].set(self._indices[c.e0 : c.e1], stream=self._stream)
             ev = cp.cuda.Event()
             ev.record(self._stream)
         return d[:n], i[:n], ev
@@ -225,8 +229,9 @@ class StreamedCounts:
         n = c.r1 - c.r0
         block = 256
         grid = (n * 32 + block - 1) // block
-        _kernel(name, self.dtype)((grid,), (block,), (d, i, self.indptr, np.int64(c.e0),
-                                                      np.int32(c.r0), np.int32(n), *args))
+        _kernel(name, self.dtype)(
+            (grid,), (block,), (d, i, self.indptr, np.int64(c.e0), np.int32(c.r0), np.int32(n), *args)
+        )
 
     # -- products --------------------------------------------------------------
 
