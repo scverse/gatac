@@ -39,6 +39,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
     "sphinx.ext.githubpages",
+    "sphinx.ext.extlinks",
     # scanpydoc (theme + extensions); must come after napoleon
     "scanpydoc",
     # Notebooks + Markdown (myst_nb already loads myst_parser)
@@ -53,6 +54,12 @@ extensions = [
 ]
 
 bibtex_bibfiles = ["references.bib"]
+
+# Release notes: {pr}`12`, {issue}`34`
+extlinks = {
+    "issue": ("https://github.com/scverse/gatac/issues/%s", "issue%s"),
+    "pr": ("https://github.com/scverse/gatac/pull/%s", "pr%s"),
+}
 
 # MyST extensions
 myst_enable_extensions = [
@@ -127,6 +134,9 @@ exclude_patterns = [
     ".DS_Store",
     ".ipynb_checkpoints",
     "notebooks/README.md",  # the gatac-tutorials repo readme
+    # each version's notes are included by release-notes/index.md, not pages
+    "release-notes/[0-9]*.md",
+    "release-notes/blank.md",
 ]
 
 # -- Options for HTML output -------------------------------------------------
@@ -206,6 +216,18 @@ def _merge_stream_outputs(app, doctree):
         container.extend(children)
 
 
+def _class_role(name):
+    """An inline role whose text gets the CSS class ``name``: {small}`date`, {smaller}`author`."""
+    from docutils import nodes
+
+    def role(_name, rawtext, text, _lineno, _inliner, options=None, content=None):
+        return [nodes.inline(rawtext, text, classes=[name])], []
+
+    return role
+
+
 def setup(app):
+    app.add_role("small", _class_role("small"))
+    app.add_role("smaller", _class_role("smaller"))
     app.connect("doctree-read", _relink_notebooks)
     app.connect("doctree-read", _merge_stream_outputs)

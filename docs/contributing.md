@@ -123,27 +123,62 @@ the GPU tests need the `run-gpu-ci` label.
 
 ---
 
+## Release notes
+
+The release notes follow [rapids-singlecell's](https://rapids-singlecell.readthedocs.io/en/latest/release-notes/index.html).
+Each version has its own file in `docs/release-notes/`, `X.Y.Z.md`, started
+from `blank.md`. `index.md` includes it at the top, under its minor version
+(`## Version 0.2.0` holds 0.2.1, then 0.2.0). The file of the next version is
+always on `main`, dated `the-future`, and **every pull request that users would
+notice adds its line to it**, in the same pull request.
+
+- Put each change under one of the rubrics, in this order: *Features*,
+  *Performance*, *Bug fixes*, *Misc*, *Removals*. Remove the rubrics left
+  empty when releasing.
+- One bullet per change, on one line, starting with a verb: *Add*, *Speed
+  up*, *Fix*, *Match*, *Raise*, *Deprecate*, *Remove*. Say what changes for
+  users, including results that differ from the previous version.
+- Link what it is about with its full path, and `~` to show only the name:
+  `` {func}`~gatac.peak.call` ``, `` {class}`~gatac.io.FragmentFile` ``,
+  `` {meth}`~gatac.tobias.BINDetectResult.site_log2fc` ``.
+- End with the pull request(s), then the author(s) as initial and surname:
+  `` {pr}`12` {pr}`15` {smaller}`L Faure & S Dicks` ``.
+
+```md
+- Add {func}`~gatac.peak.call`, MACS3 peak calling on the GPU {pr}`12` {smaller}`L Faure`
+- Speed up {func}`~gatac.pp.make_gene_matrix` 3x on large annotations {pr}`14` {smaller}`L Faure`
+- Fix {func}`~gatac.dr.spectral` with int64 indices {pr}`15` {smaller}`L Faure`
+```
+
 ## Releasing
 
 The version is the git tag (hatch-vcs): `v0.1.0` builds `0.1.0`. Publishing a
 GitHub release uploads it to PyPI through trusted publishing
 (`.github/workflows/release.yml`).
 
-Once, before the first release: on PyPI, add a *pending trusted publisher* for
-the project `gatac` (owner `scverse`, repository `gatac`, workflow
-`release.yml`, environment `pypi`), and create the `pypi` environment in the
-repository's settings, ideally with required reviewers.
+Once, before the first release: on PyPI and on TestPyPI, add a *pending
+trusted publisher* for the project `gatac` (owner `scverse`, repository
+`gatac`, workflow `release.yml`, environment `pypi` on PyPI and `testpypi` on
+TestPyPI), and create both environments in the repository's settings, ideally
+with required reviewers.
 
 For each release:
 
-1. In `docs/changelog.md`, replace *unreleased* in the version's heading by
-   the date, and start a new *unreleased* section above it for the next one.
+1. In the version's release notes (`docs/release-notes/X.Y.Z.md`), replace
+   `the-future` in its heading by the date (`2026-11-20`).
 2. Run the GPU tests on the release commit (`run-gpu-ci` label, or the Modal
    script) and check that the *Checks* workflow passes.
-3. Tag the commit and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
-4. Create a GitHub release of the tag, with the changelog section as notes.
+3. Optionally, try the upload on TestPyPI first: *Actions → Release → Run
+   workflow* on `main`, with a version that is not used yet (`0.1.0rc1`), then
+   `pip install -i https://test.pypi.org/simple/ --extra-index-url
+   https://pypi.org/simple/ gatac==0.1.0rc1`.
+4. Tag the commit and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
+5. Create a GitHub release of the tag, whose notes link to the release notes
+   page: `https://gatac.readthedocs.io/en/latest/release-notes/index.html`.
    The *Release* workflow builds the sdist and wheel, checks that their
    version is the tag's, and publishes them to PyPI.
+6. On `main`, start the next version's notes: copy `blank.md` to the next
+   version's file (`0.1.1.md`), and include it at the top of `index.md`.
 
 ---
 
