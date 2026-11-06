@@ -1,5 +1,10 @@
 # GATAC: GPU-Accelerated scATACseq Analysis
 
+[![CI-Pass](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/scverse/gatac/actions/workflows/test-gpu.yml)
+[![Docs](https://readthedocs.org/projects/gatac/badge/?version=latest)](https://gatac.readthedocs.io/en/latest/)
+[![PyPI](https://img.shields.io/pypi/v/gatac.svg)](https://pypi.org/project/gatac/)
+[![codecov](https://codecov.io/gh/scverse/gatac/graph/badge.svg?token=YMSDUHQRBB)](https://codecov.io/gh/scverse/gatac)
+
 GATAC is a GPU-accelerated toolkit for end-to-end ATAC-seq data processing.
 Starting from raw fragment files, it produces analysis-ready sparse matrices
 (tile, peak, and gene activity) that integrate directly with the

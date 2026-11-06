@@ -1,7 +1,7 @@
 [project]
 name = "gatac"
 dynamic = ["version"]
-description = "GPU-accelerated ATAC-seq fragment processing and tile matrix generation"
+description = "GPU-accelerated single-cell ATAC-seq analysis, from fragment files to peaks, clusters, motifs and footprints"
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
