@@ -2,7 +2,8 @@ name: GPU Tests
 
 # GATAC imports cudf at module level, so the whole suite needs a GPU. It runs on
 # a Cirun AWS T4 (see .cirun.yml), in the hatch-test environments of hatch.toml;
-# to save GPU time, pull requests only run with the 'run-gpu-ci' label.
+# to save GPU time, pull requests only run with the 'run-gpu-ci' label, and
+# changes to only docs/, Markdown files or the submodules skip it.
 # pytest runs on four xdist workers (addopts in pyproject.toml).
 # ci/modal_gpu.py runs the test-stable-dev job on a Modal GPU, from this file and
 # hatch.toml: keep its steps' `hatch run "${ENV_NAME}:<script>"` form.
@@ -25,16 +26,57 @@ permissions: {}
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       skip: ${{ steps.mode.outputs.skip }}
     steps:
+      # Skipped in this job rather than with `paths-ignore`, so that CI-Pass and
+      # All Tests Green still report (and pass) when there is nothing to test.
+      - name: Only docs, Markdown or submodule changes?
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          # The changed files; none when unknown (a new branch, a push past the
+          # compare API's 300 files, or an API error), which runs the tests
+          if [[ "$EVENT" == "pull_request" ]]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename') || files=""
+          elif [[ -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            files=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" \
+              --jq 'if (.files | length) < 300 then .files[].filename else empty end') || files=""
+          else
+            files=""
+          fi
+          printf '%s\n' "$files"
+          # docs/, any .md file, and the reproducibility and tutorials submodules
+          ignored='^(docs/|reproducibility$|tutorials$)|\.md$'
+          if [[ -n "$files" ]] && ! grep -Evq "$ignored" <<< "$files"; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Require push to main, 'run-gpu-ci' or 'skip-gpu-ci' label
         id: mode
         env:
-          RUN: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'run-gpu-ci') }}
+          LABEL_RUN: ${{ contains(github.event.pull_request.labels.*.name, 'run-gpu-ci') }}
+          PUSH: ${{ github.event_name == 'push' }}
+          DOCS_ONLY: ${{ steps.changes.outputs.docs_only }}
           SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-gpu-ci') }}
         run: |
-          if [[ "$RUN" == "true" ]]; then
+          if [[ "$LABEL_RUN" == "true" ]]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$DOCS_ONLY" == "true" ]]; then
+            echo "::notice::GPU CI skipped: only docs, Markdown or submodule changes."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$PUSH" == "true" ]]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
           elif [[ "$SKIP" == "true" ]]; then
             echo "::notice::GPU CI skipped by the 'skip-gpu-ci' label."
