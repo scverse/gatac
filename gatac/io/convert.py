@@ -203,7 +203,7 @@ def _use_gpu(gpu: bool | None) -> bool:
     if gpu and not available:
         raise ImportError(
             "GPU conversion needs cupy, cudf and nvCOMP's Python package (nvidia-nvcomp-cu12 or -cu13, "
-            "installed with gatac's cuda12 / cuda13 extra); pass gpu=False to convert with DuckDB"
+            "installed with gatac's rapids-cu12 / rapids-cu13 extra); pass gpu=False to convert with DuckDB"
         )
     return available
 

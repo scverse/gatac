@@ -90,9 +90,10 @@ __all__ = ["snn_cluster", "snn_graph"]
 _CUGRAPH_HINT = (
     "Graph clustering requires cuGraph, which is not installed in this "
     "environment.\n"
-    "Install it with the matching CUDA extra, e.g.\n"
-    "    uv sync --extra cuda12\n"
-    "or pass your own clusterer via `cluster_fn=...` (it receives the z-scored "
+    "With pip: pip install 'gatac[rapids-cu12]' (or 'gatac[rapids-cu13]').\n"
+    "With conda: install RAPIDS from the rapidsai channel, see\n"
+    "    https://gatac.readthedocs.io/en/latest/installation.html\n"
+    "Or pass your own clusterer via `cluster_fn=...` (it receives the z-scored "
     "embedding and must return integer labels)."
 )
 

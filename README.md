@@ -25,10 +25,10 @@ GATAC needs Linux and an NVIDIA GPU. Install it with the extra of your CUDA
 version (`nvidia-smi` reports it), which installs RAPIDS and CuPy:
 
 ```bash
-pip install 'gatac[cuda12]'   # or 'gatac[cuda13]'
+pip install 'gatac[rapids-cu12]'   # or 'gatac[rapids-cu13]'
 ```
 
-From a clone of this repository: `uv sync --extra cuda12`. See the
+From a clone of this repository: `uv sync --extra rapids-cu12`. See the
 [installation guide](https://gatac.readthedocs.io/en/latest/installation.html)
 for the optional extras and conda.
 

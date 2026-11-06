@@ -1,7 +1,7 @@
 # `gatac convert`
 
 Convert raw ATAC-seq fragment files from TSV.GZ to Parquet format. When
-nvCOMP is installed (with the `cuda12` / `cuda13` extras), BGZF and
+nvCOMP is installed (with the `rapids-cu12` / `rapids-cu13` extras), BGZF and
 uncompressed files are decompressed and parsed on the GPU, and the others
 by DuckDB on the CPU ([Compression](#compression)); both write the same file,
 with Parquet row groups sized for GPU streaming. Files are written with ZSTD, delta-encoded starts

@@ -51,18 +51,18 @@ bigwig = [
 # nvCOMP inflates BGZF fragment files on the GPU (`make_parquet`, `gatac
 # convert`); no cap: each release pins its libnvcomp, which libcudf pins too,
 # so the resolver picks the one matching cuDF.
-cuda12 = [
+rapids-cu12 = [
     "cudf-cu12>=26.02",
     "cuml-cu12>=26.02",
     "cugraph-cu12>=26.02",
-    "cupy-cuda12x>=14",
+    "cupy-cuda12x[ctk]>=14",
     "nvidia-nvcomp-cu12>=5.1",
 ]
-cuda13 = [
+rapids-cu13 = [
     "cudf-cu13>=26.02",
     "cuml-cu13>=26.02",
     "cugraph-cu13>=26.02",
-    "cupy-cuda13x>=14",
+    "cupy-cuda13x[ctk]>=14",
     "nvidia-nvcomp-cu13>=5.1",
 ]
 
@@ -78,8 +78,8 @@ gatac = "gatac.cli:main"
 [tool.uv]
 conflicts = [
     [
-        { extra = "cuda12" },
-        { extra = "cuda13" },
+        { extra = "rapids-cu12" },
+        { extra = "rapids-cu13" },
     ],
 ]
 

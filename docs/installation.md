@@ -17,12 +17,12 @@ Choose the extra of the CUDA version that `nvidia-smi` reports; it installs
 RAPIDS (cuDF, cuML, cuGraph) and CuPy for that version:
 
 ```bash
-pip install 'gatac[cuda12]'
+pip install 'gatac[rapids-cu12]'
 # or
-pip install 'gatac[cuda13]'
+pip install 'gatac[rapids-cu13]'
 ```
 
-With uv: `uv pip install 'gatac[cuda12]'`, or `uv add 'gatac[cuda12]'` in a
+With uv: `uv pip install 'gatac[rapids-cu12]'`, or `uv add 'gatac[rapids-cu12]'` in a
 project. Without a CUDA extra, and unless RAPIDS is installed otherwise (see
 Conda below), the first use of a GATAC module (`ga.pp`, `gatac tile`, ...)
 fails with a message naming the extras.
@@ -41,7 +41,7 @@ gatac --help
 | `archr-compat` | Seurat's approximate neighbour search (Annoy), to reproduce ArchR's clustering |
 | `bigwig` | Writing footprint tracks as bigWig (`FootprintResult.to_bigwig`) |
 
-Combine them with the CUDA extra: `pip install 'gatac[cuda12,bigwig]'`.
+Combine them with the CUDA extra: `pip install 'gatac[rapids-cu12,bigwig]'`.
 
 ---
 
@@ -52,10 +52,10 @@ git clone https://github.com/scverse/gatac.git
 cd gatac
 
 # With CUDA 12 support
-uv sync --extra cuda12
+uv sync --extra rapids-cu12
 
 # Or with CUDA 13 support
-uv sync --extra cuda13
+uv sync --extra rapids-cu13
 ```
 
 ---
@@ -102,7 +102,7 @@ print(cudf.get_device_info())
 
 :::{note}
 GATAC needs an NVIDIA GPU: it imports cuDF and CuPy, which the
-`cuda12`/`cuda13` extras install.
+`rapids-cu12`/`rapids-cu13` extras install.
 :::
 
 ---

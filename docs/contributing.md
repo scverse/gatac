@@ -10,9 +10,9 @@ Thank you for your interest in contributing to GATAC!
 git clone https://github.com/scverse/gatac.git
 cd GATAC
 
-# Install in editable mode with the CUDA extra of your driver (cuda12 or
-# cuda13), the test and lint tools
-uv sync --extra cuda12 --group test --group dev
+# Install in editable mode with the CUDA extra of your driver (rapids-cu12 or
+# rapids-cu13), the test and lint tools
+uv sync --extra rapids-cu12 --group test --group dev
 
 # Lint and format each commit (ruff check, ruff format)
 uv run pre-commit install
