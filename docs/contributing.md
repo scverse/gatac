@@ -61,8 +61,10 @@ skips it.
 It runs in the hatch-test environments of `hatch.toml`, all on CUDA 13:
 `stable` (Python 3.13, the oldest RAPIDS the extras allow) and `dev` (Python
 3.14, the latest RAPIDS, anndata and scanpy from git) must pass; the
-`rapids_prerelease` one (RAPIDS nightlies) may fail. Locally, the same
-environments run with hatch, e.g. `hatch run hatch-test.stable-13:run`.
+`rapids_prerelease` one (RAPIDS nightlies) does not run in CI, as a third
+job waited for one of the two T4 runners, sometimes for over an hour; run it
+on Modal (`GATAC_ENV=hatch-test.rapids_prerelease-13`, below). Locally, the
+same environments run with hatch, e.g. `hatch run hatch-test.stable-13:run`.
 
 ### On a Modal GPU
 
