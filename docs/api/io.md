@@ -205,3 +205,45 @@ barcodes = pc.binary_join_element_wise(prefix, names, "")  # barcode_id -> cell 
 frags = pf.read(columns=["chrom_id", "start", "length", "barcode_id", "count"])
 end = pc.add(frags["start"], frags["length"])
 ```
+
+---
+
+## Conversion on the GPU
+
+`make_parquet`, `make_parquet_batch` and `gatac convert` convert on the GPU
+whenever nvCOMP's Python package is installed (it comes with the `cuda12` /
+`cuda13` extras), and write the same file as the DuckDB route:
+
+1. Fragment files from Cell Ranger are BGZF (bgzip): independent deflate
+   blocks of at most 64 KiB of text. The compressed file is read in chunks,
+   and every block of a chunk is inflated on the GPU by one nvCOMP call.
+2. One CUDA thread per line splits it into its five fields and checks them:
+   5 fields, decimal integers within their types, no empty chromosome,
+   start, end or barcode, `#` comment lines, an empty count is null. This is
+   stricter than DuckDB, which also reads numbers such as ` 5`, `+5` or
+   `0x5` and ends a line at any `#`: a file with such lines converts with
+   `gpu=False` (`gatac convert --cpu`). Both read the same values from the
+   lines they both accept.
+3. A first pass counts fragments per barcode and lists the chromosomes in
+   order of first appearance; a second maps names to ids and streams the
+   rows to cuDF's Parquet writer. Decompressing twice keeps GPU memory
+   bounded by the chunk size.
+
+A gzip file that is not BGZF (one deflate stream, e.g. from `gzip` rather
+than `bgzip`) cannot be split, and is converted by DuckDB; recompress it with
+`bgzip` to convert it on the GPU. Zstandard files (SnapATAC2's
+`ex.export_fragments` writes `.zst` by default) also go to DuckDB. `gpu=False` (`gatac convert --cpu`) uses
+DuckDB for every file.
+
+A BGZF block that does not inflate to the size in its trailer is an error,
+even with `skip_invalid=True`, which only skips lines that are not
+fragments. The blocks' CRC32 checksums are not verified, by the GPU or by
+DuckDB: a change inside a block that keeps its size goes unnoticed.
+
+`make_parquet_batch` runs several conversions that share the GPU, so that one
+file's reading and CPU-side work overlap another's GPU work: by default
+(`workers="auto"`) the CPUs the process may use minus one
+(`os.process_cpu_count()`, which follows a SLURM allocation), at most 4, and
+one per 7 GB of the GPU's free memory. The files that go to DuckDB are
+converted at the same time, in processes of their own that share the
+remaining CPUs as DuckDB threads.

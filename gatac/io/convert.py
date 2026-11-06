@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from .._workers import default_workers, resolve_workers
 from .fragments import NAMED_SCHEMA, FragmentFile, sql_string, write_fragments
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ def make_parquet(
     barcode_prefix: str | None = None,
     row_group_size: int = 1_000_000,
     skip_invalid: bool = False,
+    gpu: bool | None = None,
 ) -> Path:
     """
     Convert an ATAC fragments TSV.GZ file to GATAC Parquet.
@@ -158,6 +160,15 @@ def make_parquet(
         that is not a non-negative integer of its type, or an empty chrom,
         start, end or barcode. Lines starting with ``#`` are comments.
 
+    gpu : bool, optional
+        ``None`` (default) converts on the GPU (same file, several times
+        faster) when nvCOMP is installed, else with DuckDB on the CPU;
+        ``True`` requires the GPU route and ``False`` uses DuckDB. A gzip
+        file that is not BGZF and a Zstandard file are always converted by
+        DuckDB. On the GPU, cuDF lays row groups out in 5,000-row pages, so
+        a ``row_group_size`` that is not a multiple of 5,000 is rounded (see
+        Conversion on the GPU in the io API documentation).
+
     Returns
     -------
     Path
@@ -175,6 +186,39 @@ def make_parquet(
     >>> # Or with a sample-specific barcode prefix
     >>> out = ga.io.make_parquet("pbmc.tsv.gz", barcode_prefix="sample1_")
     """
+    if _use_gpu(gpu):
+        from .gpu_convert import _make_parquet_gpu
+
+        return _make_parquet_gpu(input_path, output_path, separator, barcode_prefix, row_group_size, skip_invalid)
+    return _make_parquet_duckdb(input_path, output_path, separator, barcode_prefix, row_group_size, skip_invalid)
+
+
+def _use_gpu(gpu: bool | None) -> bool:
+    """Whether to convert on the GPU: ``gpu`` if given, else when nvCOMP is installed."""
+    if gpu is False:
+        return False
+    from .gpu_convert import _gpu_available
+
+    available = _gpu_available()
+    if gpu and not available:
+        raise ImportError(
+            "GPU conversion needs cupy, cudf and nvCOMP's Python package (nvidia-nvcomp-cu12 or -cu13, "
+            "installed with gatac's cuda12 / cuda13 extra); pass gpu=False to convert with DuckDB"
+        )
+    return available
+
+
+def _make_parquet_duckdb(
+    input_path: str | Path,
+    output_path: str | Path | None = None,
+    separator: str = "\t",
+    barcode_prefix: str | None = None,
+    row_group_size: int = 1_000_000,
+    skip_invalid: bool = False,
+    threads: int | None = None,
+) -> Path:
+    """:func:`make_parquet` with DuckDB on the CPU, on ``threads`` threads
+    (default: the CPUs this process may use minus one)."""
     input_path = Path(input_path)
     if output_path is None:
         output_path = input_path.with_suffix("").with_suffix(".parquet")
@@ -203,7 +247,7 @@ def make_parquet(
     # barcodes first would parse the gzip a second time.
     stage = output_path.with_name(output_path.name + ".stage.parquet")
     try:
-        with duckdb.connect() as con:
+        with duckdb.connect(config={"threads": threads or default_workers(cap=None)}) as con:
             try:
                 con.execute(
                     f"COPY (SELECT * FROM {read}) TO {sql_string(stage)} "
@@ -265,7 +309,7 @@ def make_parquet(
 def make_parquet_batch(
     input_paths: list[str | Path] | None = None,
     output_dir: str | Path | None = None,
-    workers: int | None = None,
+    workers: int | str = "auto",
     separator: str = "\t",
     barcode_prefix: str | Sequence[str] | None = None,
     row_group_size: int = 1_000_000,
@@ -273,6 +317,7 @@ def make_parquet_batch(
     output_paths: str | Sequence[str | Path] | None = None,
     samples: "str | Path | pd.DataFrame | None" = None,
     skip_invalid: bool = False,
+    gpu: bool | None = None,
 ) -> list[Path]:
     """
     Convert multiple ATAC fragment TSV.GZ files to Parquet in parallel.
@@ -294,9 +339,16 @@ def make_parquet_batch(
     output_dir : str or Path, optional
         Directory for output Parquet files.  If None, each output is
         placed in the same directory as its input.
-    workers : int, optional
-        Number of parallel worker processes.
-        Defaults to ``min(len(input_paths), os.cpu_count())``.
+    workers : int or "auto"
+        Number of parallel worker processes. On the GPU (see ``gpu``), BGZF
+        and uncompressed files are converted by processes sharing the GPU,
+        and gzip files that are not BGZF by DuckDB processes at the same
+        time. ``"auto"`` (default): at most 4 GPU processes, and one per 7 GB
+        of the GPU's free memory; the DuckDB processes take the CPUs this
+        process may use (``os.process_cpu_count()``, a SLURM allocation rather
+        than the node's cores) minus one, less the GPU processes, and share
+        them as threads. An int sets the number of GPU processes and of
+        DuckDB processes.
     separator : str
         Column separator forwarded to :func:`make_parquet`.
     barcode_prefix : str or list of str, optional
@@ -327,6 +379,9 @@ def make_parquet_batch(
     skip_invalid : bool
         Skip and count the lines that are not a fragment, instead of failing
         on them; forwarded to :func:`make_parquet`.
+    gpu : bool, optional
+        As in :func:`make_parquet`: ``None`` (default) converts on the GPU
+        when nvCOMP is installed. ``workers`` processes then share the GPU.
 
     Returns
     -------
@@ -417,19 +472,33 @@ def make_parquet_batch(
         seen[key] = inp
     for out in output_paths:
         out.parent.mkdir(parents=True, exist_ok=True)
+    # BGZF and uncompressed files go to the GPU; a gzip file that is not BGZF
+    # (it cannot be split) or a Zstandard file goes to DuckDB, on the CPUs the
+    # GPU workers leave
+    if _use_gpu(gpu):
+        from .gpu_convert import _cpu_reason, _input_kind, _make_parquet_gpu
+
+        on_gpu = [_cpu_reason(_input_kind(p)) is None for p in input_paths]
+    else:
+        _make_parquet_gpu, on_gpu = None, [False] * len(input_paths)
+    route = [_make_parquet_gpu if g else _make_parquet_duckdb for g in on_gpu]
     if len(input_paths) == 1:
         return [
-            make_parquet(
-                input_paths[0], output_paths[0], separator, prefixes[0], row_group_size, skip_invalid=skip_invalid
-            )
+            route[0](input_paths[0], output_paths[0], separator, prefixes[0], row_group_size, skip_invalid=skip_invalid)
         ]
 
-    n_workers = min(
-        len(input_paths),
-        workers if workers is not None else (os.cpu_count() or 1),
+    n_gpu, n_cpu, threads = _batch_workers(workers, sum(on_gpu), len(on_gpu) - sum(on_gpu))
+    logger.info(
+        f"Converting {len(input_paths)} file(s): "
+        + ", ".join(
+            f"{n_files} {where} with {n} worker(s)"
+            for n_files, where, n in (
+                (sum(on_gpu), "on the GPU", n_gpu),
+                (on_gpu.count(False), f"with DuckDB ({threads} thread(s) each)", n_cpu),
+            )
+            if n_files
+        )
     )
-
-    logger.info(f"Converting {len(input_paths)} file(s) with {n_workers} worker(s)")
 
     # Largest first, so that the largest files do not run alone at the end
     sizes = [os.path.getsize(p) for p in input_paths]
@@ -440,16 +509,22 @@ def make_parquet_batch(
     # Spawned, not forked: the parent runs DuckDB and Arrow threads, and a
     # fork of a multi-threaded process can deadlock in the child (Python
     # 3.14 no longer forks by default either). Each worker imports gatac once.
-    with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp.get_context("spawn")) as executor:
+    # The GPU and DuckDB conversions run at the same time, in separate pools.
+    spawn = mp.get_context("spawn")
+    with (
+        ProcessPoolExecutor(max_workers=max(1, n_gpu), mp_context=spawn) as gpu_pool,
+        ProcessPoolExecutor(max_workers=max(1, n_cpu), mp_context=spawn) as cpu_pool,
+    ):
         future_to_idx = {
-            executor.submit(
-                make_parquet,
+            (gpu_pool if on_gpu[i] else cpu_pool).submit(
+                route[i],
                 input_paths[i],
                 output_paths[i],
                 separator,
                 prefixes[i],
                 row_group_size,
                 skip_invalid=skip_invalid,
+                **({} if on_gpu[i] else {"threads": threads}),
             ): i
             for i in order
         }
@@ -459,6 +534,31 @@ def make_parquet_batch(
 
     _warn_shared_barcodes(results)
     return results  # type: ignore[return-value]
+
+
+def _batch_workers(workers: int | str, n_gpu_files: int, n_cpu_files: int) -> tuple[int, int, int]:
+    """Processes of :func:`make_parquet_batch` for its GPU files and its DuckDB
+    files, and the DuckDB threads of each.
+
+    ``"auto"``: the GPU files get :func:`~gatac.io.gpu_convert._default_gpu_workers`
+    (at most 4, one per 7 GB of free GPU memory), and the DuckDB files the
+    usable CPUs minus one, less the GPU workers (at least one). An int sets
+    the size of each. The DuckDB processes share those CPUs as threads: one
+    gzip file next to 4 GPU workers on 20 CPUs gets 15 threads.
+    """
+    if workers is None or workers == "auto":
+        n_gpu = 0
+        if n_gpu_files:
+            from .gpu_convert import _default_gpu_workers
+
+            n_gpu = min(n_gpu_files, _default_gpu_workers())
+        cpus = max(1, default_workers(cap=None) - n_gpu)
+        n_cpu = min(n_cpu_files, cpus)
+    else:
+        n = resolve_workers(workers, 1)
+        n_gpu, n_cpu = min(n_gpu_files, n), min(n_cpu_files, n)
+        cpus = max(1, default_workers(cap=None) - n_gpu)
+    return n_gpu, n_cpu, max(1, cpus // max(1, n_cpu))
 
 
 def to_tsv(
