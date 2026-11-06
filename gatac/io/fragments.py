@@ -599,7 +599,7 @@ class _BgzfWriter:
         self._fh = open(path, "wb")
         self._level = compresslevel
         self._pending = b""
-        self._pool = ThreadPoolExecutor(min(8, os.cpu_count() or 1))
+        self._pool = ThreadPoolExecutor(min(8, os.process_cpu_count() or 1))
 
     def _block(self, data) -> bytes:
         c = zlib.compressobj(self._level, zlib.DEFLATED, -15)

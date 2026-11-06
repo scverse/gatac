@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .._readers import read_gtf
+from .._workers import default_workers, resolve_workers
 from ..io.fragments import FragmentFile
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
@@ -98,7 +99,7 @@ def compute_metrics(
     chrom_sizes: dict[str, int] | None = None,
     exclude_chroms: Sequence[str] | None = ("chrM", "M"),
     row_groups_per_batch: int = 64,
-    workers: int = 4,
+    workers: int | str = "auto",
 ) -> cudf.DataFrame:
     """
     Compute TSS enrichment scores using GPU-accelerated streaming via row groups.
@@ -129,8 +130,9 @@ def compute_metrics(
         Chromosomes to exclude from TSS enrichment calculation (default: ["chrM", "M"])
     row_groups_per_batch : int
         Number of parquet row groups to process in each GPU batch (default: 64)
-    workers : int
-        Number of files processed at once (default: 4).
+    workers : int or "auto"
+        Number of files processed at once. ``"auto"`` (default): the CPUs
+        this process may use minus one, at most 4.
 
     Returns
     -------
@@ -168,7 +170,10 @@ def compute_metrics(
     # another's kernels, under a stream-ordered memory pool. Largest first,
     # so that they do not run alone at the end.
     order = sorted(range(len(paths)), key=lambda i: -os.path.getsize(paths[i]))
-    with async_memory_pool(), ThreadPoolExecutor(max(1, min(len(paths), workers))) as pool:
+    with (
+        async_memory_pool(),
+        ThreadPoolExecutor(max(1, min(len(paths), resolve_workers(workers, default_workers())))) as pool,
+    ):
         futures = {
             i: pool.submit(
                 _compute_metrics_file,

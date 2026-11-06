@@ -109,6 +109,7 @@ def convert_command(args):
         output_paths=one_or_each(args.output),
         samples=args.samples,
         skip_invalid=args.skip_invalid,
+        gpu=args.gpu,
     )
 
 
@@ -452,9 +453,11 @@ def main():
     convert_parser.add_argument(
         "-j",
         "--workers",
-        type=int,
-        default=None,
-        help="Number of parallel worker processes (default: number of input files, capped at CPU count)",
+        type=lambda v: v if v == "auto" else int(v),
+        default="auto",
+        help='Number of parallel worker processes, or "auto" (default): up to 4 sharing the GPU '
+        "(one per 7 GB of its free memory) for BGZF files, and the allocated CPUs minus one, less "
+        "those, for gzip files converted by DuckDB; an int sets both. Never more than the input files",
     )
     convert_parser.add_argument(
         "--barcode-prefix",
@@ -479,6 +482,24 @@ def main():
         action="store_true",
         help="Skip the lines that are not a fragment (other than 5 fields, a field "
         "that is not a number, an empty field) and log how many, instead of failing",
+    )
+    engine = convert_parser.add_mutually_exclusive_group()
+    engine.add_argument(
+        "--gpu",
+        dest="gpu",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Require the GPU conversion (the default whenever nvCOMP is installed): BGZF "
+        "or uncompressed inputs are decompressed and parsed on the GPU, with --workers "
+        "processes sharing it",
+    )
+    engine.add_argument(
+        "--cpu",
+        dest="gpu",
+        action="store_const",
+        const=False,
+        help="Convert with DuckDB on the CPU instead of the GPU (same Parquet)",
     )
     convert_parser.set_defaults(func=convert_command)
 

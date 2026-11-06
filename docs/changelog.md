@@ -7,6 +7,13 @@ Fixed, the changes made while it was developed, before this first release.
 
 ### Added
 
+- Fragment files are converted to Parquet on the GPU by default
+  (`make_parquet`, `make_parquet_batch` and `gatac convert`): BGZF blocks are inflated by nvCOMP and the lines parsed by
+  a CUDA kernel, into the same file as the DuckDB route (`gpu=False`,
+  `gatac convert --cpu`). Several conversions share the GPU, while
+  `make_parquet_batch` converts gzip files that are not BGZF with DuckDB on
+  the remaining CPUs. nvCOMP's Python package is part of the `cuda12` /
+  `cuda13` extras.
 - `gatac[bigwig]` extra, for `FootprintResult.to_bigwig` (pyBigWig).
 - Extensions: packages that declare a `gatac.ext` entry point are reached as
   `gatac.<name>` (imported on first use, listed by `gatac.extensions()`), and
@@ -135,6 +142,11 @@ Fixed, the changes made while it was developed, before this first release.
 
 ### Changed
 
+- `make_parquet_batch` (`gatac convert --workers`), `pp.compute_metrics` and
+  `pp.filter_fragments` take `workers="auto"` by default: the CPUs the process
+  may use minus one, at most 4 (on the GPU also one per 7 GB of free memory;
+  the DuckDB import is not capped): more files at once used more GPU memory
+  without being faster.
 - The submodules (`gatac.pp`, `gatac.io`, ...) are imported on first use:
   `import gatac` takes milliseconds instead of seconds, and `gatac --help` /
   `--version` work without RAPIDS. Without RAPIDS, the error naming the CUDA
@@ -324,6 +336,10 @@ Fixed, the changes made while it was developed, before this first release.
 
 ### Fixed
 
+- `make_parquet_batch`'s default number of workers, and the BGZF writer's
+  threads, follow the CPUs the process may use (`os.process_cpu_count()`)
+  instead of the node's cores (`os.cpu_count()`): on a SLURM allocation of 8
+  CPUs on a 64-core node, the import started 64 processes.
 - `pp.combine` / `gatac combine` stacked the files' columns by position and
   only checked their number, so files whose features were in another order,
   or other features of the same count, were combined into wrong counts

@@ -15,6 +15,7 @@ import cupy as cp
 import pandas as pd
 
 from .._readers import read_metrics
+from .._workers import default_workers, resolve_workers
 from ..io.fragments import FragmentFile, _write_cells
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
@@ -31,7 +32,7 @@ def filter_fragments(
     barcode_prefix: str | list[str] | None = None,
     row_groups_per_batch: int = 64,
     chrom_sizes: dict | object | str | None = None,
-    workers: int = 4,
+    workers: int | str = "auto",
 ) -> Path | list[Path]:
     """
     Filter ATAC fragment parquet file(s) based on cell quality metrics.
@@ -72,9 +73,10 @@ def filter_fragments(
         Only fragments on these chromosomes will be counted. If None, all
         chromosomes are included. This matches SnapATAC2's behavior of
         excluding non-standard contigs (GL*, KI*).
-    workers : int, default 4
-        Number of files filtered at once. Each holds up to about 2 GB of
-        GPU memory.
+    workers : int or "auto"
+        Number of files filtered at once, each holding up to about 2 GB of
+        GPU memory. ``"auto"`` (default): the CPUs this process may use minus
+        one, at most 4.
 
     Returns
     -------
@@ -180,7 +182,10 @@ def filter_fragments(
     # disk reads and writes overlap another's GPU work. Largest files first,
     # so that they do not run alone at the end.
     order = sorted(range(len(input_paths)), key=lambda i: -input_paths[i].stat().st_size)
-    with async_memory_pool(), ThreadPoolExecutor(min(len(input_paths), workers)) as pool:
+    with (
+        async_memory_pool(),
+        ThreadPoolExecutor(max(1, min(len(input_paths), resolve_workers(workers, default_workers())))) as pool,
+    ):
         futures = [
             pool.submit(
                 _filter_single_file_streaming,
