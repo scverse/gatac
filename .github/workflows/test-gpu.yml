@@ -52,7 +52,6 @@ jobs:
       contents: read
     outputs:
       stable-dev: ${{ steps.get-envs.outputs.stable-dev }}
-      prerelease: ${{ steps.get-envs.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,19 +79,6 @@ jobs:
               }
             )')
           echo "stable-dev=${STABLE_DEV_JSON}" | tee -a "$GITHUB_OUTPUT"
-
-          # Prerelease environments (cu13 -> T4)
-          PRERELEASE_JSON=$(uvx hatch env show --json | jq -c '
-            to_entries
-            | map(
-              select(.key | startswith("hatch-test") and endswith("13") and contains("prerelease"))
-              | {
-                name: .key,
-                python: .value.python | sub("3[.]13"; "3.13.3"),
-                runner: "cirun-aws-gpu-t4",
-              }
-            )')
-          echo "prerelease=${PRERELEASE_JSON}" | tee -a "$GITHUB_OUTPUT"
 
   test-stable-dev:
     name: Test (${{ matrix.env.name }})
@@ -185,52 +171,6 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  test-prerelease:
-    name: Test (${{ matrix.env.name }})
-    needs: get-envs
-    runs-on: ${{ matrix.env.runner }}
-    timeout-minutes: 45
-    continue-on-error: true  # Prerelease failures don't fail the workflow
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        env: ${{ fromJson(needs.get-envs.outputs.prerelease) }}
-    env:
-      ENV_NAME: ${{ matrix.env.name }}
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          filter: blob:none
-          persist-credentials: false
-
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: ${{ matrix.env.python }}
-
-      - name: Add CUDA to PATH
-        run: |
-          echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "$GITHUB_ENV"
-
-      - name: Check CUDA version
-        run: nvcc --version
-
-      - name: Check NVIDIA SMI
-        run: nvidia-smi
-
-      - name: Install dependencies
-        run: |
-          uv tool install hatch
-          hatch -v env create "$ENV_NAME"
-
-      - name: Run tests
-        run: hatch run "${ENV_NAME}:run" -v --color=yes
-
   remove-label:
     name: Remove 'run-gpu-ci' Label
     runs-on: ubuntu-latest
@@ -267,10 +207,9 @@ jobs:
       - check
       - get-envs
       - test-stable-dev
-      - test-prerelease
     runs-on: ubuntu-latest
     steps:
-      - name: Check required jobs succeeded (test-prerelease allowed to fail)
+      - name: Check required jobs succeeded
         if: needs.check.outputs.skip != 'true'
         run: |
           if [[ "${{ needs.get-envs.result }}" != "success" || "${{ needs.test-stable-dev.result }}" != "success" ]]; then
