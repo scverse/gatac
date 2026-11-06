@@ -38,16 +38,17 @@ uv run pytest tests/
 
 # Reproducibility benchmarks (requires GPU + data)
 cd reproducibility
-pixi run pytest test/
+PYTHONPATH=.. pixi run pytest test/
 ```
 
-After any change to a preprocessing or analysis function, run the related
-reproducibility test:
+The reproducibility environment installs the released GATAC from PyPI;
+`PYTHONPATH=..` makes the tests use your checkout instead. After any change to
+a preprocessing or analysis function, run the related reproducibility test:
 
 ```bash
 cd reproducibility
-pixi run pytest test/tile_matrix.py
-pixi run pytest test/spectral_embedding.py
+PYTHONPATH=.. pixi run pytest test/tile_matrix.py
+PYTHONPATH=.. pixi run pytest test/spectral_embedding.py
 ```
 
 ### GPU tests in CI
