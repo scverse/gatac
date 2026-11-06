@@ -6,7 +6,7 @@
 installation
 overview
 tutorials/index
-changelog
+release-notes/index
 contributing
 extensions
 ```

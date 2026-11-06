@@ -1,5 +1,5 @@
 runners:
-  # T4 for stable, dev and prerelease (cu13). scverse-standard AMI, eu-west-1.
+  # T4 for stable and dev (cu13). scverse-standard AMI, eu-west-1.
   # Only T4 capacity is available; g5 (A10G) and g6 (L4) are not.
   - name: aws-gpu-runner-g4dn
     cloud: aws

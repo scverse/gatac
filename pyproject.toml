@@ -70,7 +70,7 @@ cuda13 = [
 Documentation = "https://gatac.readthedocs.io"
 Source = "https://github.com/scverse/gatac"
 Issues = "https://github.com/scverse/gatac/issues"
-Changelog = "https://gatac.readthedocs.io/en/latest/changelog.html"
+Changelog = "https://gatac.readthedocs.io/en/latest/release-notes/index.html"
 
 [project.scripts]
 gatac = "gatac.cli:main"
