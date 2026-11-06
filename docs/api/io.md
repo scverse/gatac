@@ -211,8 +211,8 @@ end = pc.add(frags["start"], frags["length"])
 ## Conversion on the GPU
 
 `make_parquet`, `make_parquet_batch` and `gatac convert` convert on the GPU
-whenever nvCOMP's Python package is installed (it comes with the `cuda12` /
-`cuda13` extras), and write the same file as the DuckDB route:
+whenever nvCOMP's Python package is installed (it comes with the `rapids-cu12` /
+`rapids-cu13` extras), and write the same file as the DuckDB route:
 
 1. Fragment files from Cell Ranger are BGZF (bgzip): independent deflate
    blocks of at most 64 KiB of text. The compressed file is read in chunks,

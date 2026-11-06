@@ -38,8 +38,8 @@ overrides.matrix.deps.extra-dependencies = [
 
 # Select CUDA feature per matrix
 overrides.matrix.cuda.features = [
-  { if = ["12"], value = "cuda12" },
-  { if = ["13"], value = "cuda13" },
+  { if = ["12"], value = "rapids-cu12" },
+  { if = ["13"], value = "rapids-cu13" },
 ]
 
 # stable tests the oldest RAPIDS the extras allow; dev takes the latest release,

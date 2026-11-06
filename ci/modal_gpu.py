@@ -72,8 +72,8 @@ IGNORE = ["**/__pycache__", "**/*.pyc"]
 
 # The base image of each extra; its CUDA must not be newer than Modal's driver
 BASE_IMAGES = {
-    "cuda12": "nvidia/cuda:12.8.1-runtime-ubuntu22.04",
-    "cuda13": "nvidia/cuda:13.0.2-runtime-ubuntu22.04",
+    "rapids-cu12": "nvidia/cuda:12.8.1-runtime-ubuntu22.04",
+    "rapids-cu13": "nvidia/cuda:13.0.2-runtime-ubuntu22.04",
 }
 # EC2 GPU family -> (Modal GPU, GiB per vCPU); an xlarge has 4 vCPUs, each size up doubles them
 EC2_GPUS = {"g4dn": ("T4", 4), "g5": ("A10G", 4), "g6": ("L4", 4), "g6e": ("L40S", 8)}

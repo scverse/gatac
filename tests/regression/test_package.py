@@ -63,4 +63,4 @@ def test_without_rapids_the_cli_parses_and_the_modules_say_what_to_install():
     assert out.returncode == 0 and "convert" in out.stdout, out.stderr
     for code in ("import gatac; gatac.pp", "import gatac.io", "from gatac import gpu"):
         out = _run(NO_RAPIDS + code)
-        assert out.returncode == 1 and "pip install 'gatac[cuda12]'" in out.stderr, (code, out.stderr)
+        assert out.returncode == 1 and "pip install 'gatac[rapids-cu12]'" in out.stderr, (code, out.stderr)

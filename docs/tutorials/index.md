@@ -100,7 +100,7 @@ To run notebooks locally:
 
 ```bash
 # Install GATAC with full dependencies
-uv sync --extra cuda12
+uv sync --extra rapids-cu12
 
 # Run a notebook
 uv run jupyter lab tutorials/01_fragment_preprocessing.ipynb
