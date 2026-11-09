@@ -126,15 +126,38 @@ class StreamedCounts:
         if hasattr(X, "get"):  # a CuPy sparse matrix
             X = X.get()
         X = X.tocsr()
-        self.shape = X.shape
-        n_rows, n_cols = X.shape
-        if n_cols > np.iinfo(np.int32).max or n_rows > np.iinfo(np.int32).max:
-            raise ValueError("StreamedCounts needs fewer than 2**31 rows and columns")
         data = X.data if X.data.dtype in _DTYPES else X.data.astype(np.float32)
         indices = X.indices if X.indices.dtype == np.int32 else X.indices.astype(np.int32)
+        self._setup(np.asarray(X.indptr, dtype=np.int64), data, indices, X.shape, chunk_size, memory_fraction)
+
+    @classmethod
+    def from_arrays(cls, indptr, data, indices, shape, chunk_size: int, memory_fraction: float = 0.5):
+        """
+        From CSR arrays: host ``indptr`` (int64), and ``data`` and int32
+        ``indices`` either in GPU memory, where every chunk stays as a view
+        on them, or in host memory, used as by the constructor.
+        """
+        self = cls.__new__(cls)
+        self._setup(np.asarray(indptr, dtype=np.int64), data, indices, tuple(shape), chunk_size, memory_fraction)
+        return self
+
+    @staticmethod
+    def from_h5ad(*args, **kwargs):
+        """:func:`gatac.io._h5counts.open_counts`: read the matrix of an h5ad straight to the GPU."""
+        from ..io._h5counts import open_counts
+
+        return open_counts(*args, **kwargs)
+
+    def _setup(self, indptr, data, indices, shape, chunk_size, memory_fraction) -> None:
+        self.shape = shape
+        n_rows, n_cols = shape
+        if n_cols > np.iinfo(np.int32).max or n_rows > np.iinfo(np.int32).max:
+            raise ValueError("StreamedCounts needs fewer than 2**31 rows and columns")
+        if data.dtype not in _DTYPES or indices.dtype != np.int32:
+            raise ValueError(f"StreamedCounts takes {sorted(map(str, _DTYPES))} values and int32 indices")
+        on_gpu = isinstance(data, cp.ndarray)
         self._data, self._indices = data, indices
         self.dtype = data.dtype
-        indptr = np.asarray(X.indptr, dtype=np.int64)
         self.indptr = cp.asarray(indptr)
 
         entry_bytes = data.itemsize + 4
@@ -145,13 +168,17 @@ class StreamedCounts:
             r1 = min(r0 + chunk_size, n_rows)
             c = _Chunk(r0, r1, int(indptr[r0]), int(indptr[r1]))
             size = (c.e1 - c.e0) * entry_bytes
-            if used + size <= budget:
+            if on_gpu:
+                c.data, c.indices = data[c.e0 : c.e1], indices[c.e0 : c.e1]
+                used += size
+            elif used + size <= budget:
                 c.data = cp.asarray(data[c.e0 : c.e1])
                 c.indices = cp.asarray(indices[c.e0 : c.e1])
                 used += size
             self.chunks.append(c)
         self._streamed = [c for c in self.chunks if c.data is None]
         self._registered: list = []
+        self._buffers: list = []
         self._stream = None
         if self._streamed:
             # Page-lock the streamed part of the host arrays in place, once,
@@ -179,6 +206,7 @@ class StreamedCounts:
         for c in self.chunks:
             c.data = c.indices = None
         self._buffers = []
+        self._data = self._indices = None
 
     def __del__(self):
         try:
