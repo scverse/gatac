@@ -14,8 +14,6 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .._files import replacing
-
 logger = logging.getLogger(__name__)
 
 
@@ -79,22 +77,11 @@ def _combined_obs(obs_parts: list[pd.DataFrame], names: Sequence[str]) -> pd.Dat
     return obs
 
 
-def _widen(group, key: str, dtype) -> object:
-    """Replace the 1-D dataset ``group[key]`` by a copy of it in ``dtype``."""
-    old = group[key]
-    new = group.create_dataset(key + "_wide", shape=old.shape, dtype=dtype, maxshape=(None,), chunks=old.chunks)
-    step = 1 << 24
-    for i in range(0, old.shape[0], step):
-        new[i : i + step] = old[i : i + step]
-    del group[key]
-    group.move(key + "_wide", key)
-    return group[key]
-
-
 def combine_file_matrices(
     parts: Iterable[ad.AnnData],
     names: Sequence[str],
     output_path: str | Path | None = None,
+    compression: str | None = "gzip",
 ) -> ad.AnnData:
     """
     One AnnData of the per-file matrices ``parts``, cells of the same features.
@@ -103,7 +90,9 @@ def combine_file_matrices(
     the cell's file among ``names``, cell names must be distinct across
     files, and ``X`` takes the widest dtype of the parts. ``parts`` is consumed once: with ``output_path``, each part's
     rows are written to the ``.h5ad`` as it comes, so only one part is held,
-    and the result is opened from the file in backed mode.
+    and the result is opened from the file in backed mode; ``compression``
+    is that of ``CSRWriter`` (shuffle + gzip on the GPU by
+    default, or None).
     """
     obs_parts: list[pd.DataFrame] = []
     var: pd.DataFrame | None = None
@@ -124,56 +113,20 @@ def combine_file_matrices(
         X = sp.vstack(X, format="csr", dtype=np.result_type(*(x.dtype for x in X)))
         return ad.AnnData(X=X, obs=_combined_obs(obs_parts, names), var=var)
 
-    import h5py
+    from ..io._csr_writer import CSRWriter
 
-    output_path = Path(output_path)
     # Written next to the output and moved onto it once complete: an error in
     # a later part (other features, shared cell names) leaves an existing
     # output as it was
-    with replacing(output_path) as tmp_path:
-        indptr = [np.zeros(1, dtype=np.int64)]
-        n_rows = 0
-        with h5py.File(tmp_path, "w") as h5:
-            group = h5.create_group("X")
-            data = indices = None
-            for part, name in zip(parts, names):
-                x = rows(part, name)
-                del part
-                if data is None:
-                    grow = {"maxshape": (None,), "chunks": (1 << 20,)}
-                    data = group.create_dataset("data", shape=(0,), dtype=x.dtype, **grow)
-                    idx = np.int32 if len(var) <= np.iinfo(np.int32).max else np.int64
-                    indices = group.create_dataset("indices", shape=(0,), dtype=idx, **grow)
-                elif np.result_type(data.dtype, x.dtype) != data.dtype:
-                    data = _widen(group, "data", np.result_type(data.dtype, x.dtype))
-                pos = int(indptr[-1][-1])
-                data.resize((pos + x.nnz,))
-                data[pos:] = x.data
-                indices.resize((pos + x.nnz,))
-                indices[pos:] = x.indices
-                indptr.append(pos + x.indptr[1:].astype(np.int64))
-                n_rows += x.shape[0]
-                del x
-            if data is None:
-                raise ValueError("No matrices to combine")
-            indptr = np.concatenate(indptr)
-            if indptr[-1] <= np.iinfo(np.int32).max:
-                indptr = indptr.astype(np.int32)
-            group.create_dataset("indptr", data=indptr)
-            group.attrs.update(
-                {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_rows, len(var)])}
-            )
-
-        # obs, var and the file's AnnData attributes, from an AnnData without X
-        # written alongside, so that X is never rewritten
-        meta = tmp_path.with_name(tmp_path.name + ".obs.h5ad")
-        try:
-            ad.AnnData(obs=_combined_obs(obs_parts, names), var=var).write_h5ad(str(meta))
-            with h5py.File(meta, "r") as src, h5py.File(tmp_path, "a") as dst:
-                for key in src:
-                    if key != "X":
-                        src.copy(src[key], dst, key)
-                dst.attrs.update(src.attrs)
-        finally:
-            meta.unlink(missing_ok=True)
+    with CSRWriter(output_path, compression=compression) as writer:
+        n = 0
+        for part, name in zip(parts, names):
+            x = rows(part, name)
+            del part
+            writer.append(x)
+            n += 1
+            del x
+        if not n:
+            raise ValueError("No matrices to combine")
+        writer.finalize(obs=_combined_obs(obs_parts, names), var=var)
     return ad.read_h5ad(output_path, backed="r")

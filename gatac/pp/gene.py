@@ -610,6 +610,7 @@ def make_gene_matrix(
     gene_id_key: str = "gene_id",
     transcript_name_key: str = "transcript_name",
     transcript_id_key: str = "transcript_id",
+    compression: str | None = "gzip",
 ) -> AnnData:
     """
     Process ATAC fragments parquet file and generate gene activity matrix.
@@ -667,6 +668,10 @@ def make_gene_matrix(
         Key for transcript name in GTF attributes (default: "transcript_name").
     transcript_id_key : str
         Key for transcript ID in GTF attributes (default: "transcript_id").
+    compression : {"gzip", None}
+        Compression of the matrix written to ``output_path``: ``"gzip"``
+        (default), HDF5's shuffle + deflate filters, compressed on the GPU;
+        ``None``: uncompressed.
 
     Returns
     -------
@@ -722,7 +727,7 @@ def make_gene_matrix(
             )
             for path in paths
         )
-        adata = combine_file_matrices(parts, names, output_path)
+        adata = combine_file_matrices(parts, names, output_path, compression=compression)
         logger.info(
             f"Gene matrix of {len(paths)} files: {adata.n_obs:,} cells × {adata.n_vars:,} genes "
             f"({time.perf_counter() - start_time:.1f}s)"
@@ -797,7 +802,7 @@ def make_gene_matrix(
 
     total_time = time.perf_counter() - start_time
     if output_path is not None:
-        write_h5ad(adata, output_path)
+        write_h5ad(adata, output_path, compression=compression)
         total_time = time.perf_counter() - start_time
         logger.info(
             f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes ({total_time:.1f}s)"

@@ -1,5 +1,5 @@
 """
-``.h5ad`` files read with their sparse matrices decoded on the GPU.
+``.h5ad`` files read and written with their sparse matrices decoded on the GPU.
 """
 
 from __future__ import annotations
@@ -91,3 +91,49 @@ def read_h5ad(
             # written before anndata 0.7: anndata's own reader handles its layout
             return ad.read_h5ad(filename)
         return read_dispatched(f, callback)
+
+
+def write_h5ad(filepath: str | Path, adata: ad.AnnData, *, compression: Literal["gzip"] | None = "gzip") -> None:
+    """
+    Write an AnnData to an ``.h5ad`` file as GATAC's commands write their matrices.
+
+    The arguments come in the order of ``anndata.io.write_h5ad``; ``X`` is
+    stored as ``gatac tile``, ``gatac combine``, ... store it (``--compression``),
+    and anndata writes everything else. Any HDF5 reader, anndata included,
+    reads the file as usual, and :func:`gatac.io.read_h5ad` reads it with its
+    matrices decompressed on the GPU.
+
+    Parameters
+    ----------
+    filepath
+        The ``.h5ad`` file. It is replaced only once the new file is complete.
+    adata
+        The AnnData to write.
+    compression
+        ``"gzip"`` (default): a CSR ``X`` with HDF5's shuffle + deflate
+        filters, compressed on the GPU by nvCOMP, and every other dataset
+        gzip-compressed by anndata on the CPU. ``None``: uncompressed.
+
+    Notes
+    -----
+    Differences from ``anndata.io.write_h5ad`` and ``adata.write_h5ad``:
+
+    - The file is gzip-compressed by default (anndata: uncompressed).
+    - A gzip ``X`` is byte-shuffled before deflate (anndata does not
+      shuffle), and its column indices are int32 on disk, ``indptr`` too
+      while the matrix has at most 2³¹ − 1 entries (anndata writes them as
+      held in memory). The values read back are the same.
+    - Only ``X`` is compressed on the GPU: large CSR ``layers`` or ``raw.X``
+      are compressed at anndata's speed.
+    - ``X`` may be a cupy CSR matrix.
+    - No ``as_dense``, ``compression_opts`` or ``dataset_kwargs``; ``lzf`` is
+      not offered.
+
+    An ``X`` that is not CSR, and the AnnData of a backed file, are written
+    by anndata alone, with the same ``compression``.
+    """
+    from .._files import write_h5ad as _write
+
+    if compression not in ("gzip", None):
+        raise ValueError(f"compression is 'gzip' or None, not {compression!r}")
+    _write(adata, filepath, compression=compression)

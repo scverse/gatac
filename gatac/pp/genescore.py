@@ -575,6 +575,7 @@ def make_gene_score_matrix(
     cell_batch_size: int | None = None,
     gene_name_key: str = "gene_name",
     gene_id_key: str = "gene_id",
+    compression: str | None = "gzip",
 ) -> AnnData:
     """GPU-accelerated ArchR-style gene activity *score* matrix.
 
@@ -615,6 +616,10 @@ def make_gene_score_matrix(
         file of it.
     filter_query
         Query on ``metrics`` selecting the cells (e.g. ``"tsse_score > 5"``).
+    compression
+        Compression of the matrix written to ``output_path``: ``"gzip"``
+        (default), HDF5's shuffle + deflate filters, compressed on the GPU;
+        ``None``: uncompressed.
 
     Returns
     -------
@@ -687,6 +692,7 @@ def make_gene_score_matrix(
             (_score(path) for path in paths),
             names,
             output_path,
+            compression=compression,
         )
         logger.info(
             f"Gene score matrix of {len(paths)} files: {adata.shape[0]:,} cells x "
@@ -701,7 +707,7 @@ def make_gene_score_matrix(
         output_path = Path(output_path)
 
     adata = _score(input_parquet)
-    write_h5ad(adata, output_path)
+    write_h5ad(adata, output_path, compression=compression)
     logger.info(
         f"Created {output_path.name}: {adata.shape[0]:,} cells x {adata.shape[1]:,} genes "
         f"({time.perf_counter() - start:.1f}s)"

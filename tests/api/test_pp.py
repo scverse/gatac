@@ -8,6 +8,7 @@ reproducibility suite; this file covers what operates on built matrices.
 
 from __future__ import annotations
 
+import h5py
 import numpy as np
 import pandas as pd
 import pytest
@@ -59,6 +60,12 @@ def test_combine_concatenates_files_and_rejects_duplicate_barcodes(split_h5ad, t
     assert list(got.obs_names) == list(ordered.obs_names)
     assert list(got.var_names) == list(ordered.var_names)
     assert (got.X != ordered.X).nnz == 0
+    with h5py.File(out, "r") as f:
+        assert (f["X/indices"].dtype, f["X/indptr"].dtype) == (np.int32, np.int32)
+        assert f["X/data"].compression == "gzip"
+    ga.pp.combine(paths, tmp_path / "plain.h5ad", compression=None)
+    plain = sc.read_h5ad(tmp_path / "plain.h5ad")
+    assert (plain.X != ordered.X).nnz == 0
     n_a = (ordered.n_obs + 1) // 2
     assert got.obs["source_file"].tolist() == ["A_tile.h5ad"] * n_a + ["B_tile.h5ad"] * (ordered.n_obs - n_a)
     with pytest.raises(ValueError, match="cell names are in more than one of the files"):
