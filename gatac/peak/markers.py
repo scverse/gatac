@@ -319,7 +319,10 @@ def markers(
     np.random.seed(seed)
 
     # Get matrix
-    X = adata.raw.X if use_raw and adata.raw is not None else adata.X
+    backed = adata.isbacked
+    if backed and use_raw and adata.raw is not None:
+        raise ValueError("use_raw is not supported on a backed AnnData")
+    X = None if backed else (adata.raw.X if use_raw and adata.raw is not None else adata.X)
     var_names = adata.raw.var_names if use_raw and adata.raw is not None else adata.var_names
     var_names = np.asarray(var_names)
 
@@ -343,17 +346,13 @@ def markers(
         if g not in unique_groups:
             raise ValueError(f"Group '{g}' not found in '{groupby}'")
 
-    # Binarize matrix on GPU
-    logger.debug("Binarizing matrix on GPU")
-    X_binary = _binarize_matrix_gpu(X)
-    n_cells, n_features = X_binary.shape
-
+    n_cells, n_features = (adata.n_obs, adata.n_vars) if backed else X.shape
     logger.info(f"Testing {len(test_groups)} groups, {n_features:,} features, {n_cells:,} cells")
     logger.info(f"Using max_cells={max_cells} per group for balanced comparison")
 
-    # Store results
-    results = {}
-
+    # The cells each group is tested on, drawn first: a backed matrix is then
+    # read for these cells only
+    samples = {}
     for group in test_groups:
         logger.debug(f"Processing group: {group}")
 
@@ -398,13 +397,30 @@ def markers(
         else:
             bg_indices = bg_indices_all
 
+        samples[group] = (fg_indices, bg_indices)
+        logger.debug(
+            f"  {group}: foreground {len(fg_indices)} cells (from {n_fg_total}), "
+            f"background {len(bg_indices)} cells (from {n_bg_total})"
+        )
+
+    # Binarize matrix on GPU
+    logger.debug("Binarizing matrix on GPU")
+    if backed:
+        from ..io._h5counts import gpu_csr
+
+        cells = np.unique(np.concatenate([np.r_[f, b] for f, b in samples.values()] or [np.zeros(0, np.int64)]))
+        X_binary = _binarize_matrix_gpu(gpu_csr(adata, rows=cells))
+        samples = {g: (np.searchsorted(cells, f), np.searchsorted(cells, b)) for g, (f, b) in samples.items()}
+    else:
+        X_binary = _binarize_matrix_gpu(X)
+
+    # Store results
+    results = {}
+
+    for group, (fg_indices, bg_indices) in samples.items():
+        logger.debug(f"Testing group: {group}")
         fg_indices = cp.asarray(fg_indices)
         bg_indices = cp.asarray(bg_indices)
-
-        n_fg = len(fg_indices)
-        n_bg = len(bg_indices)
-
-        logger.debug(f"  Foreground: {n_fg} cells (from {n_fg_total}), Background: {n_bg} cells (from {n_bg_total})")
 
         # Compute group statistics
         fg_counts, bg_counts, n_fg, n_bg = _compute_group_stats_gpu(X_binary, fg_indices, bg_indices)
@@ -443,8 +459,8 @@ def markers(
         results[group] = df
         logger.debug(f"  Found {len(df)} features for '{group}'")
 
-    # Store in adata.uns
-    adata.uns[key_added] = {
+    # Store in adata.uns (for a backed AnnData opened "r+", in its file too)
+    stored = {
         "params": {
             "groupby": groupby,
             "reference": reference,
@@ -455,6 +471,12 @@ def markers(
         },
         "results": {k: v.copy() for k, v in results.items()},
     }
+    if backed and adata.is_view:
+        logger.warning(f"A view of a backed AnnData cannot hold results: adata.uns['{key_added}'] is not set")
+    else:
+        from ..io._results import _store_results
+
+        _store_results(adata, uns={key_added: stored})
 
     # Clean up GPU memory
     mempool.free_all_blocks()

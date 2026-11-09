@@ -822,6 +822,26 @@ def open_counts(
             return StreamedCounts.from_arrays(indptr, data[:pos], indices[:pos], shape, chunk_size, memory_fraction)
 
 
+def gpu_csr(source, key: str = "X", *, rows=None, features=None):
+    """
+    The float32 cupy CSR matrix of ``source`` (as in :func:`open_counts`), read straight onto the GPU.
+
+    cupy's CSR matrices index entries with int32: more than 2**31 - 1
+    entries raise; use :func:`open_counts` or :func:`iter_row_chunks`.
+    """
+    import cupy as cp
+    import cupyx.scipy.sparse as cusp
+
+    C = open_counts(source, key, rows=rows, features=features, chunk_size=np.iinfo(np.int32).max)
+    try:
+        if C.indptr.size and int(C.indptr[-1]) > np.iinfo(np.int32).max:
+            raise ValueError("More than 2**31 - 1 entries: read the matrix in chunks (open_counts, iter_row_chunks)")
+        data, indices = cp.asarray(C._data), cp.asarray(C._indices)
+        return cusp.csr_matrix((data.astype(cp.float32), indices, C.indptr.astype(cp.int32)), shape=C.shape)
+    finally:
+        C.close()
+
+
 class RowChunk(NamedTuple):
     """Rows ``start:stop`` of a matrix on the GPU, in CSR arrays relative to ``start``."""
 
