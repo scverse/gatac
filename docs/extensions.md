@@ -72,15 +72,15 @@ Name the distribution `gatac-<name>` and the module `gatac_<name>`.
 Extensions should use only the public API below. Modules and functions whose
 name starts with an underscore can change in any release.
 
-| Need | Use |
-|---|---|
-| Fragments, streamed on the GPU by chromosome and cell | {class}`gatac.io.FragmentFile` (`iter_batches`, `barcodes`, `barcode_counts`, `register` for DuckDB) |
-| Genome sequence | {class}`gatac.io.Fasta` (`fetch` for `chrom:start-end` names, `region_bytes`, `chrom`, `chrom_sizes`) |
-| BED, GTF and cell metrics files | {func}`gatac.io.read_bed`, {func}`gatac.io.read_gtf`, {func}`gatac.io.read_metrics` |
-| Chromosome sizes of a named genome | `gatac.pp.HG38`, `HG19`, `MM10`, `MM39`, or `Fasta.chrom_sizes` |
-| Motifs | {func}`gatac.motif.read`, {class}`gatac.motif.DNAMotif` |
-| Counting and host → device copies at genome scale | {func}`gatac.gpu.bincount`, {func}`gatac.gpu.to_device` |
-| Cell × feature matrices, embeddings, peaks | the functions of `gatac.pp`, `gatac.dr` and `gatac.peak`, and the AnnData layout below |
+| Need                                                  | Use                                                                                                   |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Fragments, streamed on the GPU by chromosome and cell | {class}`gatac.io.FragmentFile` (`iter_batches`, `barcodes`, `barcode_counts`, `register` for DuckDB)  |
+| Genome sequence                                       | {class}`gatac.io.Fasta` (`fetch` for `chrom:start-end` names, `region_bytes`, `chrom`, `chrom_sizes`) |
+| BED, GTF and cell metrics files                       | {func}`gatac.io.read_bed`, {func}`gatac.io.read_gtf`, {func}`gatac.io.read_metrics`                   |
+| Chromosome sizes of a named genome                    | `gatac.pp.HG38`, `HG19`, `MM10`, `MM39`, or `Fasta.chrom_sizes`                                       |
+| Motifs                                                | {func}`gatac.motif.read`, {class}`gatac.motif.DNAMotif`                                               |
+| Counting and host → device copies at genome scale     | {func}`gatac.gpu.bincount`, {func}`gatac.gpu.to_device`                                               |
+| Cell × feature matrices, embeddings, peaks            | the functions of `gatac.pp`, `gatac.dr` and `gatac.peak`, and the AnnData layout below                |
 
 A note on `gatac.gpu.bincount`: unweighted `cupy.bincount` crashes in CuPy 14
 past ~5M bins, which genome-wide arrays exceed; GATAC's own test suite rejects
@@ -91,15 +91,15 @@ any call to it, and extensions should use the wrapper too.
 GATAC functions read and write these keys; an extension that follows them
 works on the output of any GATAC step, and its output works with the next.
 
-| Where | Key | Content |
-|---|---|---|
-| `obs_names` | | Barcodes, with the file's barcode prefix (`gatac rename`), as {class}`~gatac.io.FragmentFile` returns them |
-| `obs` | `source_file` | Fragment file of each cell, for matrices built from several files |
-| `var_names` | | Genomic features as `chrom:start-end`, 0-based and half-open (BED); genes by name |
-| `obsm` | `X_spectral`, `X_lsi`, `X_iterative_lsi` | Cell embeddings of {func}`gatac.dr.spectral`, {func}`gatac.dr.lsi`, {func}`gatac.dr.iterative_lsi` |
-| `obsm` | `chromvar` | chromVAR deviations |
-| `varm` | `motif_match`, `bg_peaks` | Motif matches and background peaks of {func}`gatac.motif.scan`, {func}`gatac.motif.sample_bg_peaks` |
-| `uns` | `tile_stats`, `lsi`, `iterative_lsi`, `peaks`, ... | Parameters and summaries of the step of the same name |
+| Where       | Key                                                | Content                                                                                                    |
+| ----------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `obs_names` |                                                    | Barcodes, with the file's barcode prefix (`gatac rename`), as {class}`~gatac.io.FragmentFile` returns them |
+| `obs`       | `source_file`                                      | Fragment file of each cell, for matrices built from several files                                          |
+| `var_names` |                                                    | Genomic features as `chrom:start-end`, 0-based and half-open (BED); genes by name                          |
+| `obsm`      | `X_spectral`, `X_lsi`, `X_iterative_lsi`           | Cell embeddings of {func}`gatac.dr.spectral`, {func}`gatac.dr.lsi`, {func}`gatac.dr.iterative_lsi`         |
+| `obsm`      | `chromvar`                                         | chromVAR deviations                                                                                        |
+| `varm`      | `motif_match`, `bg_peaks`                          | Motif matches and background peaks of {func}`gatac.motif.scan`, {func}`gatac.motif.sample_bg_peaks`        |
+| `uns`       | `tile_stats`, `lsi`, `iterative_lsi`, `peaks`, ... | Parameters and summaries of the step of the same name                                                      |
 
 Write an extension's own results under keys that start with its name
 (`obsm["chromafold_..."]`, `uns["chromafold"]`), so they cannot collide with

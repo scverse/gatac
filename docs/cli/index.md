@@ -1,6 +1,6 @@
 # CLI Reference
 
-GATAC ships a command-line interface for the preprocessing pipeline.  Every
+GATAC ships a command-line interface for the preprocessing pipeline. Every
 step that turns raw fragment files into analysis-ready matrices is available
 as a sub-command.
 
@@ -10,8 +10,8 @@ gatac [--verbose] <command> [options]
 
 Global option:
 
-| Flag | Description |
-|------|-------------|
+| Flag            | Description                |
+| --------------- | -------------------------- |
 | `-v, --verbose` | Enable debug-level logging |
 
 

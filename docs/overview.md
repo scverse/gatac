@@ -223,15 +223,15 @@ tools' time for each stage.
 
 ::::
 
-| Stage | SnapATAC2 | GATAC | Speedup |
-|-------|-----------|-------|---------|
-| Import | 1 h 18 min | 15 min | ×5.1 |
-| QC + filter | 9.3 min | 3.9 min | ×2.4 |
-| Tiles + selection | 42 min | 3.5 min | ×12 |
-| Embedding + clusters | 36 min | 37 s | ×59 |
-| Gene matrix | 21 min | 2.3 min | ×8.9 |
-| Peak calling | 6 h 20 min | 16 min | ×24 |
-| Peak matrix | 14 min | 1.4 min | ×10 |
+| Stage                | SnapATAC2  | GATAC   | Speedup |
+| -------------------- | ---------- | ------- | ------- |
+| Import               | 1 h 18 min | 15 min  | ×5.1    |
+| QC + filter          | 9.3 min    | 3.9 min | ×2.4    |
+| Tiles + selection    | 42 min     | 3.5 min | ×12     |
+| Embedding + clusters | 36 min     | 37 s    | ×59     |
+| Gene matrix          | 21 min     | 2.3 min | ×8.9    |
+| Peak calling         | 6 h 20 min | 16 min  | ×24     |
+| Peak matrix          | 14 min     | 1.4 min | ×10     |
 
 ---
 

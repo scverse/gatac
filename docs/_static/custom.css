@@ -2,138 +2,144 @@
 
 /* ── Brand colours ───────────────────────────────────────────────────────── */
 :root {
-  --gatac-green:     #73b301;   /* logo green */
-  --gatac-green-dark:#5a8c00;
-  --gatac-gpu:       #76b900;   /* NVIDIA green */
-  --pst-color-link-hover: var(--gatac-green);
-  --pst-color-secondary: var(--gatac-green);
+    --gatac-green: #73b301; /* logo green */
+    --gatac-green-dark: #5a8c00;
+    --gatac-gpu: #76b900; /* NVIDIA green */
+    --pst-color-link-hover: var(--gatac-green);
+    --pst-color-secondary: var(--gatac-green);
 }
 
 html[data-theme="light"] {
-  --pst-color-secondary: var(--gatac-green);
+    --pst-color-secondary: var(--gatac-green);
 }
 
 html[data-theme="dark"] {
-  --pst-color-link-hover: var(--gatac-green);
-  --pst-color-secondary: var(--gatac-green);
+    --pst-color-link-hover: var(--gatac-green);
+    --pst-color-secondary: var(--gatac-green);
 }
 
 /* ── Logo spacing ────────────────────────────────────────────────────────── */
 .navbar-brand img {
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  max-height: 100px;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    max-height: 100px;
 }
 
 /* ── Toctree caption headings (sidebar section labels) ───────────────────── */
 p.caption .caption-text,
 .bd-sidebar-secondary .onthispage {
-  color: var(--gatac-green);
-  font-weight: 600;
-  text-transform: uppercase;
+    color: var(--gatac-green);
+    font-weight: 600;
+    text-transform: uppercase;
 }
 
 /* ── Custom small/smaller roles (mirrors rapids-singlecell usage) ─────────── */
-.small   { font-size: 40% !important; }
-.smaller { font-size: 70% !important; }
+.small {
+    font-size: 40% !important;
+}
+.smaller {
+    font-size: 70% !important;
+}
 
 /* ── Landing page hero cards ─────────────────────────────────────────────── */
 .sd-card {
-  border-radius: 8px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+    border-radius: 8px;
+    transition:
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
 }
 
 .sd-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
 }
 
 /* Card footers with several buttons: side by side, not stacked */
 .sd-card-footer p.sd-card-text {
-  display: inline-block;
-  margin: 0 0.5rem 0 0;
+    display: inline-block;
+    margin: 0 0.5rem 0 0;
 }
 
 /* ── API summary tables ──────────────────────────────────────────────────── */
 table.autosummary td:first-child code {
-  white-space: nowrap;
+    white-space: nowrap;
 }
 
 /* ── Code blocks ─────────────────────────────────────────────────────────── */
 div.highlight pre {
-  border-radius: 6px;
+    border-radius: 6px;
 }
 
 /* Inline code */
 code.literal {
-  background-color: var(--pst-color-surface);
-  border: 1px solid var(--pst-color-border);
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 0.88em;
+    background-color: var(--pst-color-surface);
+    border: 1px solid var(--pst-color-border);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 0.88em;
 }
 
 /* ── Mermaid diagrams ────────────────────────────────────────────────────── */
 .mermaid svg {
-  max-width: 100%;
-  border-radius: 6px;
+    max-width: 100%;
+    border-radius: 6px;
 }
 
 /* ── Sidebar active link ─────────────────────────────────────────────────── */
 .bd-sidebar-primary .nav-link.active {
-  border-left: 3px solid var(--gatac-green);
-  font-weight: 600;
+    border-left: 3px solid var(--gatac-green);
+    font-weight: 600;
 }
 
 /* ── Back-to-top button ──────────────────────────────────────────────────── */
 #pst-back-to-top {
-  background-color: var(--gatac-green);
-  color: #fff;
+    background-color: var(--gatac-green);
+    color: #fff;
 }
 
 #pst-back-to-top:hover {
-  background-color: var(--gatac-green-dark);
-  color: #fff;
+    background-color: var(--gatac-green-dark);
+    color: #fff;
 }
 
 #pst-back-to-top:focus-visible {
-  outline-color: var(--gatac-green);
+    outline-color: var(--gatac-green);
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 footer.bd-footer {
-  border-top: 1px solid var(--pst-color-border);
-  font-size: 0.85rem;
+    border-top: 1px solid var(--pst-color-border);
+    font-size: 0.85rem;
 }
 
 /* ── GPU badge (used in API pages) ──────────────────────────────────────── */
 .gpu-badge {
-  display: inline-block;
-  background: var(--gatac-gpu);
-  color: #000;
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 3px;
-  vertical-align: middle;
-  margin-left: 4px;
+    display: inline-block;
+    background: var(--gatac-gpu);
+    color: #000;
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
 }
 
 /* ── Responsive tables ───────────────────────────────────────────────────── */
 table.docutils {
-  width: 100%;
-  overflow-x: auto;
-  display: block;
+    width: 100%;
+    overflow-x: auto;
+    display: block;
 }
 
 /* ── Heading anchor links ─────────────────────────────────────────────────── */
 a.headerlink {
-  color: var(--gatac-green);
+    color: var(--gatac-green);
 }
 
 a.headerlink:hover {
-  color: var(--gatac-green-dark);
+    color: var(--gatac-green-dark);
 }
 
 /* ── Notebook output images ──────────────────────────────────────────────── */
@@ -141,50 +147,65 @@ a.headerlink:hover {
    images scale responsively with the page width.                             */
 .cell_output img,
 .output img {
-  max-width: 100%;
-  height: auto !important;
-  width: auto !important;
+    max-width: 100%;
+    height: auto !important;
+    width: auto !important;
 }
 
 /* ── Dark mode overrides ─────────────────────────────────────────────────── */
 html[data-theme="dark"] {
-  --gatac-blue: #58a6ff;
+    --gatac-blue: #58a6ff;
 }
 
 html[data-theme="dark"] code.literal {
-  background-color: #161b22;
-  border-color: #30363d;
+    background-color: #161b22;
+    border-color: #30363d;
 }
 
 /* Release notes: {small}`date` and {smaller}`author` */
-.small { font-size: 0.8em; font-weight: normal; opacity: 0.75; }
-.smaller { font-size: 0.75em; opacity: 0.75; }
+.small {
+    font-size: 0.8em;
+    font-weight: normal;
+    opacity: 0.75;
+}
+.smaller {
+    font-size: 0.75em;
+    opacity: 0.75;
+}
 
 /* Wide SVG diagrams: on narrow screens keep a readable size and scroll
    sideways instead of shrinking the text (e.g. the Parquet file layout) */
 .diagram-scroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 .diagram-scroll > svg {
-  min-width: 600px;
+    min-width: 600px;
 }
 /* "Scroll sideways" hint above such a diagram, only where it does scroll
    (the diagram is at least 600px wide; the article has 1rem side padding) */
 .diagram-scroll-hint {
-  display: none;
-  margin: 0 0 0.25rem;
-  font-size: 0.8em;
-  text-align: right;
-  color: var(--pst-color-text-muted);
+    display: none;
+    margin: 0 0 0.25rem;
+    font-size: 0.8em;
+    text-align: right;
+    color: var(--pst-color-text-muted);
 }
 @media (max-width: 640px) {
-  .diagram-scroll-hint { display: block; }
+    .diagram-scroll-hint {
+        display: block;
+    }
 }
 
 /* A diagram drawn twice: the wide layout, and a vertical one for phones */
-.diagram-narrow { display: none; }
+.diagram-narrow {
+    display: none;
+}
 @media (max-width: 640px) {
-  .diagram-wide { display: none; }
-  .diagram-narrow { display: block; }
+    .diagram-wide {
+        display: none;
+    }
+    .diagram-narrow {
+        display: block;
+    }
 }

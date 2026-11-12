@@ -32,7 +32,7 @@ requires cuGraph for the clustering step; `lsi` does not.
 The individual stages of the LSI pipeline are importable from their module,
 for building a custom iterative scheme or inspecting one step in isolation
 (`from gatac.dr.lsi import scale_dims`). `scale_dims` is ArchR's `scaleDims` —
-note it standardises each *cell* across its dimensions, not each dimension
+note it standardises each _cell_ across its dimensions, not each dimension
 across cells.
 
 ```{eval-rst}

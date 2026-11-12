@@ -23,7 +23,7 @@ per-cell TF activity with chromVAR {cite:p}`Schep2017`.
 ## chromVAR
 
 Compute transcription-factor activity deviation scores following the chromVAR
-algorithm.  All compute-intensive steps are executed on GPU.
+algorithm. All compute-intensive steps are executed on GPU.
 
 ```{eval-rst}
 .. autosummary::

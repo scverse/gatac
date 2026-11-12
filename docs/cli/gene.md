@@ -24,27 +24,27 @@ gatac gene <input.parquet> -g <annotations.gtf>
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                                  |
+| --------------- | -------------------------------------------- |
 | `input.parquet` | Path to the (filtered) fragment Parquet file |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-g`, `--gtf` | **required** | GTF (or GFF3) gene annotation file |
-| `-o`, `--output` | `<input>_gene_matrix.h5ad` | Output h5ad path |
-| `--id-type` | `gene` | Aggregation level: `gene` or `transcript` |
-| `--upstream` | `2000` | Promoter extension upstream of TSS (bp) |
-| `--downstream` | `0` | Extension downstream of TSS (bp) |
-| `--include-gene-body` | on | Include gene body in scoring region |
-| `--no-gene-body` | — | Score promoter region only |
-| `-m`, `--min-fragments` | `100` | Minimum unique fragments per barcode |
-| `-e`, `--exclude-chroms` | `chrM M` | Chromosomes to exclude |
-| `--metrics` | — | Metrics CSV for quality-based filtering |
-| `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
-| `--low-memory` | off | Process one Parquet row-group at a time |
-| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
+| Flag                     | Default                    | Description                                                                                                                                                                          |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-g`, `--gtf`            | **required**               | GTF (or GFF3) gene annotation file                                                                                                                                                   |
+| `-o`, `--output`         | `<input>_gene_matrix.h5ad` | Output h5ad path                                                                                                                                                                     |
+| `--id-type`              | `gene`                     | Aggregation level: `gene` or `transcript`                                                                                                                                            |
+| `--upstream`             | `2000`                     | Promoter extension upstream of TSS (bp)                                                                                                                                              |
+| `--downstream`           | `0`                        | Extension downstream of TSS (bp)                                                                                                                                                     |
+| `--include-gene-body`    | on                         | Include gene body in scoring region                                                                                                                                                  |
+| `--no-gene-body`         | —                          | Score promoter region only                                                                                                                                                           |
+| `-m`, `--min-fragments`  | `100`                      | Minimum unique fragments per barcode                                                                                                                                                 |
+| `-e`, `--exclude-chroms` | `chrM M`                   | Chromosomes to exclude                                                                                                                                                               |
+| `--metrics`              | —                          | Metrics CSV for quality-based filtering                                                                                                                                              |
+| `--filter`               | —                          | Pandas `DataFrame.query` string applied to metrics                                                                                                                                   |
+| `--low-memory`           | off                        | Process one Parquet row-group at a time                                                                                                                                              |
+| `--compression`          | `gzip`                     | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 
@@ -116,8 +116,8 @@ adata_gene.write_h5ad("pbmc_gene.h5ad")
 
 ## Output AnnData structure
 
-| Slot | Content |
-|------|---------|
-| `adata.X` | Sparse cell × gene count matrix |
-| `adata.obs` | Barcode metadata |
+| Slot        | Content                                                        |
+| ----------- | -------------------------------------------------------------- |
+| `adata.X`   | Sparse cell × gene count matrix                                |
+| `adata.obs` | Barcode metadata                                               |
 | `adata.var` | Gene metadata: `gene_name`, `gene_id`, `chrom`, `start`, `end` |

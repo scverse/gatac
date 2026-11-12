@@ -2,7 +2,7 @@
 
 Detect doublet / multiplet cells in a single-cell ATAC-seq sample using the
 [AMULET](https://github.com/UcarLab/AMULET) Poisson method of
-{cite:t}`Thibodeau2021`.  Cells with significantly more overlapping
+{cite:t}`Thibodeau2021`. Cells with significantly more overlapping
 insertions than expected are flagged as doublets.
 
 ---
@@ -23,24 +23,24 @@ gatac doublets <input.parquet> -g <genome> [-o OUTPUT]
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                       |
+| --------------- | --------------------------------- |
 | `input.parquet` | Path to the fragment Parquet file |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-g`, `--genome` | **required** | Genome name (`hg38`, `mm10`, …) or path to a chromosome sizes file |
-| `-o`, `--output` | `<input>_doublets.csv` | Output CSV path |
-| `-m`, `--min-fragments` | `100` | Minimum unique fragments per cell to include |
-| `--q` | `0.01` | FDR threshold for doublet calling |
-| `--q-rep` | `0.01` | FDR threshold for inferring repetitive regions |
-| `--expected-overlap` | `2` | Expected number of reads overlapping (Poisson mean) |
-| `--max-insert` | `900` | Maximum fragment insert size in bp |
-| `--min-overlap` | `1` | Minimum overlap length in bp |
-| `--repeat-filter` | — | BED file of known repetitive regions to exclude |
-| `-j`, `--threads` | `1` | Parallel workers for overlap detection |
+| Flag                    | Default                | Description                                                        |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------ |
+| `-g`, `--genome`        | **required**           | Genome name (`hg38`, `mm10`, …) or path to a chromosome sizes file |
+| `-o`, `--output`        | `<input>_doublets.csv` | Output CSV path                                                    |
+| `-m`, `--min-fragments` | `100`                  | Minimum unique fragments per cell to include                       |
+| `--q`                   | `0.01`                 | FDR threshold for doublet calling                                  |
+| `--q-rep`               | `0.01`                 | FDR threshold for inferring repetitive regions                     |
+| `--expected-overlap`    | `2`                    | Expected number of reads overlapping (Poisson mean)                |
+| `--max-insert`          | `900`                  | Maximum fragment insert size in bp                                 |
+| `--min-overlap`         | `1`                    | Minimum overlap length in bp                                       |
+| `--repeat-filter`       | —                      | BED file of known repetitive regions to exclude                    |
+| `-j`, `--threads`       | `1`                    | Parallel workers for overlap detection                             |
 
 ---
 
@@ -48,12 +48,12 @@ gatac doublets <input.parquet> -g <genome> [-o OUTPUT]
 
 A CSV with one row per cell:
 
-| Column | Description |
-|--------|-------------|
-| `cell_id` | Cell barcode |
-| `p_value` | Poisson p-value for the observed overlap count |
-| `q_value` | Benjamini–Hochberg adjusted p-value |
-| `is_doublet` | `True` if `q_value < --q` |
+| Column       | Description                                    |
+| ------------ | ---------------------------------------------- |
+| `cell_id`    | Cell barcode                                   |
+| `p_value`    | Poisson p-value for the observed overlap count |
+| `q_value`    | Benjamini–Hochberg adjusted p-value            |
+| `is_doublet` | `True` if `q_value < --q`                      |
 
 ---
 
@@ -106,6 +106,6 @@ adata = adata[~adata.obs_names.isin(doublets)].copy()
 ## Notes
 
 AMULET's Poisson model assumes a uniform single-copy background and is
-designed for **autosomes only**.  Make sure the supplied `chrom_sizes`
+designed for **autosomes only**. Make sure the supplied `chrom_sizes`
 covers the autosomes of your species (the built-in `hg38`, `hg19`, `mm10`,
 `mm39` aliases do).

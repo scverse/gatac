@@ -16,12 +16,12 @@ summation order). That is about half the deviation TOBIAS itself shows when
 its bias score is perturbed by 1e-13. `tobias_compat=True` (the default) also
 reproduces TOBIAS's quirks; `tobias_compat=False` fixes them:
 
-* the bias model depends on the BAM read length (`read_length`, 50 by
+- the bias model depends on the BAM read length (`read_length`, 50 by
   default);
-* for MEME motifs the reverse-strand matrix is rebuilt from
+- for MEME motifs the reverse-strand matrix is rebuilt from
   `round(p × nsites)`, which is coarse for `nsites=1` files such as cisBP
   {cite:p}`Weirauch2014`;
-* the per-peak log2FC average actually groups by binding site.
+- the per-peak log2FC average actually groups by binding site.
 
 ```{eval-rst}
 .. currentmodule:: gatac.tobias

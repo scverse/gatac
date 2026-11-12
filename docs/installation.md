@@ -36,10 +36,10 @@ gatac --help
 
 ### Optional extras
 
-| Extra | For |
-|-------|-----|
+| Extra          | For                                                                            |
+| -------------- | ------------------------------------------------------------------------------ |
 | `archr-compat` | Seurat's approximate neighbour search (Annoy), to reproduce ArchR's clustering |
-| `bigwig` | Writing footprint tracks as bigWig (`FootprintResult.to_bigwig`) |
+| `bigwig`       | Writing footprint tracks as bigWig (`FootprintResult.to_bigwig`)               |
 
 Combine them with the CUDA extra: `pip install 'gatac[rapids-cu12,bigwig]'`.
 
@@ -95,7 +95,7 @@ print(cudf.get_device_info())
 ## Hardware requirements
 
 | Component | Minimum | Recommended |
-|-----------|---------|-------------|
+| --------- | ------- | ----------- |
 | GPU VRAM  | 8 GB    | 24–80 GB    |
 | RAM       | 32 GB   | 128+ GB     |
 | Storage   | —       | NVMe SSD    |

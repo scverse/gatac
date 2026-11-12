@@ -24,16 +24,16 @@ gatac rename <input.parquet> --barcode-prefix PREFIX [-o OUTPUT]
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                                                                      |
+| --------------- | -------------------------------------------------------------------------------- |
 | `input.parquet` | Fragment Parquet file (from `gatac convert` or `gatac filter`), changed in place |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--barcode-prefix` | **required** | New prefix, which replaces the file's; `""` removes it |
-| `-o`, `--output` | — | Write a copy with the new prefix instead of changing the input |
+| Flag               | Default      | Description                                                    |
+| ------------------ | ------------ | -------------------------------------------------------------- |
+| `--barcode-prefix` | **required** | New prefix, which replaces the file's; `""` removes it         |
+| `-o`, `--output`   | —            | Write a copy with the new prefix instead of changing the input |
 
 ---
 
