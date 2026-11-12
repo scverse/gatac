@@ -401,7 +401,8 @@ def sample_bg_peaks(
     >>> peak_adata.varm["bg_peaks"]  # Background indices
     """
     # Compute reads per peak (log10 transformed)
-    reads_per_peak = np.asarray(adata.X.sum(axis=0)).flatten()
+    # adata.X is typed as the union of every anndata storage type
+    reads_per_peak = np.asarray(adata.X.sum(axis=0)).flatten()  # type: ignore[union-attr]
     if np.min(reads_per_peak) <= 0:
         raise ValueError("Some peaks have no reads. Filter peaks before sampling.")
     reads_per_peak = np.log10(reads_per_peak)
@@ -594,14 +595,14 @@ def scan(
     logger.info("Computing score thresholds...")
     bg_probs_np = np.array(bg_probs, dtype=np.float64)
     pwm_list = []
-    thresholds = []
+    threshold_list = []
     for motif in tqdm(motifs, desc="Computing thresholds"):
         pwm_log_odds = motif.to_log_odds(bg_probs, mode=mode)
         threshold = _compute_score_threshold(pwm_log_odds, bg_probs_np, pvalue)
         pwm_list.append(pwm_log_odds)
-        thresholds.append(threshold)
+        threshold_list.append(threshold)
 
-    thresholds = np.array(thresholds, dtype=np.float32)
+    thresholds = np.array(threshold_list, dtype=np.float32)
 
     # Process peaks in batches to avoid GPU OOM
     n_batches = (n_peaks + peak_batch_size - 1) // peak_batch_size
@@ -941,8 +942,9 @@ def compute_deviations(
                 b = min(a + rows_per_chunk, n_obs)
                 yield a, b, X[a:b], None, None
 
-        expectation_var = cp.asarray(X.sum(0), dtype=cp.float32).reshape((1, n_vars))
-        expectation_obs = np.asarray(X.sum(1), dtype=np.float32).reshape((n_obs, 1))
+        # adata.X is typed as the union of every anndata storage type
+        expectation_var = cp.asarray(X.sum(0), dtype=cp.float32).reshape((1, n_vars))  # type: ignore[union-attr]
+        expectation_obs = np.asarray(X.sum(1), dtype=np.float32).reshape((n_obs, 1))  # type: ignore[union-attr]
     expectation_var /= expectation_var.sum()
 
     n_motifs = motif_match.shape[1]
@@ -959,7 +961,8 @@ def compute_deviations(
             motif_match_chunk = motif_match[:, motif_start:motif_end]
             n_motifs_chunk = motif_end - motif_start
             if sp.issparse(motif_match_chunk):
-                motif_match_gpu = scipy_to_cupy_sparse(motif_match_chunk.tocsr())
+                # scipy-stubs narrow issparse to SparseABC, which declares no methods
+                motif_match_gpu = scipy_to_cupy_sparse(motif_match_chunk.tocsr())  # type: ignore[attr-defined]
                 # dense for efficient background indexing (n_peaks × n_motifs_chunk float32)
                 motif_match_dense = motif_match_gpu.toarray().astype(cp.float32)
             else:
@@ -1025,7 +1028,8 @@ def compute_deviations(
         logger.info(f"Computed chromVAR deviations: {dev.shape}. Stored in adata.obsm['{key_added}']")
 
     if return_adata:
-        dev_adata = AnnData(dev.astype(np.float32, copy=False), obs=adata.obs.copy())
+        # AnnData() also takes the Dataset2D obs of a lazy AnnData, which the annotation omits
+        dev_adata = AnnData(dev.astype(np.float32, copy=False), obs=adata.obs.copy())  # type: ignore[arg-type]
         dev_adata.var_names = motif_names
         return dev_adata
     return None
@@ -1041,7 +1045,8 @@ def _cell_batch(data, indices, indptr, r0: int, r1: int, n_cols: int) -> cupy_sp
     if indices is None:
         X = data[r0:r1]
         if sp.issparse(X):
-            return scipy_to_cupy_sparse(X.tocsr())
+            # scipy-stubs narrow issparse to SparseABC, which declares no methods
+            return scipy_to_cupy_sparse(X.tocsr())  # type: ignore[attr-defined]
         return cp.asarray(X, dtype=cp.float32)
     lo, hi = int(indptr[r0]), int(indptr[r1])
     return cupy_sparse.csr_matrix(

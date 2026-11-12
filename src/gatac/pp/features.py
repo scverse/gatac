@@ -158,7 +158,7 @@ def _compute_feature_counts_gpu(X, chunk_size: int = 2000) -> cp.ndarray:
         # CPU sparse: compute on CPU, transfer only the small result vector.
         # This avoids shipping the full matrix over PCIe (critical for consumer GPUs).
         if not isinstance(X, sp.csr_matrix):
-            X = X.tocsr()
+            X = X.tocsr()  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC
         if X.data.dtype in (np.bool_, bool):
             # np.bincount on indices alone — O(nnz), no data array needed
             counts = np.bincount(X.indices, minlength=n_features).astype(np.float32)
@@ -178,8 +178,9 @@ def _backed_feature_counts(adata) -> tuple[cp.ndarray, bool]:
     counts = cp.zeros(adata.n_vars, cp.float64)
     binary = True
     for chunk in iter_row_chunks(adata):
-        counts += cp.bincount(chunk.indices, weights=chunk.data.astype(cp.float64), minlength=adata.n_vars)
-        binary = binary and bool(cp.all((chunk.data == 0) | (chunk.data == 1)))
+        data: cp.ndarray = chunk.data
+        counts += cp.bincount(chunk.indices, weights=data.astype(cp.float64), minlength=adata.n_vars)
+        binary = binary and bool(cp.all((data == 0) | (data == 1)))
     return counts.astype(cp.float32), binary
 
 
@@ -206,9 +207,9 @@ def _tile_stats_usable(adata) -> bool:
     if adata.isbacked:
         nnz = X.group["indptr"][-1] if hasattr(X, "group") else None
         return nnz is not None and int(nnz) == int(adata.var["n_cells"].sum())
-    if not sp.issparse(X) or X.nnz != int(adata.var["n_cells"].sum()):
+    if not sp.issparse(X) or X.nnz != int(adata.var["n_cells"].sum()):  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC
         return False
-    total = X.data.sum(dtype=np.float64)
+    total = X.data.sum(dtype=np.float64)  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC
     return bool(np.isclose(total, adata.var["count"].to_numpy(dtype=np.float64).sum(), rtol=0, atol=0.5))
 
 

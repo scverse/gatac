@@ -47,16 +47,16 @@ def _brute_force_counts(frags: pd.DataFrame, cells, peaks: pd.DataFrame, strateg
     longest = int((frags.end - frags.start).max())
     by_chrom = {c: f.sort_values("start") for c, f in frags.groupby("chrom")}
     out = np.zeros((len(cells), len(peaks)), np.int64)
-    for j, p in enumerate(peaks.itertuples()):
-        f = by_chrom[p.chrom]
-        lo, hi = np.searchsorted(f.start.to_numpy(), [p.start - longest, p.end])
+    for j, (chrom, start, end) in enumerate(zip(peaks.chrom, peaks.start, peaks.end)):
+        f = by_chrom[chrom]
+        lo, hi = np.searchsorted(f.start.to_numpy(), [start - longest, end])
         f = f.iloc[lo:hi]
-        in1 = (f.start >= p.start) & (f.start < p.end)
-        in2 = (f.end - 1 >= p.start) & (f.end - 1 < p.end)
+        in1 = (f.start >= start) & (f.start < end)
+        in2 = (f.end - 1 >= start) & (f.end - 1 < end)
         n = {
             "insertion": in1.astype(int) + in2.astype(int),
             "paired-insertion": (in1 | in2).astype(int),
-            "fragment": ((f.start < p.end) & (f.end > p.start)).astype(int),
+            "fragment": ((f.start < end) & (f.end > start)).astype(int),
         }[strategy]
         np.add.at(out[:, j], f.row.to_numpy(), n.to_numpy())
     return out

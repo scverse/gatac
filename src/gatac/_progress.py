@@ -27,7 +27,9 @@ def tqdm(*args, disable: bool = False, **kwargs):
     """:class:`tqdm.auto.tqdm`, disabled unless :func:`show_progress`."""
     from tqdm.auto import tqdm as _tqdm
 
-    return _tqdm(*args, disable=disable or not show_progress(), **kwargs)
+    # in kwargs, as mypy matches a keyword after *args against the positional parameters too
+    kwargs["disable"] = disable or not show_progress()
+    return _tqdm(*args, **kwargs)
 
 
 def trange(*args, **kwargs):

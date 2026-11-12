@@ -3,9 +3,10 @@
 import logging
 import multiprocessing as mp
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import overload
 
 import duckdb
 import pandas as pd
@@ -42,8 +43,8 @@ def sample_names(paths: Sequence[str | Path]) -> list[str]:
     >>> sample_names(["runs/A/outs/atac_fragments.tsv.gz", "runs/B/outs/atac_fragments.tsv.gz"])
     ['A', 'B']
     """
-    paths = [Path(p).resolve() for p in paths]
-    parts = [(_stem(p), *reversed(p.parent.parts)) for p in paths]
+    resolved = [Path(p).resolve() for p in paths]
+    parts = [(_stem(p), *reversed(p.parent.parts)) for p in resolved]
     if len(parts) == 1:
         return [parts[0][0]]
     depth = max(len(x) for x in parts)
@@ -55,6 +56,10 @@ def sample_names(paths: Sequence[str | Path]) -> list[str]:
     return names
 
 
+@overload
+def _fill(value: str, sample: str) -> str: ...
+@overload
+def _fill(value: str | None, sample: str) -> str | None: ...
 def _fill(value: str | None, sample: str) -> str | None:
     """``value`` with ``{sample}`` replaced by the sample name."""
     return value.replace(SAMPLE, sample) if value else value
@@ -258,12 +263,8 @@ def _make_parquet_duckdb(
                 )
             except (duckdb.InvalidInputException, duckdb.ConversionException) as e:
                 raise _invalid_line_error(input_path, e) from None
-            rejected = (
-                con.execute("SELECT count(DISTINCT line) FROM reject_errors").fetchone()[0] if skip_invalid else 0
-            )
-            missing = con.execute(
-                f"SELECT count(*) FROM read_parquet(?) WHERE NOT ({_REQUIRED})", [str(stage)]
-            ).fetchone()[0]
+            rejected = _count(con, "SELECT count(DISTINCT line) FROM reject_errors") if skip_invalid else 0
+            missing = _count(con, f"SELECT count(*) FROM read_parquet(?) WHERE NOT ({_REQUIRED})", [str(stage)])
             if missing and not skip_invalid:
                 line = con.execute(
                     f"SELECT * FROM read_parquet(?) WHERE NOT ({_REQUIRED}) LIMIT 1", [str(stage)]
@@ -306,6 +307,13 @@ def _make_parquet_duckdb(
 
     logger.info(f"Created {output_path.name}")
     return output_path
+
+
+def _count(con: duckdb.DuckDBPyConnection, query: str, params: list[str] | None = None) -> int:
+    """Result of a ``count(...)`` query, which has one row."""
+    row = con.execute(query, params).fetchone()
+    assert row is not None
+    return row[0]
 
 
 def make_parquet_batch(
@@ -432,38 +440,39 @@ def make_parquet_batch(
     if samples is not None:
         if input_paths is not None:
             raise ValueError("Give input_paths or samples, not both")
-        input_paths, sheet_outputs, sheet_prefixes = _read_sample_sheet(samples)
+        sheet_inputs, sheet_outputs, sheet_prefixes = _read_sample_sheet(samples)
+        input_paths = list(sheet_inputs)
         if sheet_outputs is not None:
             output_paths = sheet_outputs
         if sheet_prefixes is not None:
             barcode_prefix = sheet_prefixes
     if not input_paths:
         raise ValueError("No input files given")
-    input_paths = [Path(p) for p in input_paths]
+    inputs = [Path(p) for p in input_paths]
 
-    def per_file(value, what):
+    def per_file(value: str | Sequence[str | Path] | None, what: str) -> list[str]:
         if isinstance(value, (str, Path)) or value is None:
-            return [str(value) if value else ""] * len(input_paths)
+            return [str(value) if value else ""] * len(inputs)
         values = [str(v) if v else "" for v in value]
-        if len(values) != len(input_paths):
-            raise ValueError(f"{len(values)} {what} for {len(input_paths)} input files")
+        if len(values) != len(inputs):
+            raise ValueError(f"{len(values)} {what} for {len(inputs)} input files")
         return values
 
-    names = sample_names(input_paths)
+    names = sample_names(inputs)
     prefixes = [_fill(p, s) or None for p, s in zip(per_file(barcode_prefix, "barcode prefixes"), names)]
     file_prefixes = [_fill(p, s) for p, s in zip(per_file(file_prefix, "file prefixes"), names)]
     outputs = [_fill(o, s) for o, s in zip(per_file(output_paths, "output paths"), names)]
 
     # Next to each input unless output_dir is given, as make_parquet does
-    output_paths = [
+    targets = [
         Path(o)
         if o
         else (Path(output_dir) if output_dir is not None else p.parent)
         / (fp + p.with_suffix("").with_suffix(".parquet").name)
-        for p, fp, o in zip(input_paths, file_prefixes, outputs)
+        for p, fp, o in zip(inputs, file_prefixes, outputs)
     ]
     seen: dict[Path, Path] = {}
-    for inp, out in zip(input_paths, output_paths):
+    for inp, out in zip(inputs, targets):
         key = out.resolve()
         if key in seen:
             raise ValueError(
@@ -472,7 +481,7 @@ def make_parquet_batch(
                 'output_paths="parquets/{sample}.parquet" (-o)'
             )
         seen[key] = inp
-    for out in output_paths:
+    for out in targets:
         out.parent.mkdir(parents=True, exist_ok=True)
     # BGZF and uncompressed files go to the GPU; a gzip file that is not BGZF
     # (it cannot be split) or a Zstandard file goes to DuckDB, on the CPUs the
@@ -480,18 +489,17 @@ def make_parquet_batch(
     if _use_gpu(gpu):
         from .gpu_convert import _cpu_reason, _input_kind, _make_parquet_gpu
 
-        on_gpu = [_cpu_reason(_input_kind(p)) is None for p in input_paths]
+        on_gpu = [_cpu_reason(_input_kind(p)) is None for p in inputs]
+        route: list[Callable[..., Path]] = [_make_parquet_gpu if g else _make_parquet_duckdb for g in on_gpu]
     else:
-        _make_parquet_gpu, on_gpu = None, [False] * len(input_paths)
-    route = [_make_parquet_gpu if g else _make_parquet_duckdb for g in on_gpu]
-    if len(input_paths) == 1:
-        return [
-            route[0](input_paths[0], output_paths[0], separator, prefixes[0], row_group_size, skip_invalid=skip_invalid)
-        ]
+        on_gpu = [False] * len(inputs)
+        route = [_make_parquet_duckdb] * len(inputs)
+    if len(inputs) == 1:
+        return [route[0](inputs[0], targets[0], separator, prefixes[0], row_group_size, skip_invalid=skip_invalid)]
 
     n_gpu, n_cpu, threads = _batch_workers(workers, sum(on_gpu), len(on_gpu) - sum(on_gpu))
     logger.info(
-        f"Converting {len(input_paths)} file(s): "
+        f"Converting {len(inputs)} file(s): "
         + ", ".join(
             f"{n_files} {where} with {n} worker(s)"
             for n_files, where, n in (
@@ -503,10 +511,10 @@ def make_parquet_batch(
     )
 
     # Largest first, so that the largest files do not run alone at the end
-    sizes = [os.path.getsize(p) for p in input_paths]
-    order = sorted(range(len(input_paths)), key=lambda i: -sizes[i])
+    sizes = [os.path.getsize(p) for p in inputs]
+    order = sorted(range(len(inputs)), key=lambda i: -sizes[i])
 
-    results: list[Path | None] = [None] * len(input_paths)
+    results: dict[int, Path] = {}
 
     # Spawned, not forked: the parent runs DuckDB and Arrow threads, and a
     # fork of a multi-threaded process can deadlock in the child (Python
@@ -520,8 +528,8 @@ def make_parquet_batch(
         future_to_idx = {
             (gpu_pool if on_gpu[i] else cpu_pool).submit(
                 route[i],
-                input_paths[i],
-                output_paths[i],
+                inputs[i],
+                targets[i],
                 separator,
                 prefixes[i],
                 row_group_size,
@@ -534,8 +542,9 @@ def make_parquet_batch(
             i = future_to_idx[future]
             results[i] = future.result()  # propagate worker exceptions
 
-    _warn_shared_barcodes(results)
-    return results  # type: ignore[return-value]
+    paths = [results[i] for i in range(len(inputs))]
+    _warn_shared_barcodes(paths)
+    return paths
 
 
 def _batch_workers(workers: int | str, n_gpu_files: int, n_cpu_files: int) -> tuple[int, int, int]:
@@ -669,7 +678,7 @@ def set_barcode_prefix(
 
 def _warn_shared_barcodes(paths: Sequence[Path]) -> None:
     """Warn if files share cell names, which keeps them from being combined."""
-    seen: dict[str, str] = {}
+    seen: dict[str, set[str]] = {}
     for p in paths:
         names = set(FragmentFile(p).barcodes)
         for other, other_names in seen.items():

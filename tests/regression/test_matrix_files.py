@@ -36,7 +36,8 @@ def _adata(X) -> ad.AnnData:
         obs=pd.DataFrame({"group": pd.Categorical(["a", "b"] * (n // 2))}, index=[f"c{i}" for i in range(n)]),
         var=pd.DataFrame({"chrom": ["chr1"] * m}, index=[f"t{j}" for j in range(m)]),
         uns={"tile_scan": {"tile_size": 500}},
-        obsm={"X_emb": rng.standard_normal((n, 3))},
+        # anndata annotates obsm values as Sequence, arrays work
+        obsm={"X_emb": rng.standard_normal((n, 3))},  # type: ignore[dict-item]
         layers={"raw": X.copy()},
     )
 

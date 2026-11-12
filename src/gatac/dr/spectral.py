@@ -510,10 +510,11 @@ def spectral(
         n = adata.n_obs
         m = adata.n_vars if feat_mask is None else int(feat_mask.sum())
     else:
+        # adata.X is typed as the union of every anndata storage type
         X = adata.X
         if feat_mask is not None:
-            X = X[:, feat_mask]
-        n, m = X.shape
+            X = X[:, feat_mask]  # type: ignore[index]
+        n, m = X.shape  # type: ignore[union-attr]
 
     # ---- Clamp n_comps ----
     max_comps = min(n - 1, m - 1)
@@ -543,7 +544,7 @@ def spectral(
                 fw = fw[feat_mask]
 
         evals, evecs = _spectral_chunked(
-            X_cpu,
+            X_cpu,  # type: ignore[arg-type]  # in memory, X keeps the adata.X union type
             n_comps,
             random_state,
             fw,
@@ -555,7 +556,8 @@ def spectral(
         X_gpu = gpu_csr(adata, features=feat_mask) if backed else _to_gpu_csr(X)
         if not backed and X_gpu is adata.X:
             # normalisation below rewrites X_gpu.data in place
-            X_gpu = X_gpu.copy()
+            # (the is check narrows X_gpu to the adata.X union type)
+            X_gpu = X_gpu.copy()  # type: ignore[union-attr]
 
         if feature_weights is not None:
             weights = cp.asarray(feature_weights, dtype=cp.float64)

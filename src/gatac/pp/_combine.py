@@ -101,6 +101,8 @@ def combine_file_matrices(
 
     def rows(part: ad.AnnData, name: str) -> sp.csr_matrix:
         nonlocal var
+        # in-memory parts: pandas obs and var, not the Dataset2D of a lazy AnnData
+        assert isinstance(part.var, pd.DataFrame) and isinstance(part.obs, pd.DataFrame)
         if var is None:
             var = part.var
         elif not part.var_names.equals(var.index):
@@ -108,7 +110,8 @@ def combine_file_matrices(
         obs = part.obs.copy()
         obs.insert(min(1, obs.shape[1]), "source_file", name)
         obs_parts.append(obs)
-        return sp.csr_matrix(part.X)
+        # the X union of AnnData includes backed and array API types an in-memory part does not have
+        return sp.csr_matrix(part.X)  # type: ignore[arg-type]
 
     if output_path is None:
         X = [rows(part, name) for part, name in zip(parts, names)]

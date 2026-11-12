@@ -42,6 +42,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 import cupy as cp
 import cupyx.scipy.sparse as cusp
@@ -961,6 +962,8 @@ def compute_lsi(
         u, s, vt = _svd(X_fit, n_comps, tol=tol, ncv=ncv, random_state=random_state, deterministic=deterministic)
         del X_fit
     else:
+        # X_gpu_full is None only for a streamed run
+        assert chunk_size is not None
         Xf = X_train[:, idx].tocsr() if n_kept < n_features else X_train.tocsr()
         Xf = _tfidf_host_chunked(
             Xf,
@@ -1979,7 +1982,7 @@ def iterative_lsi(
     # all of them: `quantize` and `max_resolution_retries` were previously
     # unreachable from here, which made them impossible to ablate through the
     # public API even though both change the partition.
-    params = {
+    params: dict[str, Any] = {
         "k": 20,
         "resolution": 2.0,
         "prune": 1.0 / 15.0,
@@ -2105,6 +2108,8 @@ def iterative_lsi(
 
     del X_pool
     cp.get_default_memory_pool().free_all_blocks()
+    # iterations >= 1, so the loop fits at least once
+    assert model is not None
 
     # ---- final depth-correlation filter, on the scaled embedding ----------
     depth_final = depth if depth is not None else cp.asnumpy(_cell_depth(_to_gpu_csr(_select(features)), binarize))

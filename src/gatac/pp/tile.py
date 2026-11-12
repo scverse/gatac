@@ -212,7 +212,7 @@ def _csr_from_key_counts(
         return sp.csr_matrix((n_cells, n_tiles), dtype=np.uint16)
     nnz = int(row_nnz.sum())
     # one index dtype for both arrays, as scipy picks it
-    idx_dtype = np.int32 if max(nnz, n_tiles) <= np.iinfo(np.int32).max else np.int64
+    idx_dtype: type[np.signedinteger] = np.int32 if max(nnz, n_tiles) <= np.iinfo(np.int32).max else np.int64
     indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
     np.cumsum(row_nnz, out=indptr[1:])
     return sp.csr_matrix(
@@ -466,7 +466,7 @@ def _make_tile_matrix_from_interval_matrix(
     interval_adata = adata[:, feature_indices]
     matrix = interval_adata.X
     if sp.issparse(matrix):
-        matrix = matrix.tocsr()
+        matrix = matrix.tocsr()  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC
     else:
         matrix = sp.csr_matrix(np.asarray(matrix))
 
@@ -623,10 +623,11 @@ def tile_matrix_to_anndata(
             shape=matrix.shape,
         )
     elif sp.issparse(matrix):
-        if matrix.dtype != np.uint16:
-            matrix_cpu = matrix.astype(np.uint16)
+        # scipy-stubs narrow issparse to SparseABC, without the matrix attributes
+        if matrix.dtype != np.uint16:  # type: ignore[attr-defined]
+            matrix_cpu = matrix.astype(np.uint16)  # type: ignore[attr-defined]
         else:
-            matrix_cpu = matrix
+            matrix_cpu = matrix  # type: ignore[assignment]
         if not isinstance(matrix_cpu, sp.csr_matrix):
             matrix_cpu = matrix_cpu.tocsr()
     else:
@@ -770,15 +771,16 @@ def make_tile_matrix(
     if isinstance(chrom_sizes, str):
         chrom_sizes = get_chrom_sizes(chrom_sizes)
 
-    combined = isinstance(input, (list, tuple))
-    if combined or n_features is not None:
-        if not combined and (isinstance(input, ad.AnnData) or Path(input).suffix.lower() in {".h5ad", ".h5"}):
+    if isinstance(input, (list, tuple)) or n_features is not None:
+        if isinstance(input, ad.AnnData) or (
+            not isinstance(input, (list, tuple)) and Path(input).suffix.lower() in {".h5ad", ".h5"}
+        ):
             raise ValueError("n_features applies to fragment files; call pp.select_features on the result instead")
         from .features import select_features
         from .tile_scan import build_tile_matrix, scan_tiles
 
         tiles = scan_tiles(
-            input if combined else [input],
+            input if isinstance(input, (list, tuple)) else [input],
             chrom_sizes,
             tile_size=tile_size,
             min_fragments_per_cell=min_fragments_per_cell,
@@ -823,7 +825,7 @@ def _make_tile_matrix_one(
     chrom_sizes: dict[str, int],
     tile_size: int,
     min_fragments_per_cell: int,
-    exclude_chroms: list | None,
+    exclude_chroms: Sequence[str] | None,
     metrics,
     filter_query: str | None,
     count_strategy: str,
@@ -832,13 +834,12 @@ def _make_tile_matrix_one(
     compression: str | None = "gzip",
 ) -> ad.AnnData:
     """:func:`make_tile_matrix` of one input."""
-    input_is_adata = isinstance(input, ad.AnnData)
-    input_path = None if input_is_adata else Path(input)
+    input_data = input if isinstance(input, ad.AnnData) else Path(input)
     resolved_output_path = Path(output_path) if output_path is not None else None
 
-    if input_is_adata or input_path.suffix.lower() in {".h5ad", ".h5"}:
+    if isinstance(input_data, ad.AnnData) or input_data.suffix.lower() in {".h5ad", ".h5"}:
         return _make_tile_matrix_from_interval_matrix(
-            input_data=input if input_is_adata else input_path,
+            input_data=input_data,
             chrom_sizes=chrom_sizes,
             output_path=resolved_output_path,
             tile_size=tile_size,
@@ -851,7 +852,7 @@ def _make_tile_matrix_one(
         )
 
     start_time = time.perf_counter()
-    logger.info(f"Processing {input_path.name}")
+    logger.info(f"Processing {input_data.name}")
 
     if low_memory:
         row_groups_per_batch = min(row_groups_per_batch, 8)
@@ -862,7 +863,7 @@ def _make_tile_matrix_one(
         tuple(chrom_sizes[c] for c in included_chroms),
         tile_size,
     )
-    fragments = FragmentFile(input_path)
+    fragments = FragmentFile(input_data)
     cell_meta_pd = _tile_cells(
         fragments,
         all_chroms,

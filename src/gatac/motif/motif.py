@@ -97,7 +97,7 @@ def _compute_bg_probs_from_sequences(
         return (0.25, 0.25, 0.25, 0.25)
 
     probs = counts / total
-    return tuple(float(x) for x in probs)
+    return (float(probs[0]), float(probs[1]), float(probs[2]), float(probs[3]))
 
 
 def _resolve_bg_probs(
@@ -126,7 +126,8 @@ def _resolve_bg_probs(
     if total <= 0:
         raise ValueError("Background nucleotide probabilities must sum to a positive value.")
 
-    return tuple(x / total for x in probs)
+    a, c, g, t = probs
+    return (a / total, c / total, g / total, t / total)
 
 
 # =============================================================================
@@ -353,7 +354,7 @@ def read(filename: str | Path, unique: bool = True) -> list[DNAMotif]:
 
     if unique:
         # Keep only motif with highest information content per TF name
-        unique_motifs = {}
+        unique_motifs: dict[str | None, DNAMotif] = {}
         for motif in motifs:
             name = motif.name
             if name not in unique_motifs or unique_motifs[name].info_content() < motif.info_content():
@@ -647,7 +648,7 @@ def _compute_score_threshold_jit(
 
 def _compute_score_threshold(
     pwm_log_odds: np.ndarray,
-    bg_probs: tuple[float, float, float, float],
+    bg_probs: tuple[float, float, float, float] | np.ndarray,
     pvalue: float = 1e-5,
     precision: float = 1e-4,
 ) -> float:
@@ -658,7 +659,7 @@ def _compute_score_threshold(
     ----------
     pwm_log_odds : np.ndarray
         Log-odds PWM matrix (length, 4)
-    bg_probs : tuple
+    bg_probs : tuple or np.ndarray
         Background nucleotide probabilities
     pvalue : float
         Desired p-value threshold
@@ -717,8 +718,8 @@ def _snapatac2_score_threshold_jit(
     cdf = np.cumsum(accum)
     n = cdf.shape[0]
     keep = np.zeros(n, dtype=np.bool_)
-    for i in range(n):
-        keep[i] = i == 0 or i == n - 1 or cdf[i] != cdf[i - 1] or cdf[i] != cdf[i + 1]
+    for k in range(n):
+        keep[k] = k == 0 or k == n - 1 or cdf[k] != cdf[k - 1] or cdf[k] != cdf[k + 1]
     points = np.flatnonzero(keep)
     scores = (points + 0.5) * step + lowest
     cdf = cdf[points]
@@ -790,7 +791,7 @@ def _scan_motifs_batch_gpu(
     all_bound = np.zeros((n_motifs, n_seqs), dtype=np.bool_)
 
     # Group motifs by length for efficient batch processing
-    length_to_motifs = {}
+    length_to_motifs: dict[int, list[int]] = {}
     for i, pwm in enumerate(pwm_list):
         motif_len = pwm.shape[0]
         if motif_len not in length_to_motifs:
@@ -868,6 +869,7 @@ def _scan_motifs_batch_gpu(
 
             if rc_seqs is not None:
                 # Reverse complement scan
+                assert rc_nucs_safe_list is not None and rc_combined_mask is not None
                 rc_scores = cp.zeros((batch_size, n_seqs, n_positions), dtype=cp.float32)
 
                 for pos_in_motif in range(motif_len):
@@ -1069,7 +1071,10 @@ def sample_gc_matched_background(
 
     if isinstance(regions, dict):
         if isinstance(background_pool, dict):
-            background_groups = _normalize_background_groups(regions, background_pool)
+            normalized = _normalize_background_groups(regions, background_pool)
+            # Only a None background normalizes to None.
+            assert normalized is not None
+            background_groups = normalized
         else:
             background_groups = {group: list(background_pool) for group in regions}
 
@@ -1286,6 +1291,7 @@ def enrichment(
         total_fg = len(fg_indices)
 
         if background_groups is None:
+            assert default_bound_bg is not None
             total_bg = n_seqs
             bound_bg = default_bound_bg
         else:
@@ -1511,10 +1517,7 @@ def gsea(
     motif_names_list = list(adata.uns["motif_name"])
     peak_names = adata.var_names
 
-    if sp.issparse(motif_match):
-        motif_match_csc = sp.csc_matrix(motif_match)
-    else:
-        motif_match_csc = sp.csc_matrix(motif_match)
+    motif_match_csc = sp.csc_matrix(motif_match)
 
     feature_sets: dict[str, list] = {}
     for i, name in enumerate(motif_names_list):
@@ -1593,7 +1596,7 @@ def gsea(
 
         results = prerank_gpu(
             feature_names=list(ranked_series.index),
-            ranking_values=ranked_series.values,
+            ranking_values=ranked_series.to_numpy(),
             feature_sets=feature_sets,
             weight=1.0,
             min_size=min_size,
@@ -1816,10 +1819,11 @@ def presence_matrix(
         raise ValueError("no regions supplied")
     n_motifs, n_regions = len(motifs), len(regions)
 
-    resolved_bg_probs = bg_probs
     if isinstance(bg_probs, str):
         logger.info("Resolving background base frequencies from all sequences...")
         resolved_bg_probs = _resolve_bg_probs(bg_probs, _fetch_region_sequences(regions, genome_fasta))
+    else:
+        resolved_bg_probs = bg_probs
 
     logger.info(f"Computing thresholds for {n_motifs} motifs...")
     pwm_list = [m.to_log_odds(resolved_bg_probs) for m in motifs]
@@ -2140,6 +2144,7 @@ def enrichment_regression(
         design.append(_standardise(np.column_stack([gc, cg / c_plus_g])))
         n_cov = 2
     elif covariate_mode == "user":
+        assert user_covariates is not None
         design.append(_standardise(user_covariates[kept_idx]))
         n_cov = user_covariates.shape[1]
     else:

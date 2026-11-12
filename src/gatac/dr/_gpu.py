@@ -107,7 +107,8 @@ def _to_gpu_csr(X) -> cusp.csr_matrix:
     if isinstance(X, cusp.spmatrix):
         return _to_gpu_csr(X.tocsr())
     if sp.issparse(X):
-        X_csr = X.tocsr()
+        # scipy-stubs narrow issparse to SparseABC, which declares no methods
+        X_csr = X.tocsr()  # type: ignore[attr-defined]
         if X_csr.dtype == np.float32:
             return cusp.csr_matrix(X_csr)
         # Build a scipy CSR with float32 data sharing index arrays — avoids a
@@ -139,6 +140,11 @@ class _PinnedChunk:
     """
 
     __slots__ = ("data", "indices", "indptr", "shape", "row_start", "row_end", "_pins")
+
+    # Set through setattr in __init__
+    data: np.ndarray
+    indices: np.ndarray
+    indptr: np.ndarray
 
     def __init__(self, csr: sp.csr_matrix, row_start: int, row_end: int) -> None:
         self.shape = csr.shape

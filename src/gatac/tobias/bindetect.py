@@ -79,17 +79,21 @@ class _Motif:
 
 def _read_meme(path: str | Path) -> list[_Motif]:
     """MEME reader following TOBIAS's MotifList.from_file (id, optional name, nsites)."""
-    motifs, rows = [], None
-    cur = None
+    motifs: list[_Motif] = []
+    rows: list[list[float]] | None = None
+    cur: _Motif | None = None
     for line in open(path).read().split("\n") + [""]:
         if line.startswith("MOTIF"):
             if rows is not None:
+                assert cur is not None  # rows only start after a MOTIF line
                 cur.pfm = np.array(rows).T
                 motifs.append(cur)
                 rows = None
             parts = line.split()
             cur = _Motif(id=parts[1], name=parts[2] if len(parts) > 2 else "", pfm=np.zeros((4, 0)))
         elif line.startswith("letter-probability matrix"):
+            if cur is None:
+                raise ValueError(f"{path}: letter-probability matrix before any MOTIF line")
             kv = re.sub(r"letter-probability matrix:\s*", "", line.rstrip())
             rows = []
             if kv:
@@ -100,6 +104,7 @@ def _read_meme(path: str | Path) -> list[_Motif]:
             if re.match(r"^\s*(?![-\s]+)([\d\-\.\se\-]+?)$", line):
                 rows.append(list(map(float, line.split())))
             else:
+                assert cur is not None  # rows only start after a MOTIF line
                 cur.pfm = np.array(rows).T
                 motifs.append(cur)
                 rows = None
@@ -740,7 +745,11 @@ def _bound_threshold(bgv: np.ndarray, bound_pvalue: float):
     stds = np.sqrt(gmm.covariances_).flatten()
     ci = np.argmax(means)
     log_params = scipy.stats.lognorm.fit(bgv, f0=stds[ci], fscale=np.exp(means[ci]))
-    mode = scipy.optimize.fmin(lambda x: -scipy.stats.lognorm.pdf(x, *log_params), 0, disp=False)[0]
+
+    def neg_pdf(x):
+        return -scipy.stats.lognorm.pdf(x, *log_params)
+
+    mode = scipy.optimize.fmin(neg_pdf, 0, disp=False)[0]
     lx = np.linspace(scipy.stats.lognorm(*log_params).ppf([0.01]), mode, 100)
     lp = scipy.stats.lognorm.pdf(lx, *log_params)
     mx = np.concatenate([lx, np.max(lx) + (lx - np.min(lx))]).flatten()
@@ -826,7 +835,8 @@ def _merged_peaks(peaks, fai: dict, tobias_compat: bool) -> dict[str, np.ndarray
     df = _peaks_from_input(peaks, None)
     df = df[df["chrom"].isin(fai)]
     return {
-        c: _merge(sub[["start", "end"]].to_numpy(np.int64), tobias_compat) for c, sub in df.groupby("chrom", sort=False)
+        str(c): _merge(sub[["start", "end"]].to_numpy(np.int64), tobias_compat)
+        for c, sub in df.groupby("chrom", sort=False)
     }
 
 
@@ -931,8 +941,8 @@ def bindetect_sites(
         raise ValueError("no motifs")
     bg = np.array([(1 - gc) / 2.0, gc / 2.0, gc / 2.0, (1 - gc) / 2.0])
     prefixes = _prefixes(mlist)
-    fwd, rev = zip(*[_motif_matrices(m, bg, tobias_compat) for m in mlist])
-    fwd, rev = list(fwd), list(rev)
+    fwd_t, rev_t = zip(*[_motif_matrices(m, bg, tobias_compat) for m in mlist])
+    fwd, rev = list(fwd_t), list(rev_t)
     n_mot = len(mlist)
     thr = _thresholds(fwd, bg, motif_pvalue)
     rev_bg = bg[[3, 2, 1, 0]]
@@ -1503,12 +1513,12 @@ def bindetect(
     if return_sites:
         out_sites = pd.DataFrame(
             {
-                "chrom": pd.Categorical.from_codes(sites.chrom, categories=sites.chroms),
+                "chrom": pd.Categorical.from_codes(sites.chrom, categories=pd.Index(sites.chroms)),
                 "start": sites.start,
                 "end": sites.end,
-                "motif": pd.Categorical.from_codes(sites.motif, categories=prefixes),
+                "motif": pd.Categorical.from_codes(sites.motif, categories=pd.Index(prefixes)),
                 "score": sites.score,
-                "strand": pd.Categorical.from_codes(sites.minus.astype(np.int8), categories=["+", "-"]),
+                "strand": pd.Categorical.from_codes(sites.minus.astype(np.int8), categories=pd.Index(["+", "-"])),
                 "peak_start": sites.peak_start[sites.peak],
                 "peak_end": sites.peak_end[sites.peak],
                 **cols,

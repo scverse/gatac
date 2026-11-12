@@ -35,7 +35,8 @@ def _region_group(var_names, hotspots) -> np.ndarray:
 
 
 def _log2fc(peaks, g) -> np.ndarray:
-    X = peaks.X.tocsr() if sp.issparse(peaks.X) else sp.csr_matrix(peaks.X)
+    # scipy-stubs narrow issparse to SparseABC
+    X = peaks.X.tocsr() if sp.issparse(peaks.X) else sp.csr_matrix(peaks.X)  # type: ignore[attr-defined]
     inside = (peaks.obs["group"] == f"g{g}").to_numpy()
     a = np.asarray(X[inside].mean(0)).ravel()
     b = np.asarray(X[~inside].mean(0)).ravel()

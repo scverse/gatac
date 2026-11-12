@@ -28,7 +28,7 @@ from ._utils import async_memory_pool
 logger = logging.getLogger(__name__)
 
 
-def optimize_sparse_matrix_dtype(max_val: int) -> np.dtype:
+def optimize_sparse_matrix_dtype(max_val: int) -> type[np.integer]:
     """
     Select optimal count dtype based on maximum value.
 
@@ -42,9 +42,10 @@ def optimize_sparse_matrix_dtype(max_val: int) -> np.dtype:
 
     Returns
     -------
-    np.dtype
-        The optimized dtype
+    type
+        The optimized numpy scalar type
     """
+    target_dtype: type[np.integer]
     if max_val <= np.iinfo(np.uint8).max:
         target_dtype = np.uint8
         logger.info(f"Using uint8 dtype (max count: {max_val})")
@@ -228,14 +229,14 @@ def create_gene_matrix_gpu(
     gene_df = cudf.from_pandas(gene_regions)
 
     # Get valid chromosomes (those in gene annotation, minus excluded ones)
-    valid_chroms = set(gene_df["chrom"].unique().to_arrow().to_pylist())
+    chrom_set = set(gene_df["chrom"].unique().to_arrow().to_pylist())
 
     if exclude_chroms is not None:
         if isinstance(exclude_chroms, str):
             exclude_chroms = [exclude_chroms]
-        valid_chroms = valid_chroms - set(exclude_chroms)
+        chrom_set = chrom_set - set(exclude_chroms)
 
-    valid_chroms = sorted(valid_chroms)  # Sort for reproducibility
+    valid_chroms = sorted(chrom_set)  # Sort for reproducibility
 
     if len(valid_chroms) == 0:
         raise ValueError("No valid chromosomes in gene annotation after exclusion")

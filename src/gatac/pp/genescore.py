@@ -31,7 +31,7 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import cudf
@@ -257,7 +257,7 @@ def create_gene_score_matrix_gpu(
     ceiling: int = 4,
     scale_to: float = 10000.0,
     use_gene_boundaries: bool = True,
-    exclude_chroms: list | None = ("chrY", "chrM"),
+    exclude_chroms: Sequence[str] | None = ("chrY", "chrM"),
     min_fragments_per_cell: int = 100,
     cell_metadata: cudf.DataFrame | None = None,
     filter_query: str | None = None,
@@ -348,6 +348,7 @@ def create_gene_score_matrix_gpu(
             cell_batch_size,
         )
         if block is not None:
+            assert gidx is not None  # None together with block
             gene_blocks.append(block)
             block_gene_idx.append(gidx)
             total_gs += col_sums
@@ -568,7 +569,7 @@ def make_gene_score_matrix(
     ceiling: int = 4,
     gene_scale_factor: float = 5.0,
     scale_to: float = 10000.0,
-    exclude_chroms: list | None = ("chrY", "chrM"),
+    exclude_chroms: Sequence[str] | None = ("chrY", "chrM"),
     min_fragments_per_cell: int = 100,
     metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
     filter_query: str | None = None,

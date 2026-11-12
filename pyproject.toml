@@ -21,6 +21,7 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Typing :: Typed",
 ]
@@ -109,6 +110,13 @@ docs = [
   "sphinxcontrib-bibtex>=2.6",
   "sphinxcontrib-mermaid>=0.9",
 ]
+typecheck = [
+  "mypy",
+  "pandas-stubs",
+  "scipy-stubs",
+  "types-seaborn",
+  "types-tqdm",
+]
 
 [tool.hatch]
 # The version is the git tag (v0.1.0 -> 0.1.0); between tags, 0.1.1.devN+g<commit>
@@ -171,6 +179,46 @@ lint.per-file-ignores."src/gatac/tobias/bindetect.py" = [ "B023" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.isort.known-first-party = [ "gatac" ]
 lint.pydocstyle.convention = "numpy"
+
+[tool.mypy]
+mypy_path = "src"
+files = [ "src", "tests" ]
+explicit_package_bases = true
+python_version = "3.13"
+warn_redundant_casts = true
+warn_unused_ignores = true
+enable_error_code = [ "ignore-without-code" ]
+warn_unused_configs = true
+
+# RAPIDS and the other GPU libraries are not installed in the typecheck environment,
+# and these dependencies ship without type information
+[[tool.mypy.overrides]]
+module = [
+  "annoy",
+  "cudf.*",
+  "cugraph.*",
+  "cuml.*",
+  "cupy.*",
+  "cupyx.*",
+  "gseapy.*",
+  "h5py.*",
+  "kvikio.*",
+  "nvidia.*",
+  "pyarrow.*",
+  "pyBigWig",
+  "pyfaidx.*",
+  "pylibcudf.*",
+  "rapidgzip.*",
+  "rmm.*",
+  "sklearn.*",
+  "statsmodels.*",
+]
+ignore_missing_imports = true
+
+# scanpy has inline annotations but no py.typed marker
+[[tool.mypy.overrides]]
+module = [ "scanpy", "scanpy.*" ]
+follow_untyped_imports = true
 
 [tool.pytest]
 # A hung GPU test fails after 2 minutes instead of holding the CI runner.

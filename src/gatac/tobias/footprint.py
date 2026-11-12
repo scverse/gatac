@@ -892,10 +892,10 @@ def footprint(
     groups = [str(g) for g in groups]
     col = col.astype(str)
     barcode_groups = {}
-    for gi, g in enumerate(groups):
-        bcs = adata.obs_names[(col == g).to_numpy()]
+    for gi, name in enumerate(groups):
+        bcs = adata.obs_names[(col == name).to_numpy()]
         if len(bcs) == 0:
-            raise ValueError(f"group {g!r} has no cells")
+            raise ValueError(f"group {name!r} has no cells")
         barcode_groups.update(dict.fromkeys(bcs.astype(str), gi))
 
     fa = Fasta(genome_fasta)

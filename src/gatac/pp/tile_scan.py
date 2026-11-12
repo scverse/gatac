@@ -229,6 +229,8 @@ def build_tile_matrix(
     if "tile_scan" not in tiles.uns:
         raise ValueError("`tiles` is not a scan_tiles result (no uns['tile_scan'])")
     scan = tiles.uns["tile_scan"]
+    # pandas obs and var, not the Dataset2D of a lazy AnnData
+    assert isinstance(tiles.obs, pd.DataFrame) and isinstance(tiles.var, pd.DataFrame)
     tile_size = int(scan["tile_size"])
     chroms = list(scan["chroms"])
     tile_metadata, chrom_offset_df, n_tiles = _cached_tile_metadata(
@@ -318,7 +320,7 @@ def build_tile_matrix(
         cleanup_gpu_memory()
         row_nnz = np.concatenate([p[1] for p in parts])
         nnz = int(row_nnz.sum())
-        idx_dtype = np.int32 if max(nnz, n_kept) <= np.iinfo(np.int32).max else np.int64
+        idx_dtype: type[np.signedinteger] = np.int32 if max(nnz, n_kept) <= np.iinfo(np.int32).max else np.int64
         indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
         np.cumsum(row_nnz, out=indptr[1:])
         X = sp.csr_matrix(

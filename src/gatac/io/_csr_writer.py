@@ -19,11 +19,16 @@ import os
 import subprocess
 import sys
 import uuid
+from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 from gatac._files import csr_disk_dtypes, replacing
+
+if TYPE_CHECKING:
+    import h5py
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +66,9 @@ class _Child:
         self._maps: list[mmap.mmap] = []
         self._paths: list[str] = []
         self._registered: list[int] = []
-        self.proc = None
-        self.conn_in = self.conn_out = None
+        self.proc: subprocess.Popen | None = None
+        self.conn_in: Connection | None = None
+        self.conn_out: Connection | None = None
         self.free: list[int] = []
         try:
             for _ in range(_N_BUFFERS):
@@ -132,6 +138,7 @@ class _Child:
         return self.free.pop()
 
     def send(self, *msg) -> None:
+        assert self.conn_out is not None  # until stop()
         try:
             self.conn_out.send(msg)
         except OSError:
@@ -145,6 +152,7 @@ class _Child:
         if self.proc is not None:
             try:
                 if self.proc.poll() is None:
+                    assert self.conn_out is not None  # set right after the process starts
                     self.conn_out.send(("exit",))
                 self.proc.wait(timeout=60)
             except Exception:  # noqa: BLE001 - whatever failed, the child is killed
@@ -244,16 +252,16 @@ class CSRWriter:
         if compression not in ("gzip", None):
             raise ValueError(f"compression must be 'gzip' or None, not {compression!r}")
         self.output_path = Path(output_path)
-        self.compression = compression
+        self.compression: Literal["gzip"] | None = None if compression is None else "gzip"
         self.value_dtype = None if value_dtype is None else np.dtype(value_dtype)
         self.level = int(level)
         self.chunk_bytes = int(chunk_bytes)
         self.batch_bytes = max(int(batch_bytes), self.chunk_bytes)
         self.expected_nnz = None if nnz is None else int(nnz)
         self._contiguous = compression is None and nnz is not None
-        self._replacing = None
+        self._replacing: AbstractContextManager[Path] | None = None
         self._tmp: Path | None = None
-        self._h5 = None  # the parent's own handle (uncompressed files)
+        self._h5: h5py.File | None = None  # the handle of the parent process (uncompressed files)
         self._child: _Child | None = None
         self._child_open = False
         self._codec = None
@@ -272,7 +280,8 @@ class CSRWriter:
         self._tmp = self._replacing.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
+        assert self._replacing is not None  # set by __enter__
         error = exc
         if exc_type is None and not self._finalized:
             error = RuntimeError("CSRWriter: the block ended without finalize(); nothing was written")
@@ -320,7 +329,7 @@ class CSRWriter:
         self._check_open()
         on_gpu = False
         if sp.issparse(block):
-            block = block.tocsr()
+            block = block.tocsr()  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC, without tocsr
         else:
             try:
                 import cupyx.scipy.sparse as csp
@@ -389,8 +398,10 @@ class CSRWriter:
         s = self._streams[key]
         if self.compression is None:
             values = values.get() if hasattr(values, "get") else values
+            assert self._h5 is not None  # open from _start on, uncompressed
             d, n = self._h5[s.path], s.n_written
             if self._contiguous:
+                assert self.expected_nnz is not None  # contiguous needs nnz
                 if n + len(values) > self.expected_nnz:
                     raise ValueError(f"CSRWriter: more than the nnz={self.expected_nnz:,} entries given")
             else:
@@ -441,6 +452,7 @@ class CSRWriter:
         return max((-(-s.n_pending // s.elems) for s in self._streams.values()), default=0)
 
     def _open_child(self) -> None:
+        assert self._child is not None  # started by _flush
         if not self._child_open:
             self._child.send("open", str(self._tmp), {s.path: s.elems for s in self._streams.values()})
             self._child.expect("opened")
@@ -448,6 +460,7 @@ class CSRWriter:
 
     def _close_child_file(self) -> None:
         if self._child_open:
+            assert self._child is not None  # the open file belongs to the child
             self._child.send("close")
             self._child.expect("closed")
             self._child_open = False
@@ -493,7 +506,9 @@ class CSRWriter:
             bodies = codec.encode(nvcomp.as_arrays([_DeviceSpan(base + i * cb, cb) for i in range(k)], stream.ptr))
             packed, offs, sizes = _zlib_gpu.zlib_frame(bodies, adler)
             # into the shared buffers, at most one buffer per message
-            cap = self._child.cap
+            child = self._child
+            assert child is not None  # started by _flush
+            cap = child.cap
             i = 0
             while i < k:
                 j = i + 1
@@ -502,10 +517,10 @@ class CSRWriter:
                 n = int(offs[j - 1] + sizes[j - 1] - offs[i])
                 if n > cap:  # pragma: no cover - a chunk is never larger than its bound
                     raise RuntimeError(f"CSRWriter: a compressed chunk of {n:,} bytes exceeds the {cap:,}-byte buffers")
-                b = self._child.acquire()
-                packed[int(offs[i]) : int(offs[i]) + n].get(stream=stream, out=self._child.bufs[b][:n])
+                b = child.acquire()
+                packed[int(offs[i]) : int(offs[i]) + n].get(stream=stream, out=child.bufs[b][:n])
                 stream.synchronize()
-                self._child.send("batch", s.path, b, c0 + i, offs[i:j] - offs[i], sizes[i:j])
+                child.send("batch", s.path, b, c0 + i, offs[i:j] - offs[i], sizes[i:j])
                 i = j
             del bodies, raw, packed
 
@@ -521,12 +536,14 @@ class CSRWriter:
             n = s.n_written
             s.set_dtype(dtype, self.chunk_bytes)
             s.n_written = n
+            assert self._h5 is not None  # open from _start on, uncompressed
             _widen(self._h5["X"], "data", dtype, (s.elems,))
             return
         import cupy as cp
 
         from ._h5counts import _inspect, _Reader
 
+        assert self._tmp is not None  # set by __enter__
         n_written = s.chunks_written * s.elems
         old = cp.empty(n_written, dtype)
         self._close_child_file()
@@ -581,6 +598,7 @@ class CSRWriter:
                 child.stop()
             self._h5 = h5py.File(self._tmp, "r+")
         h5 = self._h5
+        assert h5 is not None and self._tmp is not None  # opened above or by _start
         group = h5["X"]
         if not self._contiguous:
             for s in self._streams.values():

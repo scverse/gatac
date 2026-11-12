@@ -54,20 +54,20 @@ def combine(
     ...     "combined.h5ad",
     ... )
     """
-    input_paths = [Path(p) for p in input_paths]
+    paths = [Path(p) for p in input_paths]
     output_path = Path(output_path)
-    if len(input_paths) == 0:
+    if len(paths) == 0:
         raise ValueError("No input files provided")
-    if any(p.resolve() == output_path.resolve() for p in input_paths):
+    if any(p.resolve() == output_path.resolve() for p in paths):
         raise ValueError(f"output_path must differ from the inputs: {output_path}")
-    names = [p.name for p in input_paths]
+    names = [p.name for p in paths]
     if len(set(names)) != len(names):
-        names = [str(p) for p in input_paths]
+        names = [str(p) for p in paths]
 
-    logger.info(f"Combining {len(input_paths)} h5ad files")
+    logger.info(f"Combining {len(paths)} h5ad files")
     # Features and cell names first, from each file's obs and var only
     var_names, cells = None, []
-    for path, name in zip(input_paths, names):
+    for path, name in zip(paths, names):
         adata = ad.read_h5ad(path, backed="r")
         try:
             if var_names is None:
@@ -83,7 +83,7 @@ def combine(
         raise _shared_names_error(all_cells, files, names)
 
     def parts():
-        for path in input_paths:
+        for path in paths:
             yield ad.read_h5ad(path)
 
     combined = combine_file_matrices(parts(), names, output_path, compression=compression)

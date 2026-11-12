@@ -489,9 +489,9 @@ def prerank_gpu(
     # otherwise be double-counted in both the size filter and N_R.
     valid_sets = []  # (name, hit_indices_np)
     for term, members in feature_sets.items():
-        hit_idx = sorted({feature_to_idx[g] for g in members if g in feature_to_idx})
-        if min_size <= len(hit_idx) <= max_size:
-            valid_sets.append((term, np.array(hit_idx, dtype=np.int32)))
+        member_idx = sorted({feature_to_idx[g] for g in members if g in feature_to_idx})
+        if min_size <= len(member_idx) <= max_size:
+            valid_sets.append((term, np.array(member_idx, dtype=np.int32)))
 
     if not valid_sets:
         logger.warning("No feature sets passed size filter.")
@@ -599,7 +599,7 @@ def prerank_gpu(
     # -----------------------------------------------------------------
     all_nes = np.empty(n_sets, dtype=np.float64)
     all_pvals = np.empty(n_sets, dtype=np.float64)
-    all_lead_edge: list[np.ndarray] = [None] * n_sets
+    all_lead_edge: list[np.ndarray] = []
     nesnull_parts = []
 
     for i, (_term, hit_idx) in enumerate(valid_sets):
@@ -610,7 +610,7 @@ def prerank_gpu(
         nes, nesnull = _normalize_es(es_obs, null_i)
         all_nes[i] = nes
         nesnull_parts.append(nesnull)
-        all_lead_edge[i] = _leading_edge_from_peak(hit_idx, es_obs, int(all_peak[i]), N)
+        all_lead_edge.append(_leading_edge_from_peak(hit_idx, es_obs, int(all_peak[i]), N))
 
     # FDR across all feature sets
     nesnull_concat = np.concatenate(nesnull_parts)

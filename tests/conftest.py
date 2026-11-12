@@ -43,10 +43,10 @@ def _hotspots(rng) -> pd.DataFrame:
 
 def _genome(rng, hot: pd.DataFrame) -> dict[str, str]:
     seqs = {c: rng.choice(np.frombuffer(b"ACGT", "S1"), n) for c, n in CHROM_SIZES.items()}
-    for h in hot.itertuples():
-        m = np.frombuffer(MOTIFS[f"M{h.group}"].encode(), "S1")
-        s = h.centre - len(m) // 2
-        seqs[h.chrom][s : s + len(m)] = m
+    for chrom, centre, group in zip(hot.chrom, hot.centre, hot.group):
+        m = np.frombuffer(MOTIFS[f"M{group}"].encode(), "S1")
+        s = centre - len(m) // 2
+        seqs[chrom][s : s + len(m)] = m
     return {c: s.tobytes().decode() for c, s in seqs.items()}
 
 

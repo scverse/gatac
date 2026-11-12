@@ -64,6 +64,7 @@ def qc_metrics(
     >>> fig = ga.pl.qc_metrics(metrics, tsse_threshold=5.0, n_unique_threshold=1000)
     """
     df = read_metrics(metrics)
+    assert df is not None  # None only for metrics=None
 
     for col in ("tsse_score", "n_unique"):
         if col not in df.columns:

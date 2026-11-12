@@ -24,6 +24,17 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
         groups: [format]
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: hatch check types
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+        require_serial: true
+        pass_filenames: false
+        groups: [typecheck]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

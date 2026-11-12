@@ -166,7 +166,7 @@ def compute_metrics(
         raise TypeError(f"tss_source must be a GTF path or a pandas or cuDF DataFrame, not {type(tss_source).__name__}")
 
     single = isinstance(parquet_path, (str, os.PathLike))
-    paths = [parquet_path] if single else list(parquet_path)
+    paths = [parquet_path] if isinstance(parquet_path, (str, os.PathLike)) else list(parquet_path)
     # Several files at once from threads, so that one file's reads overlap
     # another's kernels, under a stream-ordered memory pool. Largest first,
     # so that they do not run alone at the end.

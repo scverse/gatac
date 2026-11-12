@@ -233,7 +233,7 @@ def _load_fragments(
     dict of cp.ndarray: chrom (int32 index into ``chromosomes``),
     cell (int32 index into ``barcodes``), start, end (uint32).
     """
-    parts = {"chrom": [], "cell": [], "start": [], "end": []}
+    parts: dict[str, list[cp.ndarray]] = {"chrom": [], "cell": [], "start": [], "end": []}
     for df in FragmentFile(fragment_path).iter_batches(
         ["chrom", "start", "end"],
         _ROW_GROUPS_PER_BATCH,

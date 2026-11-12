@@ -34,6 +34,7 @@ import zlib
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cudf
 import cupy as cp
@@ -46,6 +47,9 @@ import pyarrow.csv as pa_csv
 import pyarrow.parquet as pq
 
 from gatac.gpu import bincount
+
+if TYPE_CHECKING:
+    import pylibcudf as plc
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +143,8 @@ class FragmentFile:
         self.chroms: list[str] = json.loads(kv[b"gatac.chroms"])
         self.n_barcodes = int(kv[b"gatac.n_barcodes"])
         self.barcode_prefix: str = kv.get(b"gatac.barcode_prefix", b"").decode()
-        self._barcodes = None
-        self._barcode_index = None
+        self._barcodes: np.ndarray | None = None
+        self._barcode_index: pd.Index | None = None
 
     def __repr__(self) -> str:
         return f"FragmentFile('{self.path}', rows={self.num_rows:,}, barcodes={self.n_barcodes:,})"
@@ -176,7 +180,8 @@ class FragmentFile:
 
     def _barcode_row_groups(self) -> list[int]:
         """The leading row groups, which hold the per-barcode table."""
-        row_groups, rows = [], 0
+        row_groups: list[int] = []
+        rows = 0
         while rows < self.n_barcodes:
             rows += self._metadata.row_group(len(row_groups)).num_rows
             row_groups.append(len(row_groups))
@@ -304,7 +309,7 @@ class FragmentFile:
         columns: Sequence[str] = ("chrom", "start", "end"),
         row_groups_per_batch: int = 64,
         chroms: Sequence[str] | None = None,
-        cells: Sequence[str] | None = None,
+        cells: Sequence[str] | np.ndarray | None = None,
     ) -> Iterator[cudf.DataFrame]:
         """
         Stream fragments onto the GPU, a batch of row groups at a time, with chromosomes and cells as integer indices.
@@ -338,9 +343,6 @@ class FragmentFile:
             raise ValueError("Request either `cells` (cell indices) or the `barcode` column, not both")
         if (chroms is not None and len(chroms) == 0) or (cells is not None and len(cells) == 0):
             return
-        if cells is not None:
-            cells = np.asarray(cells, dtype=object)
-            first = ~pd.Index(cells).duplicated()
         need_chrom = "chrom" in columns or chroms is not None
         need_barcode = "barcode" in columns or cells is not None
         logical = [
@@ -360,8 +362,10 @@ class FragmentFile:
                 pos = {c: i for i, c in enumerate(chroms)}
                 chrom_lut = cp.asarray([pos.get(c, -1) for c in self.chroms], dtype=cp.int32)
         if cells is not None:
+            cell_names = np.asarray(cells, dtype=object)
+            first = ~pd.Index(cell_names).duplicated()
             positions = np.flatnonzero(first)
-            ids = self.barcode_ids(cells[first])
+            ids = self.barcode_ids(cell_names[first])
             found = ids >= 0
             cell_lut = cp.full(self.n_barcodes, -1, dtype=cp.int32)
             cell_lut[cp.asarray(ids[found])] = cp.asarray(positions[found], dtype=cp.int32)
@@ -830,7 +834,7 @@ def _write_cells(
     decoded to names, and the file is encoded and compressed by cuDF.
 
     ``cells`` holds ``barcode_id`` (in ``fragments``), ``barcode`` (the name
-    to store, without ``barcode_prefix``, the output's prefix), and
+    to store, without :attr:`barcode_prefix`, the output's prefix), and
     ``n_unique`` and ``n_total`` counted on ``chroms``, the chromosomes to
     keep (None keeps all). The output keeps the input's chromosome ids.
     Returns the numbers of fragments read and written.
@@ -889,8 +893,9 @@ class _GpuWriter:
         self.n_unique = cudf.Series(stats["n_unique"].to_numpy().astype(np.uint32))
         self.n_total = cudf.Series(stats["n_total"].to_numpy().astype(np.uint32))
         self.n_bc = len(stats)
-        self.buffer, self.n_buffered, self.n = [], 0, 0
-        self.writer = None
+        self.buffer: list[cudf.DataFrame] = []
+        self.n_buffered, self.n = 0, 0
+        self.writer: plc.io.parquet.ChunkedParquetWriter | None = None
 
     def write(self, df: cudf.DataFrame) -> None:
         if len(df):

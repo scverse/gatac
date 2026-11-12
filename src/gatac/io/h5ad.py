@@ -66,7 +66,7 @@ def read_h5ad(
     try:
         from anndata.experimental import read_dispatched
     except ImportError:  # pragma: no cover - anndata moved it
-        from anndata.io import read_dispatched
+        from anndata.io import read_dispatched  # type: ignore[attr-defined,no-redef]  # only in other anndata versions
 
     from . import _h5counts
 
@@ -89,7 +89,9 @@ def read_h5ad(
         if f.attrs.get("encoding-type") != "anndata":
             # written before anndata 0.7: anndata's own reader handles its layout
             return ad.read_h5ad(filename)
-        return read_dispatched(f, callback)
+        adata = read_dispatched(f, callback)
+    assert isinstance(adata, ad.AnnData)  # the root group of an h5ad file is an AnnData
+    return adata
 
 
 def write_h5ad(filepath: str | Path, adata: ad.AnnData, *, compression: Literal["gzip"] | None = "gzip") -> None:

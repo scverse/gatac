@@ -108,8 +108,8 @@ def _group_fragment_counts(sources: list, n_groups: int) -> np.ndarray:
     for fragments, cells, cell_group in sources:
         counts = fragments.barcode_counts()
         per_cell = pd.Series(counts["n_unique"].to_numpy(), index=counts["barcode"].to_numpy())
-        per_cell = per_cell.reindex(cells).fillna(0).to_numpy()
-        n += np.bincount(cell_group, weights=per_cell, minlength=n_groups).astype(np.int64)
+        cell_n = per_cell.reindex(cells).fillna(0).to_numpy()
+        n += np.bincount(cell_group, weights=cell_n, minlength=n_groups).astype(np.int64)
     return n
 
 
@@ -120,7 +120,8 @@ def _group_passes(n_fragments: np.ndarray, cap: int) -> list:
     Groups are placed by first fit, largest groups first. A group above
     ``cap`` gets a separate pass.
     """
-    passes, room = [], []
+    passes: list[list[int]] = []
+    room: list[int] = []
     for i in np.argsort(-n_fragments, kind="stable"):
         n = int(n_fragments[i])
         k = next((k for k, r in enumerate(room) if n <= r), None)
@@ -154,6 +155,7 @@ def _read_groups(
     names = list(chroms) if chroms is not None else list(fragments.chroms)
     lut = cp.asarray(cell_group, dtype=cp.int64)
     n_chroms = len(names)
+    # iter_batches takes any array of names, not only a Sequence
     for df in fragments.iter_batches(["chrom", "start", "end"], batch_size, chroms=chroms, cells=cells):
         if len(df) == 0:
             continue
@@ -379,7 +381,9 @@ def call(
         from gatac._progress import tqdm
     peaks_dict = {}
     for k, members in enumerate(passes):
-        chunks = {i: defaultdict(list) for i in members}
+        chunks: dict[int, defaultdict[str, list[tuple[np.ndarray, np.ndarray]]]] = {
+            i: defaultdict(list) for i in members
+        }
         lut = np.full(len(groups), -1, np.int64)
         lut[members] = np.arange(len(members))
         step = "" if len(passes) == 1 else f" ({k + 1}/{len(passes)})"
@@ -979,7 +983,7 @@ def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
         row_nnz[rows] = n
     nnz = int(row_nnz.sum())
     # one index dtype for both arrays, as scipy picks it
-    idx_dtype = np.int32 if max(nnz, n_peaks) <= np.iinfo(np.int32).max else np.int64
+    idx_dtype: type[np.signedinteger] = np.int32 if max(nnz, n_peaks) <= np.iinfo(np.int32).max else np.int64
     indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
     np.cumsum(row_nnz, out=indptr[1:])
     max_count = max((int(d.max()) for *_, d in parts if len(d)), default=0)
@@ -1253,7 +1257,8 @@ def make_matrix(
 
         new_adata = AD(
             X=count_matrix,
-            obs=adata.obs.copy(),
+            # the AnnData annotation omits the Dataset2D obs of a lazy AnnData, accepted at runtime
+            obs=adata.obs.copy(),  # type: ignore[arg-type]
             var=var_df,
         )
         return new_adata

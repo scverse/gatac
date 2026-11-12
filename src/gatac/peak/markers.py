@@ -127,7 +127,7 @@ def _binarize_matrix_gpu(X) -> cusp.csr_matrix:
     elif isinstance(X, cusp.csc_matrix):
         X_gpu = X.tocsr()
     elif sp.issparse(X):
-        X_csr = X.tocsr() if not sp.isspmatrix_csr(X) else X
+        X_csr = X.tocsr() if not sp.isspmatrix_csr(X) else X  # type: ignore[attr-defined]  # scipy-stubs narrow issparse to SparseABC
         X_gpu = cusp.csr_matrix(
             (cp.asarray(X_csr.data, dtype=cp.float32), cp.asarray(X_csr.indices), cp.asarray(X_csr.indptr)),
             shape=X_csr.shape,
@@ -346,7 +346,12 @@ def markers(
         if g not in unique_groups:
             raise ValueError(f"Group '{g}' not found in '{groupby}'")
 
-    n_cells, n_features = (adata.n_obs, adata.n_vars) if backed else X.shape
+    if backed:
+        n_cells, n_features = adata.n_obs, adata.n_vars
+    elif X is None:
+        raise ValueError("The AnnData has no matrix (X is None)")
+    else:
+        n_cells, n_features = X.shape
     logger.info(f"Testing {len(test_groups)} groups, {n_features:,} features, {n_cells:,} cells")
     logger.info(f"Using max_cells={max_cells} per group for balanced comparison")
 

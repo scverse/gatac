@@ -221,6 +221,8 @@ class StreamedCounts:
     def _copy(self, c: _Chunk, slot: int):
         d, i = self._buffers[slot]
         n = c.e1 - c.e0
+        # Only streamed chunks are copied, and those create the stream
+        assert self._stream is not None
         with self._stream:
             d[:n].set(self._data[c.e0 : c.e1], stream=self._stream)
             i[:n].set(self._indices[c.e0 : c.e1], stream=self._stream)

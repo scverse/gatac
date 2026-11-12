@@ -25,19 +25,23 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
 from gatac._rapids import INSTALL_HINT
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
+    import nvidia.nvcomp
+
     from gatac.dr._stream import StreamedCounts
 
 logger = logging.getLogger(__name__)
 
 _FILTER_DEFLATE, _FILTER_SHUFFLE = 1, 2
-_SUPPORTED_FILTERS = ([], [_FILTER_DEFLATE], [_FILTER_SHUFFLE, _FILTER_DEFLATE])
+_SUPPORTED_FILTERS: tuple[list[int], ...] = ([], [_FILTER_DEFLATE], [_FILTER_SHUFFLE, _FILTER_DEFLATE])
 _VALUE_DTYPES = {np.dtype(t) for t in (np.uint8, np.uint16, np.int32, np.float32)}
 _INT32_MAX = np.iinfo(np.int32).max
 _ZLIB_FRAMING = 6  # 2-byte header + 4-byte Adler-32 around the raw Deflate body
@@ -91,6 +95,11 @@ class _Layout:
     compressed: bool = False
     shuffled: bool = False
     values: np.ndarray | None = None  # compact: the values, read through h5py
+
+    def chunks(self) -> tuple[np.ndarray, np.ndarray]:
+        """``chunk_offsets`` and ``chunk_sizes``, set for a chunked dataset."""
+        assert self.chunk_offsets is not None and self.chunk_sizes is not None
+        return self.chunk_offsets, self.chunk_sizes
 
 
 def _filter_names(plist) -> list[str]:
@@ -191,8 +200,8 @@ class _Reader:
         self.fh = _kvikio().CuFile(self.path, "r")
         self.block_bytes = int(block_bytes)
         self.max_decoded_bytes = int(max_decoded_bytes)
-        self._codec = None
-        self._nvcomp = None
+        self._codec: nvidia.nvcomp.Codec | None = None
+        self._nvcomp: ModuleType | None = None
 
     def close(self) -> None:
         self.fh.close()
@@ -215,6 +224,7 @@ class _Reader:
         if e1 <= e0:
             return
         if lay.kind == "compact":
+            assert lay.values is not None
             dst[:] = cp.asarray(lay.values[e0:e1])
         elif lay.kind == "contiguous":
             self._read_contiguous(lay, e0, e1, dst)
@@ -248,7 +258,7 @@ class _Reader:
         A run is in file order, at most ``block_bytes`` apart in the file and
         ``max_decoded_bytes`` decoded.
         """
-        offs, sizes = lay.chunk_offsets, lay.chunk_sizes
+        offs, sizes = lay.chunks()
         max_k = max(1, self.max_decoded_bytes // (lay.chunk_len * lay.dtype.itemsize))
         start = c0
         for c in range(c0 + 1, c1):
@@ -263,19 +273,20 @@ class _Reader:
         from .gpu_convert import _copy_spans
 
         L, isz = lay.chunk_len, lay.dtype.itemsize
+        chunk_offsets, chunk_sizes = lay.chunks()
         cb = L * isz
         stream = cp.cuda.get_current_stream()
         for ca, cz in self._blocks(lay, e0 // L, -(-e1 // L)):
             k = cz - ca
-            offs = lay.chunk_offsets[ca:cz]
+            offs = chunk_offsets[ca:cz]
             lo = int(offs.min())
-            span = int((offs + lay.chunk_sizes[ca:cz]).max()) - lo
+            span = int((offs + chunk_sizes[ca:cz]).max()) - lo
             stream.synchronize()  # the previous block's kernels are done with the pool's buffers
             comp = cp.empty(span, cp.uint8)
             self._pread(comp, span, lo)
             rel = offs - lo
             if lay.compressed:
-                dec = self._inflate(lay, ca, comp, rel, lay.chunk_sizes[ca:cz], cb)
+                dec = self._inflate(lay, ca, comp, rel, chunk_sizes[ca:cz], cb)
             else:
                 dec = cp.empty(k * cb, cp.uint8)
                 _copy_spans(comp, dec, rel, np.arange(k, dtype=np.int64) * cb, np.full(k, cb, np.int64))
@@ -322,6 +333,7 @@ class _Reader:
                 algorithm="Deflate", bitstream_kind=self._nvcomp.BitstreamKind.RAW, cuda_stream=stream.ptr
             )
         nvcomp, codec = self._nvcomp, self._codec
+        assert nvcomp is not None and codec is not None
         out_off = np.arange(k, dtype=np.int64) * cb
         try:
             if _nvcomp_major(nvcomp) >= 6:
@@ -497,6 +509,7 @@ class _Matrix:
             h5 = manager._file
             if h5.mode == "r+":
                 h5.flush()  # kvikio reads the file through its own descriptor
+            assert source.filename is not None  # backed
             self.path = Path(source.filename)
             if source.is_view:
                 self.rows, self.cols = source._oidx, source._vidx
@@ -683,6 +696,7 @@ def read_whole(
     reader = None if nnz == 0 else _Reader(m.path, block_bytes=read_block_bytes, max_decoded_bytes=max_decoded_bytes)
 
     def read(a: int, b: int, d, i) -> None:
+        assert reader is not None  # called only when nnz > 0
         reader.read(m.data, a, b, d)
         reader.read(m.indices, a, b, i)
         if int(i.min()) < 0 or int(i.max()) >= n_cols:
@@ -778,7 +792,7 @@ def open_counts(
         X = source.layers[key.removeprefix("layers/")] if key != "X" else source.X
         r = _positions(rows, source.n_obs, "row")
         c = _positions(features, source.n_vars, "column")
-        X = sp.csr_matrix(X)
+        X = sp.csr_matrix(X)  # type: ignore[arg-type]  # any array anndata holds, scipy-stubs list fewer
         X = X if r is None else X[r]
         X = X if c is None else X[:, c]
         return StreamedCounts(X, chunk_size, memory_fraction)
@@ -855,9 +869,9 @@ class RowChunk(NamedTuple):
 
     start: int
     stop: int
-    data: object  # cupy array: values as stored (uint8, uint16, int32 or float32)
-    indices: object  # cupy int32
-    indptr: object  # cupy int64, from 0
+    data: Any  # cupy array: values as stored (uint8, uint16, int32 or float32)
+    indices: Any  # cupy int32
+    indptr: Any  # cupy int64, from 0
     n_cols: int
 
 

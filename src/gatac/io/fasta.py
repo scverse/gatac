@@ -70,7 +70,7 @@ class Fasta:
             fasta, self.index = _plain_copy(self.path)
         else:
             fasta, self.index = self.path, _load_index(self.path)
-        self._mm = np.memmap(fasta, dtype=np.uint8, mode="r")
+        self._mm: np.memmap | None = np.memmap(fasta, dtype=np.uint8, mode="r")
 
     def __repr__(self) -> str:
         return f"Fasta({str(self.path)!r}, {len(self.index)} sequences)"
@@ -88,6 +88,12 @@ class Fasta:
         """Release the memory map (a decompressed copy stays for the process)."""
         self._mm = None
 
+    def _map(self) -> np.memmap:
+        """The memory map, open until :meth:`close`."""
+        if self._mm is None:
+            raise ValueError(f"{self.path} is closed")
+        return self._mm
+
     @property
     def chrom_sizes(self) -> dict[str, int]:
         """Length of every sequence, in file order."""
@@ -99,7 +105,7 @@ class Fasta:
         if length == 0:
             return np.zeros(0, dtype=np.uint8)
         n_bytes = (length // lb) * lw + length % lb
-        blk = np.asarray(self._mm[off : off + n_bytes])
+        blk = np.asarray(self._map()[off : off + n_bytes])
         if lw == lb:
             return blk.copy()
         return blk[(blk != 10) & (blk != 13)][:length]
@@ -114,7 +120,7 @@ class Fasta:
         lens = np.asarray(ends, dtype=np.int64) - starts
         within = np.arange(lens.sum()) - np.repeat(np.cumsum(lens) - lens, lens)
         gpos = np.repeat(starts, lens) + within
-        return np.asarray(self._mm[off + (gpos // lb) * lw + gpos % lb])
+        return np.asarray(self._map()[off + (gpos // lb) * lw + gpos % lb])
 
     def fetch(self, regions: Sequence[str], one_based: bool = False) -> list[str]:
         """
@@ -137,13 +143,12 @@ class Fasta:
         for r in regions:
             try:
                 c, coords = r.rsplit(":", 1)
-                s, e = coords.split("-")
-                s, e = int(s) - one_based, int(e)
+                s_str, e_str = coords.split("-")
+                s, e = int(s_str) - one_based, int(e_str)
                 length, off, lb, lw = self.index[c]
             except (ValueError, KeyError) as err:
-                if isinstance(err, KeyError):
-                    err = f"{err.args[0]} not in {self.path}"
-                logger.warning(f"Failed to fetch sequence for {r}: {err}")
+                reason = f"{err.args[0]} not in {self.path}" if isinstance(err, KeyError) else err
+                logger.warning(f"Failed to fetch sequence for {r}: {reason}")
                 out.append("")
                 continue
             s = min(max(s, 0), length)
@@ -152,7 +157,7 @@ class Fasta:
                 out.append("")
                 continue
             # one contiguous block of the file, line ends removed
-            seq = self._mm[off + (s // lb) * lw + s % lb : off + (e // lb) * lw + e % lb].tobytes()
+            seq = self._map()[off + (s // lb) * lw + s % lb : off + (e // lb) * lw + e % lb].tobytes()
             if lw != lb:
                 seq = seq.replace(b"\n", b"").replace(b"\r", b"")
             out.append(seq.decode("ascii"))
@@ -196,8 +201,8 @@ def _load_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
     if fai.exists() and fai.stat().st_mtime >= fasta.stat().st_mtime:
         index = {}
         for line in open(fai):
-            f = line.split("\t")
-            index[f[0]] = (int(f[1]), int(f[2]), int(f[3]), int(f[4]))
+            fields = line.split("\t")
+            index[fields[0]] = (int(fields[1]), int(fields[2]), int(fields[3]), int(fields[4]))
         return index
     index = _build_index(fasta)
     tmp = fai.with_name(f"{fai.name}.{os.getpid()}.tmp")  # readers never see a partial index

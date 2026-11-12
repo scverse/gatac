@@ -139,3 +139,8 @@ scripts.lint-fix = "prek run -a --no-group=format --no-group=typecheck"
 dependencies = ["prek"]
 scripts.format-check = "echo 'try `hatch check fmt --fix`'; false"
 scripts.format-fix = "prek run -a --group=format --no-group=typecheck"
+
+[envs.hatch-check-types]
+# GATAC itself without RAPIDS: the GPU libraries are untyped in [tool.mypy]
+dependency-groups = ["typecheck", "test"]
+scripts.check = ["mypy"]

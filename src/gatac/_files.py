@@ -6,10 +6,21 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 
 _INT32_MAX = np.iinfo(np.int32).max
+
+
+class _Elems(TypedDict):
+    """AnnData elements written by anndata next to a CSR ``X`` written by :func:`write_h5ad`."""
+
+    obsm: dict
+    varm: dict
+    obsp: dict
+    varp: dict
+    layers: dict
 
 
 @contextmanager
@@ -92,7 +103,7 @@ def write_h5ad(adata, output_path: str | Path, compression: str | None = "gzip",
         return
     # as adata.write_h5ad does to the AnnData it writes
     adata.strings_to_categoricals()
-    elems = {
+    elems: _Elems = {
         "obsm": dict(adata.obsm),
         "varm": dict(adata.varm),
         "obsp": dict(adata.obsp),
@@ -100,11 +111,9 @@ def write_h5ad(adata, output_path: str | Path, compression: str | None = "gzip",
         # anndata >= 0.13 also lists X under the key None
         "layers": {k: v for k, v in adata.layers.items() if k is not None},
     }
-    if adata.raw is not None:
-        elems["raw"] = adata.raw
     if compression is None:
         with replacing(output_path) as tmp_path:
-            ad.AnnData(obs=adata.obs, var=adata.var, uns=adata.uns, **elems).write_h5ad(
+            ad.AnnData(obs=adata.obs, var=adata.var, uns=adata.uns, raw=adata.raw, **elems).write_h5ad(
                 str(tmp_path), compression=compression
             )
             with h5py.File(tmp_path, "a") as h5:
@@ -120,4 +129,4 @@ def write_h5ad(adata, output_path: str | Path, compression: str | None = "gzip",
         writer.append(X[:0])  # the number of columns and the value dtype, also of an empty matrix
         for a, b in zip(bounds[:-1], bounds[1:]):
             writer.append(X[a:b])
-        writer.finalize(obs=adata.obs, var=adata.var, uns=adata.uns, **elems)
+        writer.finalize(obs=adata.obs, var=adata.var, uns=adata.uns, raw=adata.raw, **elems)
