@@ -22,7 +22,7 @@ gatac tile <input.parquet|input.h5ad|input.h5> [input.parquet ...] -g <genome|ch
            [-o OUTPUT] [-t TILE_SIZE] [-m MIN_FRAGS] [-n N_FEATURES]
            [-e CHROMS ...] [--metrics METRICS] [--filter QUERY]
            [--count-strategy STRATEGY]
-           [--low-memory]
+           [--low-memory] [--compression {gzip,none}]
 ```
 
 ---
@@ -49,6 +49,7 @@ gatac tile <input.parquet|input.h5ad|input.h5> [input.parquet ...] -g <genome|ch
 | `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
 | `--count-strategy` | `unique` | Counting strategy: `unique`, `count`, or `binarize` |
 | `--low-memory` | off | Enable low-memory (single row-group) mode |
+| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 

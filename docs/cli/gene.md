@@ -15,7 +15,7 @@ gatac gene <input.parquet> -g <annotations.gtf>
            [--include-gene-body | --no-gene-body]
            [-m MIN_FRAGS] [-e CHROMS ...]
            [--metrics METRICS] [--filter QUERY]
-           [--low-memory]
+           [--low-memory] [--compression {gzip,none}]
 ```
 
 ---
@@ -44,6 +44,7 @@ gatac gene <input.parquet> -g <annotations.gtf>
 | `--metrics` | — | Metrics CSV for quality-based filtering |
 | `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
 | `--low-memory` | off | Process one Parquet row-group at a time |
+| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 

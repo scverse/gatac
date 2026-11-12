@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .._files import replacing, write_h5ad
+from .._files import write_h5ad
 from ..gpu import bincount
 from ..io.fragments import FragmentFile
 from ._combine import _check_distinct_cells, _combined_obs, _file_names
@@ -188,6 +188,7 @@ def build_tile_matrix(
     output_path: PathLike | None = None,
     features: str | np.ndarray | None = "selected",
     row_groups_per_batch: int = 64,
+    compression: str | None = "gzip",
 ) -> ad.AnnData:
     """
     Build the tile matrix of the cells and chosen tiles of a :func:`scan_tiles` result.
@@ -210,6 +211,11 @@ def build_tile_matrix(
         for all tiles.
     row_groups_per_batch : int
         Parquet row groups per GPU batch (default 64).
+    compression : {"gzip", None}
+        Compression of the matrix in ``output_path``: ``"gzip"`` (default),
+        HDF5's shuffle + deflate filters, compressed on the GPU;
+        about 5 times smaller than
+        uncompressed and read as fast by GATAC. ``None``: uncompressed.
 
     Returns
     -------
@@ -218,8 +224,6 @@ def build_tile_matrix(
         the chosen rows of ``var``. When ``output_path`` is given, it is
         opened from the file in backed mode, so the matrix is not loaded.
     """
-    import h5py
-
     if not isinstance(tiles, ad.AnnData):
         tiles = ad.read_h5ad(tiles)
     if "tile_scan" not in tiles.uns:
@@ -330,42 +334,27 @@ def build_tile_matrix(
         logger.info(f"Built {n_cells:,} cells × {n_kept:,} tiles ({time.perf_counter() - start_time:.1f}s)")
         return out
 
-    # Written as it is built, into datasets sized from the tile statistics:
-    # their cell counts are the entry count when every scanned cell is kept,
-    # an upper bound otherwise, and the datasets are then cut to size.
+    # Written as it is built. With every scanned cell kept, the tile
+    # statistics give the number of entries (uncompressed datasets are then
+    # contiguous); otherwise they are an upper bound.
+    from ..io._csr_writer import CSRWriter
+
     output_path = Path(output_path)
     if "n_cells" not in var.columns:
         raise ValueError("`tiles.var` has lost its 'n_cells' column from scan_tiles")
+    upper = int(var["n_cells"].sum())
+    exact = n_cells == int(scan["n_cells"])
     # Written next to the output and moved onto it once complete: an error
     # leaves an existing output as it was
-    with replacing(output_path) as tmp_path:
-        ad.AnnData(obs=obs, var=var, uns=uns).write_h5ad(str(tmp_path))
-        upper = int(var["n_cells"].sum())
-        exact = n_cells == int(scan["n_cells"])
-        # one index dtype for both arrays, as scipy picks it
-        idx_dtype = np.int32 if max(upper, n_kept) <= np.iinfo(np.int32).max else np.int64
-        shrink = {} if exact else {"maxshape": (None,), "chunks": (1 << 22,)}
-        with async_memory_pool(), h5py.File(tmp_path, "a") as h5:
-            group = h5.create_group("X")
-            group.attrs.update(
-                {"encoding-type": "csr_matrix", "encoding-version": "0.1.0", "shape": np.array([n_cells, n_kept])}
-            )
-            out_data = group.create_dataset("data", shape=(upper,), dtype=np.uint16, **shrink)
-            out_indices = group.create_dataset("indices", shape=(upper,), dtype=idx_dtype, **shrink)
-            indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
-            pos = 0
-            for r0, row_nnz, cols, data in file_parts():
-                k = len(cols)
-                out_data[pos : pos + k] = data
-                out_indices[pos : pos + k] = cols
-                indptr[r0 + 1 : r0 + 1 + len(row_nnz)] = pos + np.cumsum(row_nnz)
-                pos += k
-            if exact and pos != upper:
-                raise RuntimeError(f"Wrote {pos:,} entries, expected {upper:,}")
-            if not exact:
-                out_data.resize((pos,))
-                out_indices.resize((pos,))
-            group.create_dataset("indptr", data=indptr)
+    with (
+        async_memory_pool(),
+        CSRWriter(output_path, compression=compression, value_dtype=np.uint16, nnz=upper if exact else None) as writer,
+    ):
+        for _, row_nnz, cols, data in file_parts():  # the files' cells, in obs order
+            indptr = np.zeros(len(row_nnz) + 1, dtype=np.int64)
+            np.cumsum(row_nnz, out=indptr[1:])
+            writer.append(sp.csr_matrix((data, cols, indptr), shape=(len(row_nnz), n_kept)))
+        writer.finalize(obs=obs, var=var, uns=uns)
     cleanup_gpu_memory()
     logger.info(
         f"Wrote {output_path.name}: {n_cells:,} cells × {n_kept:,} tiles ({time.perf_counter() - start_time:.1f}s)"

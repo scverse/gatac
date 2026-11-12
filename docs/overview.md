@@ -8,9 +8,17 @@ single combined file containing all samples. The filtered files remain
 available for subsequent steps, including peak calling and other downstream
 analyses.
 
+````{div} diagram-wide
 ```{raw} html
 :file: _static/pipeline_overview.svg
 ```
+````
+
+````{div} diagram-narrow
+```{raw} html
+:file: _static/pipeline_overview_narrow.svg
+```
+````
 
 ---
 
@@ -183,17 +191,33 @@ tools' time for each stage.
 
 :::{tab-item} To the clusters
 
+````{div} diagram-wide
 ```{raw} html
 :file: _static/runtime_clustering.svg
 ```
+````
+
+````{div} diagram-narrow
+```{raw} html
+:file: _static/runtime_clustering_narrow.svg
+```
+````
 
 :::
 
 :::{tab-item} To the peak matrix
 
+````{div} diagram-wide
 ```{raw} html
 :file: _static/runtime_peaks.svg
 ```
+````
+
+````{div} diagram-narrow
+```{raw} html
+:file: _static/runtime_peaks_narrow.svg
+```
+````
 
 :::
 

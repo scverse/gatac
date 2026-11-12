@@ -28,7 +28,7 @@ Columnar layout and built-in compression let RAPIDS cuDF stream data directly
 into GPU memory with zero CPU round-trips — enabling aggregation over datasets
 that far exceed available GPU RAM.
 
-+++
+````{card-footer}
 ```{button-link} api/io.html#parquet-fragment-format
 :color: primary
 :outline:
@@ -39,6 +39,7 @@ Parquet format
 :outline:
 Pipeline overview
 ```
+````
 :::
 
 :::{grid-item-card} Ecosystem Integration
@@ -50,7 +51,7 @@ like **SnapATAC2** {cite:p}`Zhang2024`, **ArchR** {cite:p}`Granja2021`,
 framework. It produces standard **AnnData** objects fully compatible with the
 **scverse** ecosystem.
 
-+++
+````{card-footer}
 ```{button-link} installation.html
 :color: primary
 :outline:
@@ -61,6 +62,7 @@ Get started
 :outline:
 View Tutorials
 ```
+````
 :::
 
 ::::

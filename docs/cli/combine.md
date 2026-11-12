@@ -9,7 +9,7 @@ datasets without requiring all data to be resident in memory simultaneously.
 ## Synopsis
 
 ```
-gatac combine <input1.h5ad> [input2.h5ad ...] -o <output.h5ad>
+gatac combine <input1.h5ad> [input2.h5ad ...] -o <output.h5ad> [--compression {gzip,none}]
 ```
 
 ---
@@ -27,6 +27,7 @@ gatac combine <input1.h5ad> [input2.h5ad ...] -o <output.h5ad>
 | Flag | Description |
 |------|-------------|
 | `-o`, `--output` | **Required.** Output h5ad path |
+| `--compression` | `gzip` (default): HDF5 shuffle + gzip, compressed on the GPU; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 

@@ -810,6 +810,7 @@ def compute_deviations(
     motif_batch_size: int = -1,
     key_added: str = "chromvar",
     return_adata: bool = False,
+    rows_per_chunk: int = 50_000,
 ) -> AnnData | None:
     """
     Compute chromVAR TF deviation scores.
@@ -845,12 +846,22 @@ def compute_deviations(
         Key under which the deviation DataFrame is stored in `adata.obsm`.
     return_adata : bool, default False
         If True, also return a new AnnData with deviations as `.X`.
+    rows_per_chunk : int, default 50000
+        Cells read at a time (rounded up to whole cell batches). Each chunk
+        is processed for every motif and background iteration, so the count
+        matrix is read once. A backed AnnData is read from its file straight
+        into GPU memory, one chunk at a time, after a first pass for the
+        cell and peak totals.
 
     Returns
     -------
     None or AnnData
-        Always stores deviations as a DataFrame in `adata.obsm[key_added]`.
-        Returns an AnnData (cells × motifs) only when `return_adata=True`.
+        Stores deviations as a DataFrame in `adata.obsm[key_added]`, as
+        scanpy stores results: for a backed AnnData opened ``"r+"`` it is
+        also written into the file (``"r"``: in memory; save it with
+        ``adata.write()``). A view of a backed AnnData cannot hold results:
+        pass ``return_adata=True``. Returns an AnnData (cells × motifs) only
+        when `return_adata=True`.
 
     Examples
     --------
@@ -881,165 +892,167 @@ def compute_deviations(
     if "motif_name" not in adata.uns:
         raise ValueError("Cannot find 'motif_name' in adata.uns. Please run scan() first.")
 
-    logger.info("Computing chromVAR deviations on GPU...")
-
-    # Compute expectations
-    logger.info("Computing expectation reads per cell and peak...")
-    expectation_var = cp.asarray(adata.X.sum(0), dtype=cp.float32).reshape((1, adata.X.shape[1]))
-    expectation_var /= expectation_var.sum()
-
-    expectation_obs = np.asarray(adata.X.sum(1), dtype=np.float32).reshape((adata.X.shape[0], 1))
-
-    # Get motif match matrix
+    backed = adata.isbacked
+    if backed and adata.is_view and not return_adata:
+        raise ValueError(
+            "compute_deviations cannot store its result on a view of a backed AnnData: pass "
+            "return_adata=True, or call it on the whole backed AnnData (its file opened 'r+' "
+            "is then updated)"
+        )
+    n_obs, n_vars = adata.shape
+    bg_peaks = np.asarray(adata.varm["bg_peaks"])
+    if bg_peaks.size and (bg_peaks.min() < 0 or bg_peaks.max() >= n_vars):
+        raise ValueError(
+            f"adata.varm['bg_peaks'] holds peak numbers outside 0..{n_vars - 1}: were peaks "
+            "removed after sample_bg_peaks()? Run it again on these peaks"
+        )
     motif_match = adata.varm["motif_match"]
     if motif_batch_size < 0:
         # Default to processing 100 motifs at a time to reduce memory
         motif_batch_size = min(100, motif_match.shape[1])
+    motif_batch_size = max(1, motif_batch_size)
+    # row chunks are whole numbers of cell batches: each cell batch is computed as
+    # in memory, whichever way the matrix is read
+    rows_per_chunk = batch_size * max(1, -(-rows_per_chunk // batch_size))
 
-    dev_all = []
+    logger.info("Computing chromVAR deviations on GPU...")
+    logger.info("Computing expectation reads per cell and peak...")
+    if backed:
+        from ..io._h5counts import iter_row_chunks
 
-    for motif_start in tqdm(
-        list(range(0, motif_match.shape[1], motif_batch_size)),
-        desc="Processing motif chunks",
-    ):
-        motif_end = min(motif_start + motif_batch_size, motif_match.shape[1])
-        motif_match_chunk = motif_match[:, motif_start:motif_end]
-        n_motifs_chunk = motif_match_chunk.shape[1]
+        def chunks():
+            for c in iter_row_chunks(adata, rows_per_chunk=rows_per_chunk):
+                yield c.start, c.stop, c.data, c.indices, c.indptr
 
-        # Convert to CuPy sparse
-        if sp.issparse(motif_match_chunk):
-            motif_match_gpu = scipy_to_cupy_sparse(motif_match_chunk.tocsr())
-        else:
-            motif_match_gpu = cp.asarray(motif_match_chunk, dtype=cp.float32)
+        col_sums = cp.zeros(n_vars, cp.float64)
+        expectation_obs = np.empty((n_obs, 1), np.float32)
+        for a, b, data, indices, indptr in chunks():  # the statistics pass
+            vals = data.astype(cp.float64)
+            col_sums += cp.bincount(indices, weights=vals, minlength=n_vars)
+            cum = cp.concatenate([cp.zeros(1, cp.float64), cp.cumsum(vals)])
+            expectation_obs[a:b, 0] = cp.asnumpy(cum[indptr[1:]] - cum[indptr[:-1]]).astype(np.float32)
+            del vals, cum
+        expectation_var = col_sums.astype(cp.float32).reshape((1, n_vars))
+        del col_sums
+    else:
+        X = adata.X
 
-        # Initialize deviation arrays
-        obs_dev = np.zeros((adata.n_obs, n_motifs_chunk), dtype=np.float32)
-        mean_bg_dev = np.zeros_like(obs_dev)
-        std_bg_dev = np.zeros_like(obs_dev)
-        n_bg_peaks = adata.varm["bg_peaks"].shape[1]
+        def chunks():
+            for a in range(0, n_obs, rows_per_chunk):
+                b = min(a + rows_per_chunk, n_obs)
+                yield a, b, X[a:b], None, None
 
-        # Convert motif_match to dense for efficient background indexing
-        # This avoids expensive sparse fancy indexing that causes memory spikes
-        # Memory: n_peaks × n_motifs_chunk × 4 bytes (e.g., 100k × 100 × 4 = 40MB)
-        if cupy_sparse.issparse(motif_match_gpu):
-            motif_match_dense = motif_match_gpu.toarray().astype(cp.float32)
-        else:
-            motif_match_dense = motif_match_gpu.astype(cp.float32)
+        expectation_var = cp.asarray(X.sum(0), dtype=cp.float32).reshape((1, n_vars))
+        expectation_obs = np.asarray(X.sum(1), dtype=np.float32).reshape((n_obs, 1))
+    expectation_var /= expectation_var.sum()
 
-        # Pre-compute var_match once (used for all backgrounds with reindexing)
-        # Shape: (1, n_peaks) @ (n_peaks, n_motifs) -> (1, n_motifs)
-        var_match_all = (expectation_var @ motif_match_dense).astype(cp.float32)
+    n_motifs = motif_match.shape[1]
+    n_bg_peaks = bg_peaks.shape[1]
+    bg_peaks_gpu = cp.asarray(bg_peaks)
+    motif_batches = list(range(0, n_motifs, motif_batch_size))
+    dev = np.empty((n_obs, n_motifs), dtype=np.float32)
 
-        # Pre-transfer bg_peaks to GPU once (small: n_peaks × n_bg_peaks int32)
-        bg_peaks_gpu = cp.asarray(adata.varm["bg_peaks"])
-        bg_motif_match = cp.empty_like(motif_match_dense)
-
-        # Process cells in batches
-        for cell_start in tqdm(
-            range(0, adata.n_obs, batch_size),
-            desc="Processing cell chunks",
-            leave=False,
-        ):
-            cell_end = min(cell_start + batch_size, adata.n_obs)
-            n_cells_chunk = cell_end - cell_start
-
-            # Get count matrix chunk
-            X_chunk = adata.X[cell_start:cell_end]
-            expectation_obs_chunk = cp.asarray(expectation_obs[cell_start:cell_end])
-
-            # Convert to CuPy sparse
-            if sp.issparse(X_chunk):
-                X_chunk_gpu = scipy_to_cupy_sparse(X_chunk.tocsr())
+    # one pass over the cells: each row chunk is read once and processed for
+    # every motif batch and background iteration
+    for a, b, data, indices, indptr in tqdm(chunks(), total=-(-n_obs // rows_per_chunk), desc="Processing cell chunks"):
+        for motif_start in motif_batches:
+            motif_end = min(motif_start + motif_batch_size, n_motifs)
+            motif_match_chunk = motif_match[:, motif_start:motif_end]
+            n_motifs_chunk = motif_end - motif_start
+            if sp.issparse(motif_match_chunk):
+                motif_match_gpu = scipy_to_cupy_sparse(motif_match_chunk.tocsr())
+                # dense for efficient background indexing (n_peaks × n_motifs_chunk float32)
+                motif_match_dense = motif_match_gpu.toarray().astype(cp.float32)
             else:
-                X_chunk_gpu = cp.asarray(X_chunk, dtype=cp.float32)
+                motif_match_gpu = cp.asarray(motif_match_chunk, dtype=cp.float32)
+                motif_match_dense = motif_match_gpu.astype(cp.float32)
+            bg_motif_match = cp.empty_like(motif_match_dense)
 
-            # Compute observed deviation (stays on GPU)
-            obs_dev_chunk = _compute_deviations(
-                motif_match_gpu,
-                X_chunk_gpu,
-                expectation_obs_chunk,
-                expectation_var,
-            )
+            for cell_start in range(a, b, batch_size):
+                cell_end = min(cell_start + batch_size, b)
+                n_cells_chunk = cell_end - cell_start
+                X_chunk_gpu = _cell_batch(data, indices, indptr, cell_start - a, cell_end - a, n_vars)
+                expectation_obs_chunk = cp.asarray(expectation_obs[cell_start:cell_end])
 
-            # GPU-side Welford accumulation for background deviations
-            # Memory: same as CPU version (2 arrays of shape n_cells_chunk × n_motifs_chunk)
-            # but avoids n_bg_peaks GPU→CPU transfers per cell batch
-            bg_mean_gpu = cp.zeros((n_cells_chunk, n_motifs_chunk), dtype=cp.float64)
-            bg_m2_gpu = cp.zeros((n_cells_chunk, n_motifs_chunk), dtype=cp.float64)
-
-            # Process all background iterations
-            for bg_iter in range(n_bg_peaks):
-                bg_peak_idx = bg_peaks_gpu[:, bg_iter]
-
-                # As in chromVAR, every motif peak i is replaced by its
-                # background peak bg[i]: X[:, bg] @ M equals X @ S, where row q
-                # of S sums the match rows of the peaks whose background is q
-                bg_motif_match.fill(0)
-                cp.add.at(bg_motif_match, bg_peak_idx, motif_match_dense)
-
-                observed = X_chunk_gpu @ bg_motif_match
-                var_match_bg = (expectation_var @ bg_motif_match).reshape(1, -1)
-
-                # Fused deviation computation
-                bg_dev_iter = _fused_deviation_kernel(
-                    observed.astype(cp.float32),
-                    var_match_bg.astype(cp.float32),
-                    expectation_obs_chunk.astype(cp.float32),
+                obs_dev_chunk = _compute_deviations(
+                    motif_match_gpu,
+                    X_chunk_gpu,
+                    expectation_obs_chunk,
+                    expectation_var,
                 )
 
-                # Welford update on GPU
-                _welford_update_kernel(
-                    bg_dev_iter,
-                    cp.float64(bg_iter + 1),
-                    bg_mean_gpu,
-                    bg_m2_gpu,
+                # GPU-side Welford accumulation for background deviations
+                bg_mean_gpu = cp.zeros((n_cells_chunk, n_motifs_chunk), dtype=cp.float64)
+                bg_m2_gpu = cp.zeros((n_cells_chunk, n_motifs_chunk), dtype=cp.float64)
+                for bg_iter in range(n_bg_peaks):
+                    bg_peak_idx = bg_peaks_gpu[:, bg_iter]
+
+                    # As in chromVAR, every motif peak i is replaced by its
+                    # background peak bg[i]: X[:, bg] @ M equals X @ S, where row q
+                    # of S sums the match rows of the peaks whose background is q
+                    bg_motif_match.fill(0)
+                    cp.add.at(bg_motif_match, bg_peak_idx, motif_match_dense)
+
+                    observed = X_chunk_gpu @ bg_motif_match
+                    var_match_bg = (expectation_var @ bg_motif_match).reshape(1, -1)
+                    bg_dev_iter = _fused_deviation_kernel(
+                        observed.astype(cp.float32),
+                        var_match_bg.astype(cp.float32),
+                        expectation_obs_chunk.astype(cp.float32),
+                    )
+                    _welford_update_kernel(bg_dev_iter, cp.float64(bg_iter + 1), bg_mean_gpu, bg_m2_gpu)
+
+                # Z-score with the sample standard deviation over iterations, as R's sd()
+                mean_bg = bg_mean_gpu.astype(cp.float32)
+                std_bg = cp.sqrt(bg_m2_gpu / max(n_bg_peaks - 1, 1)).astype(cp.float32)
+                dev[cell_start:cell_end, motif_start:motif_end] = cp.asnumpy(
+                    _zscore_kernel(obs_dev_chunk, mean_bg, std_bg)
                 )
-
-            # Transfer final statistics to CPU (only once per cell batch)
-            obs_dev[cell_start:cell_end, :] = cp.asnumpy(obs_dev_chunk)
-            mean_bg_dev[cell_start:cell_end, :] = cp.asnumpy(bg_mean_gpu).astype(np.float32)
-            # Sample variance, as R's sd()
-            bg_var_gpu = bg_m2_gpu / max(n_bg_peaks - 1, 1)
-            std_bg_dev[cell_start:cell_end, :] = cp.asnumpy(cp.sqrt(bg_var_gpu)).astype(np.float32)
-
-            # Cleanup
-            del X_chunk_gpu, obs_dev_chunk, bg_mean_gpu, bg_m2_gpu, bg_var_gpu
-            mempool.free_all_blocks()
-            pinned_mempool.free_all_blocks()
-
-        # Cleanup dense motif matrix and bg_peaks
-        del motif_match_dense, var_match_all, bg_peaks_gpu, bg_motif_match
-
-        # Z-score normalization using fused GPU kernel
-        # Transfer back to GPU for final computation, then back to CPU
-        obs_dev_gpu = cp.asarray(obs_dev)
-        mean_gpu = cp.asarray(mean_bg_dev)
-        std_gpu = cp.asarray(std_bg_dev)
-        dev = cp.asnumpy(_zscore_kernel(obs_dev_gpu, mean_gpu, std_gpu))
-        del obs_dev_gpu, mean_gpu, std_gpu
-
-        dev_all.append(dev)
-
-        # Cleanup
-        del motif_match_gpu
+                del X_chunk_gpu, obs_dev_chunk, bg_mean_gpu, bg_m2_gpu, mean_bg, std_bg
+            del motif_match_gpu, motif_match_dense, bg_motif_match
+        del data, indices, indptr
         mempool.free_all_blocks()
         pinned_mempool.free_all_blocks()
-
-    # Concatenate all motif chunks
-    dev = np.concatenate(dev_all, axis=1) if len(dev_all) > 1 else dev_all[0]
+    del bg_peaks_gpu
 
     import pandas as pd
 
     motif_names = adata.uns["motif_name"]
-    adata.obsm[key_added] = pd.DataFrame(dev, index=adata.obs_names, columns=motif_names)
+    frame = pd.DataFrame(dev, index=adata.obs_names, columns=motif_names)
+    if not (backed and adata.is_view):
+        from ..io._results import _store_results
 
-    logger.info(f"Computed chromVAR deviations: {dev.shape}. Stored in adata.obsm['{key_added}']")
+        _store_results(adata, obsm={key_added: frame})
+        logger.info(f"Computed chromVAR deviations: {dev.shape}. Stored in adata.obsm['{key_added}']")
 
     if return_adata:
-        dev_adata = AnnData(dev, dtype=np.float32, obs=adata.obs.copy())
+        dev_adata = AnnData(dev.astype(np.float32, copy=False), obs=adata.obs.copy())
         dev_adata.var_names = motif_names
         return dev_adata
     return None
+
+
+def _cell_batch(data, indices, indptr, r0: int, r1: int, n_cols: int) -> cupy_sparse.csr_matrix:
+    """Rows ``r0:r1`` of a row chunk as a float32 cupy CSR matrix.
+
+    ``data`` is a scipy matrix of the chunk (in-memory input, converted as
+    before) or, with ``indices`` and ``indptr``, its CSR arrays on the GPU
+    (read from a file).
+    """
+    if indices is None:
+        X = data[r0:r1]
+        if sp.issparse(X):
+            return scipy_to_cupy_sparse(X.tocsr())
+        return cp.asarray(X, dtype=cp.float32)
+    lo, hi = int(indptr[r0]), int(indptr[r1])
+    return cupy_sparse.csr_matrix(
+        (
+            data[lo:hi].astype(cp.float32),
+            indices[lo:hi],
+            (indptr[r0 : r1 + 1] - lo).astype(cp.int32),
+        ),
+        shape=(r1 - r0, n_cols),
+    )
 
 
 # =============================================================================
@@ -1101,12 +1114,22 @@ def chromvar(
         Key under which the deviation DataFrame is stored in `adata.obsm`.
     return_adata : bool, default False
         If True, also return a new AnnData with deviations as `.X`.
+    rows_per_chunk : int, default 50000
+        Cells read at a time (rounded up to whole cell batches). Each chunk
+        is processed for every motif and background iteration, so the count
+        matrix is read once. A backed AnnData is read from its file straight
+        into GPU memory, one chunk at a time, after a first pass for the
+        cell and peak totals.
 
     Returns
     -------
     None or AnnData
-        Always stores deviations as a DataFrame in `adata.obsm[key_added]`.
-        Returns an AnnData (cells × motifs) only when `return_adata=True`.
+        Stores deviations as a DataFrame in `adata.obsm[key_added]`, as
+        scanpy stores results: for a backed AnnData opened ``"r+"`` it is
+        also written into the file (``"r"``: in memory; save it with
+        ``adata.write()``). A view of a backed AnnData cannot hold results:
+        pass ``return_adata=True``. Returns an AnnData (cells × motifs) only
+        when `return_adata=True`.
 
     Examples
     --------

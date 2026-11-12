@@ -22,6 +22,7 @@ pytest.importorskip("cudf")
 
 import anndata as ad  # noqa: E402
 import duckdb  # noqa: E402
+import h5py  # noqa: E402
 import pyarrow as pa  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 import scipy.sparse as sp  # noqa: E402
@@ -649,12 +650,26 @@ def test_build_tile_matrix(two_samples, tmp_path):
     assert (written.X.to_memory() != built.X).nnz == 0
     assert list(written.var_names) == list(built.var_names)
     written.file.close()
+    # int32 indices and indptr on disk, shuffle + gzip by default
+    with h5py.File(tmp_path / "c.h5ad", "r") as f:
+        assert (f["X/indices"].dtype, f["X/indptr"].dtype) == (np.int32, np.int32)
+        assert all(f["X"][k].compression == "gzip" and f["X"][k].shuffle for k in ("data", "indices"))
+    # uncompressed: contiguous when every scanned cell is kept, the same matrix
+    plain = ga.pp.build_tile_matrix(tiles, output_path=tmp_path / "p.h5ad", compression=None)
+    assert (plain.X.to_memory() != built.X).nnz == 0
+    plain.file.close()
+    with h5py.File(tmp_path / "p.h5ad", "r") as f:
+        assert f["X/data"].chunks is None and f["X/data"].compression is None
 
     # cells dropped before the build: the written matrix is cut to size
     keep = np.arange(tiles.n_obs) % 3 != 0
     some = tiles[keep].copy()
     ga.pp.build_tile_matrix(some, output_path=tmp_path / "d.h5ad").file.close()
     assert (ad.read_h5ad(tmp_path / "d.h5ad").X != full[keep][:, sel]).nnz == 0
+    with h5py.File(tmp_path / "d.h5ad", "r") as f:
+        assert (f["X/indices"].dtype, f["X/indptr"].dtype) == (np.int32, np.int32)
+    ga.pp.build_tile_matrix(some, output_path=tmp_path / "e.h5ad", compression=None).file.close()
+    assert (ad.read_h5ad(tmp_path / "e.h5ad").X != full[keep][:, sel]).nnz == 0
 
     # make_tile_matrix on a list runs the three steps
     assert (ga.pp.make_tile_matrix(two_samples, n_features=40, **SCAN_KW).X != built.X).nnz == 0

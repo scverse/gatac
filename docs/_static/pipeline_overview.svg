@@ -1,132 +1,156 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 820" width="100%" style="max-width:760px" role="img" aria-labelledby="cf-pipe-title">
-  <title id="cf-pipe-title">GATAC pipeline: fragment files to Parquet, filtered Parquet, one tile matrix of the top tiles, clusters, peaks and a peak matrix</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 816 342" width="100%" style="max-width:816px" role="img" aria-labelledby="po-title">
+  <title id="po-title">GATAC pipeline: fragment files to Parquet, filtered Parquet, one tile matrix of the top tiles, clusters, peaks and a peak matrix; the tile, gene, peak-calling and peak-matrix steps read the filtered Parquet files</title>
   <style>
-    .cf-text  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 13px; }
-    .cf-muted { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 11px; }
-    .cf-code  { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-monospace, monospace); font-size: 11px; }
-    .cf-bold  { font-weight: 600; }
-    .cf-box   { fill: var(--pst-color-surface, #f6f8fa); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
-    .cf-sheet { fill: var(--pst-color-background, #ffffff); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
-    .cf-line  { stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.4; fill: none; }
-    .cf-head  { fill: var(--pst-color-text-muted, #59636e); }
-    .cf-id    { fill: #73b301; fill-opacity: 0.14; stroke: #73b301; stroke-width: 1.2; }
-    .cf-idbg  { fill: var(--pst-color-background, #ffffff); stroke: #73b301; stroke-width: 1.2; }
-    .cf-val   { fill: #4c8bf5; fill-opacity: 0.14; stroke: #4c8bf5; stroke-width: 1.2; }
-    .cf-chip  { fill: var(--pst-color-background, #ffffff); stroke: #4c8bf5; stroke-width: 1; }
-    .cf-read  { stroke: #73b301; stroke-width: 1.8; fill: none; }
-    .cf-rhead { fill: #73b301; }
+    .po-t     { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 13px; font-weight: 600; }
+    .po-m     { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 11px; }
+    .po-c     { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-monospace, monospace); font-size: 11px; }
+    .po-mid   { text-anchor: middle; }
+    .po-end   { text-anchor: end; }
+    .po-box   { fill: var(--pst-color-surface, #f6f8fa); stroke: #848d97; stroke-width: 1; }
+    .po-sheet { fill: var(--pst-color-background, #ffffff); stroke: #848d97; stroke-width: 1; }
+    .po-flt   { fill: #73b301; fill-opacity: 0.14; stroke: #5a8c00; stroke-width: 1.2; }
+    .po-fltbg { fill: var(--pst-color-background, #ffffff); stroke: #5a8c00; stroke-width: 1.2; }
+    .po-ad    { fill: #4c8bf5; fill-opacity: 0.14; stroke: #3b7ddd; stroke-width: 1.2; }
+    .po-chip  { fill: var(--pst-color-background, #ffffff); stroke: #3b7ddd; stroke-width: 1; }
+    .po-line  { stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.4; fill: none; }
+    .po-head  { fill: var(--pst-color-text-muted, #59636e); }
+    .po-read  { stroke: #5a8c00; stroke-width: 1.8; fill: none; }
+    .po-rhead { fill: #5a8c00; }
+    .po-num   { fill: var(--pst-color-text-base, #1f2328); }
+    .po-band0 { fill: var(--pst-color-text-muted, #59636e); fill-opacity: 0.05; stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
+    .po-band1 { fill: #4c8bf5; fill-opacity: 0.06; stroke: #4c8bf5; stroke-opacity: 0.45; stroke-width: 1; }
+    .po-tab0  { fill: var(--pst-color-text-muted, #59636e); fill-opacity: 0.16; }
+    .po-tab1  { fill: #4c8bf5; fill-opacity: 0.22; }
+    .po-sech  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; }
+    .po-sec   { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; }
+    html[data-theme="dark"] .po-flt, html[data-theme="dark"] .po-fltbg, html[data-theme="dark"] .po-read { stroke: #73b301; }
+    html[data-theme="dark"] .po-rhead { fill: #73b301; }
+    html[data-theme="dark"] .po-ad, html[data-theme="dark"] .po-chip { stroke: #4c8bf5; }
+    html[data-theme="dark"] .po-box, html[data-theme="dark"] .po-sheet { stroke: #6e7781; }
+    .po-numt  { fill: var(--pst-color-background, #ffffff); font-family: var(--pst-font-family-base, sans-serif); font-size: 11px; font-weight: 700; text-anchor: middle; }
   </style>
   <defs>
-    <marker id="cf-pipe-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" class="cf-head"/>
-    </marker>
-    <marker id="cf-pipe-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" class="cf-rhead"/>
-    </marker>
+    <marker id="po-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="po-head"/></marker>
+    <marker id="po-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="po-rhead"/></marker>
   </defs>
-
-  <!-- 1. fragments.tsv.gz, one per sample -->
-  <rect x="160" y="10" width="400" height="52" rx="6" class="cf-sheet"/>
-  <rect x="155" y="15" width="400" height="52" rx="6" class="cf-sheet"/>
-  <rect x="150" y="20" width="400" height="52" rx="6" class="cf-box"/>
-  <text x="350" y="42" text-anchor="middle" class="cf-text cf-bold">fragments.tsv.gz</text>
-  <text x="350" y="60" text-anchor="middle" class="cf-muted">one per sample, names as text in every row</text>
-
-  <line x1="350" y1="72" x2="350" y2="100" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="340" y="90" text-anchor="end" class="cf-code">gatac convert</text>
-
-  <!-- 2. Parquet, one per sample -->
-  <rect x="160" y="102" width="400" height="52" rx="6" class="cf-sheet"/>
-  <rect x="155" y="107" width="400" height="52" rx="6" class="cf-sheet"/>
-  <rect x="150" y="112" width="400" height="52" rx="6" class="cf-box"/>
-  <text x="350" y="134" text-anchor="middle" class="cf-text cf-bold">Parquet fragments</text>
-  <text x="350" y="152" text-anchor="middle" class="cf-muted">integer ids, barcode table in the file</text>
-
-  <!-- QC tables -->
-  <line x1="560" y1="138" x2="588" y2="138" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <rect x="590" y="112" width="150" height="52" rx="6" class="cf-box"/>
-  <text x="665" y="134" text-anchor="middle" class="cf-text cf-bold">QC per cell</text>
-  <text x="665" y="152" text-anchor="middle" class="cf-code">metrics · doublets</text>
-  <path d="M665,164 V190 H356" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="665" y="205" text-anchor="middle" class="cf-muted">query on the metrics</text>
-
-  <line x1="350" y1="164" x2="350" y2="208" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="340" y="182" text-anchor="end" class="cf-code">gatac filter</text>
-
-  <!-- 3. Filtered Parquet, one per sample -->
-  <rect x="160" y="210" width="400" height="52" rx="6" class="cf-idbg"/>
-  <rect x="155" y="215" width="400" height="52" rx="6" class="cf-idbg"/>
-  <rect x="150" y="220" width="400" height="52" rx="6" class="cf-idbg"/>
-  <rect x="150" y="220" width="400" height="52" rx="6" class="cf-id"/>
-  <text x="350" y="242" text-anchor="middle" class="cf-text cf-bold">Filtered Parquet fragments</text>
-  <text x="350" y="260" text-anchor="middle" class="cf-muted">the cells that pass QC, one file per sample</text>
-
-  <!-- reads of the filtered files: tile scan and build -->
-  <line x1="216" y1="272" x2="216" y2="370" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-  <text x="224" y="300" class="cf-muted">pass 1</text>
-  <line x1="484" y1="272" x2="484" y2="370" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-  <text x="476" y="300" text-anchor="end" class="cf-muted">pass 2</text>
-
-  <!-- reads of the filtered files: bus to the peak steps -->
-  <path d="M150,246 H60 V700 H148" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-  <path d="M60,598 H148" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-
-  <!-- reads of the filtered files: gene matrix -->
-  <path d="M560,246 H665 V338" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-
-  <!-- 4. One tile matrix, top tiles -->
-  <rect x="150" y="330" width="400" height="104" rx="6" class="cf-val"/>
-  <text x="350" y="352" text-anchor="middle" class="cf-text cf-bold">One tile matrix, top tiles</text>
-  <rect x="160" y="372" width="112" height="28" rx="4" class="cf-chip"/>
-  <text x="216" y="390" text-anchor="middle" class="cf-muted">scan: tile statistics</text>
-  <line x1="274" y1="386" x2="292" y2="386" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <rect x="294" y="372" width="112" height="28" rx="4" class="cf-chip"/>
-  <text x="350" y="390" text-anchor="middle" class="cf-muted">select the top n</text>
-  <line x1="408" y1="386" x2="426" y2="386" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <rect x="428" y="372" width="112" height="28" rx="4" class="cf-chip"/>
-  <text x="484" y="390" text-anchor="middle" class="cf-muted">build: those tiles</text>
-  <text x="350" y="422" text-anchor="middle" class="cf-code">gatac tile -n · cells × selected tiles</text>
-
-  <!-- Gene matrix -->
-  <rect x="590" y="340" width="150" height="76" rx="6" class="cf-val"/>
-  <text x="665" y="362" text-anchor="middle" class="cf-text cf-bold">Gene matrix</text>
-  <text x="665" y="382" text-anchor="middle" class="cf-code">gatac gene</text>
-  <text x="665" y="400" text-anchor="middle" class="cf-muted">one matrix, all samples</text>
-
-  <line x1="350" y1="434" x2="350" y2="478" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-
-  <!-- 5. Embedding and clusters -->
-  <rect x="150" y="480" width="400" height="52" rx="6" class="cf-box"/>
-  <text x="350" y="502" text-anchor="middle" class="cf-text cf-bold">Embedding and clusters</text>
-  <text x="350" y="520" text-anchor="middle" class="cf-code">dr.spectral → kNN → Leiden</text>
-
-  <line x1="350" y1="532" x2="350" y2="570" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="360" y="555" class="cf-muted">clusters in obs</text>
-
-  <!-- 6. Peaks per cluster -->
-  <rect x="150" y="572" width="400" height="52" rx="6" class="cf-box"/>
-  <text x="350" y="594" text-anchor="middle" class="cf-text cf-bold">Peaks per cluster, merged</text>
-  <text x="350" y="612" text-anchor="middle" class="cf-code">peak.call (MACS3) → peak.merge</text>
-
-  <line x1="350" y1="624" x2="350" y2="672" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="360" y="652" class="cf-muted">peak set</text>
-
-  <!-- 7. Peak matrix -->
-  <rect x="150" y="674" width="400" height="52" rx="6" class="cf-val"/>
-  <text x="350" y="696" text-anchor="middle" class="cf-text cf-bold">Peak matrix</text>
-  <text x="350" y="714" text-anchor="middle" class="cf-code">peak.make_matrix · cells × peaks</text>
-
-  <line x1="350" y1="726" x2="350" y2="752" class="cf-line" marker-end="url(#cf-pipe-a)"/>
-  <text x="350" y="768" text-anchor="middle" class="cf-muted">markers, motif enrichment, chromVAR</text>
+  <g transform="translate(26,0)">
 
   <!-- legend -->
-  <g transform="translate(20,790)">
-    <line x1="0" y1="6" x2="28" y2="6" class="cf-read" marker-end="url(#cf-pipe-g)"/>
-    <text x="36" y="10" class="cf-muted">reads the filtered Parquet files</text>
-    <rect x="232" y="-1" width="18" height="14" rx="3" class="cf-val"/>
-    <text x="258" y="10" class="cf-muted">AnnData</text>
-    <rect x="330" y="-4" width="18" height="14" rx="3" class="cf-sheet"/>
-    <rect x="326" y="0" width="18" height="14" rx="3" class="cf-box"/>
-    <text x="356" y="10" class="cf-muted">one file per sample</text>
+  <rect x="16" y="6" width="18" height="13" rx="6" class="po-sheet"/>
+  <rect x="13" y="9" width="18" height="13" rx="6" class="po-sheet"/>
+  <rect x="10" y="12" width="18" height="13" rx="6" class="po-box"/>
+  <text x="40" y="22" class="po-m">one file per sample</text>
+  <rect x="172" y="9" width="18" height="14" rx="3" class="po-ad"/>
+  <text x="198" y="22" class="po-m">one AnnData, all samples</text>
+  <path d="M10,42 H36" class="po-read" marker-end="url(#po-g)"/>
+  <text x="44" y="46" class="po-m">reads the filtered Parquet files</text>
+
+  <!-- band: combine all samples -->
+  <rect x="-22" y="158" width="812" height="148" rx="8" class="po-band1"/>
+  <rect x="-22" y="158" width="18" height="148" rx="8" class="po-tab1"/>
+  <text transform="translate(-9,232) rotate(-90)" class="po-sec po-mid">COMBINE ALL SAMPLES</text>
+
+  <!-- fragments.tsv.gz, one per sample -->
+  <rect x="-2" y="66" width="168" height="66" rx="6" class="po-sheet"/>
+  <rect x="-7" y="71" width="168" height="66" rx="6" class="po-sheet"/>
+  <rect x="-12" y="76" width="168" height="66" rx="6" class="po-box"/>
+  <text x="72" y="99" class="po-t po-mid">fragments.tsv.gz</text>
+  <text x="72" y="117" class="po-m po-mid">one per sample,</text>
+  <text x="72" y="132" class="po-m po-mid">names as text in every row</text>
+  <path d="M156,109 H288" class="po-line" marker-end="url(#po-a)"/>
+  <text x="227" y="101" class="po-c po-mid">gatac convert</text>
+
+  <!-- 1. Parquet, one per sample -->
+  <rect x="300" y="66" width="170" height="66" rx="6" class="po-sheet"/>
+  <rect x="295" y="71" width="170" height="66" rx="6" class="po-sheet"/>
+  <rect x="290" y="76" width="170" height="66" rx="6" class="po-box"/>
+  <text x="375" y="99" class="po-t po-mid">Parquet fragments</text>
+  <text x="375" y="117" class="po-m po-mid">integer ids,</text>
+  <text x="375" y="132" class="po-m po-mid">barcode table in the file</text>
+  <circle cx="290" cy="76" r="9" class="po-num"/>
+  <text x="290" y="80" class="po-numt">1</text>
+
+  <!-- 2. QC tables, then the filter -->
+  <path d="M440,66 V26 H455" class="po-line" marker-end="url(#po-a)"/>
+  <rect x="457" y="4" width="150" height="44" rx="6" class="po-box"/>
+  <text x="532" y="22" class="po-t po-mid">QC per cell</text>
+  <text x="532" y="39" class="po-c po-mid">metrics · doublets</text>
+  <path d="M532,48 V107" class="po-line" marker-end="url(#po-a)"/>
+  <text x="539" y="62" class="po-m">query on the metrics</text>
+  <path d="M460,109 H598" class="po-line" marker-end="url(#po-a)"/>
+  <text x="532" y="126" class="po-c po-mid">gatac filter</text>
+
+  <!-- 2. Filtered Parquet, one per sample -->
+  <rect x="610" y="66" width="172" height="66" rx="6" class="po-fltbg"/>
+  <rect x="605" y="71" width="172" height="66" rx="6" class="po-fltbg"/>
+  <rect x="600" y="76" width="172" height="66" rx="6" class="po-fltbg"/>
+  <rect x="600" y="76" width="172" height="66" rx="6" class="po-flt"/>
+  <text x="686" y="99" class="po-t po-mid">Filtered Parquet</text>
+  <text x="686" y="117" class="po-m po-mid">the cells that pass QC,</text>
+  <text x="686" y="132" class="po-m po-mid">one file per sample</text>
+  <circle cx="600" cy="76" r="9" class="po-num"/>
+  <text x="600" y="80" class="po-numt">2</text>
+
+  <!-- reads of the filtered files -->
+  <path d="M732,142 V197" class="po-read" marker-end="url(#po-g)"/>
+  <path d="M732,168 H39 V205" class="po-read" marker-end="url(#po-g)"/>
+  <path d="M163,168 V205" class="po-read" marker-end="url(#po-g)"/>
+  <path d="M459,168 V197" class="po-read" marker-end="url(#po-g)"/>
+  <path d="M604,168 V197" class="po-read" marker-end="url(#po-g)"/>
+  <text x="46" y="186" class="po-m">pass 1</text>
+  <text x="156" y="186" class="po-m po-end">pass 2</text>
+
+  <!-- 3. One tile matrix, top tiles -->
+  <rect x="10" y="198" width="182" height="98" rx="6" class="po-ad"/>
+  <rect x="16" y="206" width="46" height="24" rx="4" class="po-chip"/>
+  <text x="39" y="222" class="po-m po-mid">scan</text>
+  <rect x="78" y="206" width="46" height="24" rx="4" class="po-chip"/>
+  <text x="101" y="222" class="po-m po-mid">select</text>
+  <rect x="140" y="206" width="46" height="24" rx="4" class="po-chip"/>
+  <text x="163" y="222" class="po-m po-mid">build</text>
+  <path d="M62,218 H77" class="po-line" marker-end="url(#po-a)"/>
+  <path d="M124,218 H139" class="po-line" marker-end="url(#po-a)"/>
+  <text x="101" y="251" class="po-t po-mid">Tile matrix, top n tiles</text>
+  <text x="101" y="268" class="po-c po-mid">gatac tile -n</text>
+  <text x="101" y="284" class="po-m po-mid">cells × selected tiles</text>
+  <circle cx="10" cy="198" r="9" class="po-num"/>
+  <text x="10" y="202" class="po-numt">3</text>
+  <path d="M192,247 H208" class="po-line" marker-end="url(#po-a)"/>
+
+  <!-- 4. Embedding and clusters -->
+  <rect x="210" y="198" width="166" height="98" rx="6" class="po-box"/>
+  <text x="293" y="232" class="po-t po-mid">Embedding and clusters</text>
+  <text x="293" y="251" class="po-c po-mid">dr.spectral</text>
+  <text x="293" y="266" class="po-c po-mid">→ kNN → Leiden</text>
+  <text x="293" y="283" class="po-m po-mid">clusters in obs</text>
+  <circle cx="210" cy="198" r="9" class="po-num"/>
+  <text x="210" y="202" class="po-numt">4</text>
+  <path d="M376,247 H392" class="po-line" marker-end="url(#po-a)"/>
+
+  <!-- 5. Peaks per cluster -->
+  <rect x="394" y="198" width="130" height="98" rx="6" class="po-box"/>
+  <text x="459" y="232" class="po-t po-mid">Peaks per cluster</text>
+  <text x="459" y="251" class="po-c po-mid">peak.call (MACS3)</text>
+  <text x="459" y="266" class="po-c po-mid">→ peak.merge</text>
+  <text x="459" y="283" class="po-m po-mid">one merged peak set</text>
+  <circle cx="394" cy="198" r="9" class="po-num"/>
+  <text x="394" y="202" class="po-numt">5</text>
+  <path d="M524,247 H540" class="po-line" marker-end="url(#po-a)"/>
+
+  <!-- 6. Peak matrix -->
+  <rect x="542" y="198" width="124" height="98" rx="6" class="po-ad"/>
+  <text x="604" y="236" class="po-t po-mid">Peak matrix</text>
+  <text x="604" y="255" class="po-c po-mid">peak.make_matrix</text>
+  <text x="604" y="272" class="po-m po-mid">cells × peaks</text>
+  <circle cx="542" cy="198" r="9" class="po-num"/>
+  <text x="542" y="202" class="po-numt">6</text>
+  <path d="M604,296 V318" class="po-line" marker-end="url(#po-a)"/>
+  <text x="604" y="334" class="po-m po-mid">markers, motif enrichment, chromVAR</text>
+
+  <!-- Gene matrix -->
+  <rect x="680" y="198" width="104" height="98" rx="6" class="po-ad"/>
+  <text x="732" y="236" class="po-t po-mid">Gene matrix</text>
+  <text x="732" y="255" class="po-c po-mid">gatac gene</text>
+  <text x="732" y="272" class="po-m po-mid">cells × genes</text>
   </g>
 </svg>

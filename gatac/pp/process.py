@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 def combine(
     input_paths: list[str | Path],
     output_path: str | Path,
+    compression: str | None = "gzip",
 ) -> None:
     """
     Merge several ``.h5ad`` matrices of the same features into one file.
@@ -37,6 +38,10 @@ def combine(
         List of paths to h5ad files
     output_path : str or Path
         Output path for combined h5ad file
+    compression : {"gzip", None}
+        Compression of the combined matrix: ``"gzip"`` (default), HDF5's
+        shuffle + deflate filters, compressed on the GPU;
+        ``None``: uncompressed.
 
     Raises
     ------
@@ -83,6 +88,6 @@ def combine(
         for path in input_paths:
             yield ad.read_h5ad(path)
 
-    combined = combine_file_matrices(parts(), names, output_path)
+    combined = combine_file_matrices(parts(), names, output_path, compression=compression)
     logger.info(f"Saved combined matrix ({combined.n_obs:,} cells × {combined.n_vars:,} features) to {output_path}")
     combined.file.close()

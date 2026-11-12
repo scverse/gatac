@@ -43,6 +43,8 @@ import scipy.sparse as sp
 from anndata import AnnData
 
 from ..gpu import bincount
+from ..io._h5counts import gpu_csr, open_counts
+from ..io._results import _store_results
 from ._gpu import (
     _launch_1d,
     _row_norms_sq_kernel,
@@ -287,7 +289,7 @@ def _spectral_mf(
 
 
 def _spectral_chunked(
-    X_cpu: sp.csr_matrix,
+    X_cpu: sp.csr_matrix | StreamedCounts,
     n_comps: int,
     random_state: int,
     feature_weights: np.ndarray | None,
@@ -301,7 +303,7 @@ def _spectral_chunked(
     are streamed at every product (see :class:`gatac.dr._stream.StreamedCounts`).
     """
     n_cells, n_features = X_cpu.shape
-    C = StreamedCounts(X_cpu, chunk_size)
+    C = StreamedCounts(X_cpu, chunk_size) if sp.issparse(X_cpu) else X_cpu
     try:
         # ---- IDF weights: from the column entry counts, or caller-supplied ----
         if feature_weights is not None:
@@ -386,7 +388,9 @@ def spectral(
     ----------
     adata
         AnnData object. ``adata.X`` should be a sparse cell × tile (or peak)
-        matrix — binarized or count-valued.
+        matrix — binarized or count-valued. A backed AnnData, or a view of
+        one (``adata[cells, tiles]``), is read from its file straight into GPU
+        memory.
     n_comps
         Number of spectral dimensions to compute. When ``weighted_by_sd=True``
         (default) the result is insensitive to this value as long as it is
@@ -410,7 +414,11 @@ def spectral(
         computed automatically from the data.
     inplace
         If True, store the embedding in ``adata.obsm["X_spectral"]`` and
-        eigenvalues in ``adata.uns["spectral_eigenvalue"]``.
+        eigenvalues in ``adata.uns["spectral_eigenvalue"]``. A backed AnnData
+        opened ``r+`` also gets both keys in its file at once (``X`` is not
+        rewritten); one opened ``r`` keeps them in memory until
+        ``adata.write()``. A view of a backed AnnData cannot store them: pass
+        ``inplace=False``.
         If False, return ``(eigenvalues, eigenvectors)`` as numpy arrays.
     chunk_size
         When set, use the matrix in row chunks of this many cells. Chunks
@@ -473,6 +481,13 @@ def spectral(
     >>> gatac.dr.spectral(adata, chunk_size=30_000)
     """
     logger.info("Running GPU-accelerated spectral embedding ...")
+    backed = adata.isbacked
+    if backed and adata.is_view and inplace:
+        raise ValueError(
+            "spectral cannot store its result in a view of a backed AnnData (anndata refuses to set obsm "
+            "on it). Pass inplace=False to get (eigenvalues, embedding), or load the view with "
+            "view.to_memory() first"
+        )
 
     # ---- Resolve feature mask ----
     if isinstance(features, str):
@@ -488,15 +503,18 @@ def spectral(
         feat_mask = None
 
     # ---- Extract sparse matrix (stays on CPU until needed) ----
-    X = adata.X
-    if feat_mask is not None:
-        if sp.issparse(X):
+    if backed:
+        # read from the file onto the GPU below; the features are selected while reading
+        X = None
+        n = adata.n_obs
+        m = adata.n_vars if feat_mask is None else int(feat_mask.sum())
+    else:
+        X = adata.X
+        if feat_mask is not None:
             X = X[:, feat_mask]
-        else:
-            X = X[:, feat_mask]
+        n, m = X.shape
 
     # ---- Clamp n_comps ----
-    n, m = X.shape
     max_comps = min(n - 1, m - 1)
     if n_comps > max_comps:
         logger.warning(f"Requested n_comps={n_comps} exceeds matrix rank; clamping to {max_comps}.")
@@ -513,7 +531,7 @@ def spectral(
     # ---- Dispatch to chunked or full-GPU path ----
     if chunk_size is not None:
         # ---- Chunked path: data stays on CPU, chunks stream to GPU ----
-        X_cpu = X
+        X_cpu = X if not backed else open_counts(adata, features=feat_mask, chunk_size=chunk_size)
 
         # Pre-slice feature_weights if provided; IDF otherwise computed on GPU
         # inside _spectral_chunked from the column entry counts.
@@ -533,8 +551,8 @@ def spectral(
         del X_cpu
     else:
         # ---- Full-GPU path (memory-optimised) ----
-        X_gpu = _to_gpu_csr(X)
-        if X_gpu is adata.X:
+        X_gpu = gpu_csr(adata, features=feat_mask) if backed else _to_gpu_csr(X)
+        if not backed and X_gpu is adata.X:
             # normalisation below rewrites X_gpu.data in place
             X_gpu = X_gpu.copy()
 
@@ -574,8 +592,7 @@ def spectral(
     logger.info(f"Spectral embedding complete: {evecs_np.shape[1]} components (top eigenvalue = {evals_np[0]:.4f}).")
 
     if inplace:
-        adata.uns["spectral_eigenvalue"] = evals_np
-        adata.obsm["X_spectral"] = evecs_np
+        _store_results(adata, obsm={"X_spectral": evecs_np}, uns={"spectral_eigenvalue": evals_np})
         return None
     else:
         return evals_np, evecs_np

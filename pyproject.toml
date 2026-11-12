@@ -50,13 +50,16 @@ bigwig = [
 # here when it breaks GATAC. CuPy is used directly (and its 14.x behaviour).
 # nvCOMP inflates BGZF fragment files on the GPU (`make_parquet`, `gatac
 # convert`); no cap: each release pins its libnvcomp, which libcudf pins too,
-# so the resolver picks the one matching cuDF.
+# so the resolver picks the one matching cuDF. kvikio reads h5ad count
+# matrices straight into GPU memory (`gatac.io.read_h5ad`); each wheel
+# requires the libkvikio of its release, which libcudf pins too.
 rapids-cu12 = [
     "cudf-cu12>=26.02",
     "cuml-cu12>=26.02",
     "cugraph-cu12>=26.02",
     "cupy-cuda12x[ctk]>=14",
     "nvidia-nvcomp-cu12>=5.1",
+    "kvikio-cu12>=26.02",
 ]
 rapids-cu13 = [
     "cudf-cu13>=26.02",
@@ -64,6 +67,7 @@ rapids-cu13 = [
     "cugraph-cu13>=26.02",
     "cupy-cuda13x[ctk]>=14",
     "nvidia-nvcomp-cu13>=5.1",
+    "kvikio-cu13>=26.02",
 ]
 
 [project.urls]
@@ -102,7 +106,7 @@ docs = [
     "myst-parser>=4.0",
     "myst-nb>=1.1",
     "sphinx-copybutton>=0.5",
-    "sphinx-design>=0.5",
+    "sphinx-design>=0.8",  # card-header / card-footer directives
     "sphinxcontrib-mermaid>=0.9",
     "sphinx-autobuild>=2024",
     "numpydoc>=1.7",

@@ -134,6 +134,7 @@ exclude_patterns = [
     ".DS_Store",
     ".ipynb_checkpoints",
     "notebooks/README.md",  # the gatac-tutorials repo readme
+    "scripts/**",  # the scripts that draw the figures of _static/
     # each version's notes are included by release-notes/index.md, not pages
     "release-notes/[0-9]*.md",
     "release-notes/blank.md",

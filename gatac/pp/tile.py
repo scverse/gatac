@@ -435,6 +435,7 @@ def _make_tile_matrix_from_interval_matrix(
     metrics: str | Path | pd.DataFrame | cudf.DataFrame | None = None,
     filter_query: str | None = None,
     count_strategy: str = "unique",
+    compression: str | None = "gzip",
 ):
     """Aggregate interval-like matrix features into fixed genomic tiles."""
     adata = _load_interval_adata(input_data)
@@ -562,7 +563,7 @@ def _make_tile_matrix_from_interval_matrix(
     adata.uns["tile_aggregation"] = "sum_overlapping_features"
 
     if output_path is not None:
-        write_h5ad(adata, output_path)
+        write_h5ad(adata, output_path, compression=compression)
         logger.info(
             f"Created {output_path.name}: {adata.shape[0]:,} cells × {adata.shape[1]:,} tiles from interval matrix"
         )
@@ -655,6 +656,7 @@ def make_tile_matrix(
     low_memory: bool = False,
     row_groups_per_batch: int = 64,
     n_features: int | None = None,
+    compression: str | None = "gzip",
 ) -> ad.AnnData:
     """
     Generate a tile matrix from fragments or interval-like feature matrices.
@@ -716,6 +718,10 @@ def make_tile_matrix(
         The full tile matrix is never built: the files are read once for
         every tile's accessibility and again for the chosen tiles only.
         Fragment input only.
+    compression : {"gzip", None}
+        Compression of the matrix written to ``output_path``: ``"gzip"``
+        (default), HDF5's shuffle + deflate filters, compressed on the GPU;
+        ``None``: uncompressed.
 
     Returns
     -------
@@ -783,6 +789,7 @@ def make_tile_matrix(
             output_path=output_path,
             features="selected" if n_features is not None else None,
             row_groups_per_batch=min(row_groups_per_batch, 8) if low_memory else row_groups_per_batch,
+            compression=compression,
         )
 
     with async_memory_pool():
@@ -798,6 +805,7 @@ def make_tile_matrix(
             count_strategy=count_strategy,
             low_memory=low_memory,
             row_groups_per_batch=row_groups_per_batch,
+            compression=compression,
         )
     cleanup_gpu_memory()
     return adata
@@ -815,6 +823,7 @@ def _make_tile_matrix_one(
     count_strategy: str,
     low_memory: bool,
     row_groups_per_batch: int,
+    compression: str | None = "gzip",
 ) -> ad.AnnData:
     """:func:`make_tile_matrix` of one input."""
     input_is_adata = isinstance(input, ad.AnnData)
@@ -832,6 +841,7 @@ def _make_tile_matrix_one(
             metrics=metrics,
             filter_query=filter_query,
             count_strategy=count_strategy,
+            compression=compression,
         )
 
     start_time = time.perf_counter()
@@ -908,7 +918,7 @@ def _make_tile_matrix_one(
 
     # Save
     if resolved_output_path is not None:
-        write_h5ad(adata, resolved_output_path)
+        write_h5ad(adata, resolved_output_path, compression=compression)
         total_time = time.perf_counter() - start_time
         logger.info(
             f"Created {resolved_output_path.name}: {adata.shape[0]:,} cells × "

@@ -149,6 +149,20 @@ def _genome(arg: str):
     return chrom_sizes
 
 
+def _compression(args) -> str | None:
+    """The ``compression`` argument of a matrix writer, from ``--compression``."""
+    return None if args.compression == "none" else args.compression
+
+
+def _add_compression(parser) -> None:
+    parser.add_argument(
+        "--compression",
+        choices=["gzip", "none"],
+        default="gzip",
+        help="Compression of the output matrix: HDF5 shuffle + gzip, compressed on the GPU (default), or none",
+    )
+
+
 def tile_command(args):
     """Handle 'gatac tile' subcommand."""
     from .pp.tile import make_tile_matrix
@@ -173,6 +187,7 @@ def tile_command(args):
         count_strategy=args.count_strategy,
         low_memory=args.low_memory,
         n_features=args.n_features,
+        compression=_compression(args),
     )
 
 
@@ -212,6 +227,7 @@ def combine_command(args):
     combine(
         input_paths,
         output_path=args.output,
+        compression=_compression(args),
     )
 
 
@@ -275,6 +291,7 @@ def gene_command(args):
         metrics=args.metrics,
         filter_query=args.filter_query,
         low_memory=args.low_memory,
+        compression=_compression(args),
     )
 
 
@@ -310,6 +327,7 @@ def genescore_command(args):
         filter_query=args.filter_query,
         low_memory=args.low_memory,
         cell_batch_size=args.cell_batch_size,
+        compression=_compression(args),
     )
 
 
@@ -554,6 +572,7 @@ def main():
         help="Keep only the N most accessible tiles, chosen on all cells, without "
         "building the full tile matrix (fragment input; default: all tiles)",
     )
+    _add_compression(tile_parser)
     tile_parser.set_defaults(func=tile_command)
 
     # Combine subcommand
@@ -564,6 +583,7 @@ def main():
     )
     combine_parser.add_argument("input", nargs="+", help="Input .h5ad file(s) or glob pattern")
     combine_parser.add_argument("-o", "--output", required=True, help="Output .h5ad file")
+    _add_compression(combine_parser)
     combine_parser.set_defaults(func=combine_command)
 
     # Metrics subcommand
@@ -640,6 +660,7 @@ def main():
     gene_parser.add_argument("--metrics", help="Path to CSV file with quality metrics for filtering")
     gene_parser.add_argument("--filter", dest="filter_query", help='Filtering query string (e.g., "tsse_score > 5")')
     gene_parser.add_argument("--low-memory", action="store_true", help="Use low memory mode for Parquet reading")
+    _add_compression(gene_parser)
     gene_parser.set_defaults(func=gene_command)
 
     # Gene score subcommand (ArchR-style distance-weighted gene activity)
@@ -704,6 +725,7 @@ def main():
     genescore_parser.add_argument(
         "--cell-batch-size", type=int, default=None, help="Process cells in column batches (lower GPU memory)"
     )
+    _add_compression(genescore_parser)
     genescore_parser.set_defaults(func=genescore_command)
 
     # Doublets subcommand

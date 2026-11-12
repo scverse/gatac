@@ -173,6 +173,18 @@ def _compute_feature_counts_gpu(X, chunk_size: int = 2000) -> cp.ndarray:
         return arr.sum(axis=0).astype(cp.float32)
 
 
+def _backed_feature_counts(adata) -> tuple[cp.ndarray, bool]:
+    """Per-feature sums of a backed matrix, read once from its file, and whether it is binary."""
+    from ..io._h5counts import iter_row_chunks
+
+    counts = cp.zeros(adata.n_vars, cp.float64)
+    binary = True
+    for chunk in iter_row_chunks(adata):
+        counts += cp.bincount(chunk.indices, weights=chunk.data.astype(cp.float64), minlength=adata.n_vars)
+        binary = binary and bool(cp.all((chunk.data == 0) | (chunk.data == 1)))
+    return counts.astype(cp.float32), binary
+
+
 def _tile_stats_usable(adata) -> bool:
     """
     Whether var holds tile statistics that match ``adata``'s matrix: summed
@@ -207,6 +219,7 @@ def select_features(
     filter_upper_quantile: float = 0.005,
     inplace: bool = True,
     output_path: str | Path | None = None,
+    compression: str | None = "gzip",
 ):
     """
     GPU-accelerated feature selection for ATAC-seq tile matrices.
@@ -236,6 +249,10 @@ def select_features(
         Whether to modify adata in place (default: True)
     output_path : str or Path, optional
         If provided, save the result to this path
+    compression : {"gzip", None}
+        Compression of the matrix written to ``output_path``: ``"gzip"``
+        (default), HDF5's shuffle + deflate filters, compressed on the GPU;
+        ``None``: uncompressed.
 
     Returns
     -------
@@ -251,6 +268,7 @@ def select_features(
 
     logger.info(f"Selecting features from {adata.shape[1]:,} total")
 
+    feature_counts = None
     if _tile_stats_usable(adata):
         logger.info("Using the tile statistics of var")
         # every entry is 1 exactly when the counts equal the cell counts
@@ -261,6 +279,8 @@ def select_features(
             "`adata` has no X and no tile statistics ('count', 'n_cells' in var, "
             "uns['tile_stats']); see `pp.scan_tiles`"
         )
+    elif adata.isbacked:
+        feature_counts, is_binary = _backed_feature_counts(adata)
     else:
         is_binary = None
 
@@ -274,7 +294,7 @@ def select_features(
 
     # Compute feature counts
     logger.debug("Computing feature accessibility")
-    if not _tile_stats_usable(adata):
+    if feature_counts is None:
         feature_counts = _compute_feature_counts_gpu(adata.X)
     logger.debug(f"Count range: {float(feature_counts.min()):.0f} - {float(feature_counts.max()):.0f}")
 
@@ -302,7 +322,7 @@ def select_features(
 
     if output_path:
         output_path = Path(output_path)
-        write_h5ad(adata, output_path)
+        write_h5ad(adata, output_path, compression=compression)
         logger.info(f"Saved to {output_path.name}")
 
     logger.info(f"Selected {n_selected:,} features")

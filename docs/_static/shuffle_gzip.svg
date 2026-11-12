@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 976 346" width="100%" style="max-width:976px" role="img" aria-labelledby="sg-title">
+  <title id="sg-title">HDF5 shuffle then gzip on the column indices of one cell of a CSR matrix</title>
+  <style>
+    .sg-text  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 14px; }
+    .sg-muted { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 12px; }
+    .sg-byte  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-monospace, monospace); font-size: 14px; font-weight: 600; text-anchor: middle; }
+    .sg-num   { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-monospace, monospace); font-size: 12px; text-anchor: middle; }
+    .sg-zero  { fill: var(--pst-color-text-muted, #59636e); font-weight: 400; }
+    .sg-bold  { font-weight: 600; }
+    .sg-brace { stroke: var(--pst-color-border, #d0d7de); stroke-width: 1.2; fill: none; }
+    .sg-line  { stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.3; fill: none; }
+    .sg-head  { fill: var(--pst-color-text-muted, #59636e); }
+    .sg-cell  { fill: var(--pst-color-surface, #f6f8fa); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
+    .sg-hl    { fill: var(--pst-color-text-base, #1f2328); fill-opacity: 0.10; stroke: var(--pst-color-text-base, #1f2328); stroke-width: 1.2; }
+    .sg-focus { fill: none; stroke: var(--pst-color-text-base, #1f2328); stroke-width: 1.4; stroke-dasharray: 4 3; }
+    .sg-b0 { fill: #4c8bf5; fill-opacity: 0.14; stroke: #4c8bf5; stroke-width: 1.2; }
+    .sg-b1 { fill: #73b301; fill-opacity: 0.14; stroke: #73b301; stroke-width: 1.2; }
+    .sg-b2 { fill: #e0a020; fill-opacity: 0.16; stroke: #e0a020; stroke-width: 1.2; }
+    .sg-b3 { fill: #9b6bd3; fill-opacity: 0.14; stroke: #9b6bd3; stroke-width: 1.2; }
+    .sg-rep { stroke-dasharray: 4 3; }
+    .sg-w0 { stroke: #4c8bf5; } .sg-w1 { stroke: #73b301; } .sg-w2 { stroke: #e0a020; } .sg-w3 { stroke: #9b6bd3; }
+    .sg-wire { fill: none; stroke-width: 1.3; stroke-opacity: 0.8; }
+  </style>
+  <defs><marker id="sg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="sg-head"/></marker></defs>
+  <!-- CSR panel: a 3-cell matrix, cell 1 highlighted -->
+  <text x="16" y="20" class="sg-text sg-bold">X, stored as CSR</text>
+  <text x="16" y="37" class="sg-muted">3 cells × tiles</text>
+  <text x="132" y="64" class="sg-muted" text-anchor="middle">indices</text>
+  <text x="186" y="64" class="sg-muted" text-anchor="middle">data</text>
+  <path d="M70,73 h-5 V129 h5" class="sg-brace"/>
+  <text x="58" y="105" class="sg-muted" text-anchor="end">cell 0</text>
+  <text x="94" y="85" class="sg-muted" text-anchor="end">0</text>
+  <rect x="104" y="72" width="56" height="18" rx="3" class="sg-cell"/>
+  <text x="132" y="85" class="sg-num">5</text>
+  <rect x="166" y="72" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="85" class="sg-num">1</text>
+  <text x="94" y="105" class="sg-muted" text-anchor="end">1</text>
+  <rect x="104" y="92" width="56" height="18" rx="3" class="sg-cell"/>
+  <text x="132" y="105" class="sg-num">80</text>
+  <rect x="166" y="92" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="105" class="sg-num">2</text>
+  <text x="94" y="125" class="sg-muted" text-anchor="end">2</text>
+  <rect x="104" y="112" width="56" height="18" rx="3" class="sg-cell"/>
+  <text x="132" y="125" class="sg-num">91</text>
+  <rect x="166" y="112" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="125" class="sg-num">1</text>
+  <path d="M70,133 h-5 V209 h5" class="sg-brace"/>
+  <text x="58" y="175" class="sg-muted sg-bold" text-anchor="end">cell 1</text>
+  <text x="94" y="145" class="sg-muted" text-anchor="end">3</text>
+  <rect x="104" y="132" width="56" height="18" rx="3" class="sg-hl"/>
+  <text x="132" y="145" class="sg-num sg-bold">12</text>
+  <rect x="166" y="132" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="145" class="sg-num">1</text>
+  <text x="94" y="165" class="sg-muted" text-anchor="end">4</text>
+  <rect x="104" y="152" width="56" height="18" rx="3" class="sg-hl"/>
+  <text x="132" y="165" class="sg-num sg-bold">47</text>
+  <rect x="166" y="152" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="165" class="sg-num">1</text>
+  <text x="94" y="185" class="sg-muted" text-anchor="end">5</text>
+  <rect x="104" y="172" width="56" height="18" rx="3" class="sg-hl"/>
+  <text x="132" y="185" class="sg-num sg-bold">103</text>
+  <rect x="166" y="172" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="185" class="sg-num">3</text>
+  <text x="94" y="205" class="sg-muted" text-anchor="end">6</text>
+  <rect x="104" y="192" width="56" height="18" rx="3" class="sg-hl"/>
+  <text x="132" y="205" class="sg-num sg-bold">260</text>
+  <rect x="166" y="192" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="205" class="sg-num">2</text>
+  <path d="M70,213 h-5 V249 h5" class="sg-brace"/>
+  <text x="58" y="235" class="sg-muted" text-anchor="end">cell 2</text>
+  <text x="94" y="225" class="sg-muted" text-anchor="end">7</text>
+  <rect x="104" y="212" width="56" height="18" rx="3" class="sg-cell"/>
+  <text x="132" y="225" class="sg-num">33</text>
+  <rect x="166" y="212" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="225" class="sg-num">1</text>
+  <text x="94" y="245" class="sg-muted" text-anchor="end">8</text>
+  <rect x="104" y="232" width="56" height="18" rx="3" class="sg-cell"/>
+  <text x="132" y="245" class="sg-num">1204</text>
+  <rect x="166" y="232" width="40" height="18" rx="3" class="sg-cell"/>
+  <text x="186" y="245" class="sg-num">4</text>
+  <rect x="101" y="129" width="62" height="84" rx="5" class="sg-focus"/>
+  <text x="16" y="287" class="sg-muted">indptr</text>
+  <rect x="70" y="274" width="30" height="18" rx="3" class="sg-cell"/>
+  <text x="85" y="287" class="sg-num">0</text>
+  <rect x="104" y="274" width="30" height="18" rx="3" class="sg-hl"/>
+  <text x="119" y="287" class="sg-num sg-bold">3</text>
+  <rect x="138" y="274" width="30" height="18" rx="3" class="sg-hl"/>
+  <text x="153" y="287" class="sg-num sg-bold">7</text>
+  <rect x="172" y="274" width="30" height="18" rx="3" class="sg-cell"/>
+  <text x="187" y="287" class="sg-num">9</text>
+  <text x="16" y="314" class="sg-muted">cell 1 = entries 3 to 6:</text>
+  <text x="16" y="330" class="sg-muted">the tiles where it has reads</text>
+  <path d="M220,10 V336" class="sg-brace"/>
+  <path d="M164,137 C200,99 230,34 322,34" class="sg-line" marker-end="url(#sg-arrow)"/>
+  <!-- legend -->
+  <rect x="540" y="6" width="12" height="12" rx="3" class="sg-b0"/>
+  <text x="558" y="16" class="sg-muted">byte 0 (low)</text>
+  <rect x="640" y="6" width="12" height="12" rx="3" class="sg-b1"/>
+  <text x="658" y="16" class="sg-muted">byte 1</text>
+  <rect x="740" y="6" width="12" height="12" rx="3" class="sg-b2"/>
+  <text x="758" y="16" class="sg-muted">byte 2</text>
+  <rect x="840" y="6" width="12" height="12" rx="3" class="sg-b3"/>
+  <text x="858" y="16" class="sg-muted">byte 3 (high)</text>
+  <text x="330" y="38" class="sg-text">cell 1’s column indices, as int32</text>
+  <!-- 1: as written -->
+  <text x="236" y="84" class="sg-text sg-bold">As written</text>
+  <text x="236" y="100" class="sg-muted">low byte first</text>
+  <path d="M330,64 v-4 H479 v4" class="sg-brace"/>
+  <text x="404.5" y="56" class="sg-text sg-bold" text-anchor="middle">12</text>
+  <rect x="330" y="70" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="347.5" y="91" class="sg-byte">0C</text>
+  <rect x="368" y="70" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="385.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="406" y="70" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="423.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="444" y="70" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="461.5" y="91" class="sg-byte sg-zero">00</text>
+  <path d="M491,64 v-4 H640 v4" class="sg-brace"/>
+  <text x="565.5" y="56" class="sg-text sg-bold" text-anchor="middle">47</text>
+  <rect x="491" y="70" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="508.5" y="91" class="sg-byte">2F</text>
+  <rect x="529" y="70" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="546.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="567" y="70" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="584.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="605" y="70" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="622.5" y="91" class="sg-byte sg-zero">00</text>
+  <path d="M652,64 v-4 H801 v4" class="sg-brace"/>
+  <text x="726.5" y="56" class="sg-text sg-bold" text-anchor="middle">103</text>
+  <rect x="652" y="70" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="669.5" y="91" class="sg-byte">67</text>
+  <rect x="690" y="70" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="707.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="728" y="70" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="745.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="766" y="70" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="783.5" y="91" class="sg-byte sg-zero">00</text>
+  <path d="M813,64 v-4 H962 v4" class="sg-brace"/>
+  <text x="887.5" y="56" class="sg-text sg-bold" text-anchor="middle">260</text>
+  <rect x="813" y="70" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="830.5" y="91" class="sg-byte">04</text>
+  <rect x="851" y="70" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="868.5" y="91" class="sg-byte">01</text>
+  <rect x="889" y="70" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="906.5" y="91" class="sg-byte sg-zero">00</text>
+  <rect x="927" y="70" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="944.5" y="91" class="sg-byte sg-zero">00</text>
+  <!-- shuffle wires -->
+  <path d="M347.5,104 C347.5,157 347.5,141 347.5,194" class="sg-wire sg-w0"/>
+  <path d="M385.5,104 C385.5,157 508.5,141 508.5,194" class="sg-wire sg-w1"/>
+  <path d="M423.5,104 C423.5,157 669.5,141 669.5,194" class="sg-wire sg-w2"/>
+  <path d="M461.5,104 C461.5,157 830.5,141 830.5,194" class="sg-wire sg-w3"/>
+  <path d="M508.5,104 C508.5,157 385.5,141 385.5,194" class="sg-wire sg-w0"/>
+  <path d="M546.5,104 C546.5,157 546.5,141 546.5,194" class="sg-wire sg-w1"/>
+  <path d="M584.5,104 C584.5,157 707.5,141 707.5,194" class="sg-wire sg-w2"/>
+  <path d="M622.5,104 C622.5,157 868.5,141 868.5,194" class="sg-wire sg-w3"/>
+  <path d="M669.5,104 C669.5,157 423.5,141 423.5,194" class="sg-wire sg-w0"/>
+  <path d="M707.5,104 C707.5,157 584.5,141 584.5,194" class="sg-wire sg-w1"/>
+  <path d="M745.5,104 C745.5,157 745.5,141 745.5,194" class="sg-wire sg-w2"/>
+  <path d="M783.5,104 C783.5,157 906.5,141 906.5,194" class="sg-wire sg-w3"/>
+  <path d="M830.5,104 C830.5,157 461.5,141 461.5,194" class="sg-wire sg-w0"/>
+  <path d="M868.5,104 C868.5,157 622.5,141 622.5,194" class="sg-wire sg-w1"/>
+  <path d="M906.5,104 C906.5,157 783.5,141 783.5,194" class="sg-wire sg-w2"/>
+  <path d="M944.5,104 C944.5,157 944.5,141 944.5,194" class="sg-wire sg-w3"/>
+  <!-- 2: shuffled -->
+  <text x="236" y="210" class="sg-text sg-bold">Shuffled</text>
+  <text x="236" y="226" class="sg-muted">same 16 bytes</text>
+  <rect x="330" y="196" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="347.5" y="217" class="sg-byte">0C</text>
+  <rect x="368" y="196" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="385.5" y="217" class="sg-byte">2F</text>
+  <rect x="406" y="196" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="423.5" y="217" class="sg-byte">67</text>
+  <rect x="444" y="196" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="461.5" y="217" class="sg-byte">04</text>
+  <rect x="491" y="196" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="508.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="529" y="196" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="546.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="567" y="196" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="584.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="605" y="196" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="622.5" y="217" class="sg-byte">01</text>
+  <rect x="652" y="196" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="669.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="690" y="196" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="707.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="728" y="196" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="745.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="766" y="196" width="35" height="32" rx="5" class="sg-b2"/>
+  <text x="783.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="813" y="196" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="830.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="851" y="196" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="868.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="889" y="196" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="906.5" y="217" class="sg-byte sg-zero">00</text>
+  <rect x="927" y="196" width="35" height="32" rx="5" class="sg-b3"/>
+  <text x="944.5" y="217" class="sg-byte sg-zero">00</text>
+  <path d="M330,234 v6 H479 v-6" class="sg-brace"/>
+  <path d="M491,234 v6 H602 v-6" class="sg-brace"/>
+  <path d="M605,234 v6 H640 v-6" class="sg-brace"/>
+  <path d="M652,234 v6 H962 v-6" class="sg-brace"/>
+  <!-- 3: gzip -->
+  <text x="236" y="314" class="sg-text sg-bold">gzip</text>
+  <text x="236" y="330" class="sg-muted">Deflate</text>
+  <rect x="330" y="300" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="347.5" y="321" class="sg-byte">0C</text>
+  <rect x="368" y="300" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="385.5" y="321" class="sg-byte">2F</text>
+  <rect x="406" y="300" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="423.5" y="321" class="sg-byte">67</text>
+  <rect x="444" y="300" width="35" height="32" rx="5" class="sg-b0"/>
+  <text x="461.5" y="321" class="sg-byte">04</text>
+  <rect x="492" y="300" width="70" height="32" rx="5" class="sg-b1 sg-rep"/>
+  <text x="527" y="321" class="sg-byte">00 × 3</text>
+  <rect x="565" y="300" width="35" height="32" rx="5" class="sg-b1"/>
+  <text x="582.5" y="321" class="sg-byte">01</text>
+  <rect x="603" y="300" width="70" height="32" rx="5" class="sg-b2 sg-rep"/>
+  <text x="638" y="321" class="sg-byte">00 × 8</text>
+  <path d="M404.5,241 C404.5,269 404.5,265 404.5,297" class="sg-line" marker-end="url(#sg-arrow)"/>
+  <path d="M546.5,241 C546.5,269 527,265 527,297" class="sg-line" marker-end="url(#sg-arrow)"/>
+  <path d="M622.5,241 C622.5,269 582.5,265 582.5,297" class="sg-line" marker-end="url(#sg-arrow)"/>
+  <path d="M807,241 C807,269 638,265 638,297" class="sg-line" marker-end="url(#sg-arrow)"/>
+  <text x="695" y="313" class="sg-text">16 bytes → 4 literal bytes + 3 codes</text>
+  <text x="695" y="329" class="sg-muted">a real 4 MiB chunk has runs of thousands</text>
+</svg>

@@ -251,9 +251,10 @@ Row *i* of the `bc_*` columns describes barcode id *i* (its full original
 name, number of fragments and read count); they are null after the last
 barcode. Barcode ids are ordered by decreasing fragment count. Chromosome
 names are stored in the file footer (`gatac.chroms`). GATAC joins cells and
-chromosomes by integer lookups, so these files stream several times faster on
-the GPU than names in every row. To read a file outside GATAC, use
-`gatac.io.FragmentFile` (e.g. `FragmentFile(path).register(duckdb_con)` gives
+chromosomes by integer lookups, so `compute_metrics` reads these files about
+12× faster than the `fragments.tsv.gz` parsed on the GPU, and the conversion
+is paid back by the first function that reads the file. To read a file
+outside GATAC, use `gatac.io.FragmentFile` (e.g. `FragmentFile(path).register(duckdb_con)` gives
 a DuckDB (2.0 or later) view with `chrom`, `start`, `end`, `barcode`, `count`). See
 [Parquet fragment format](../api/io.md#parquet-fragment-format) for how the format works.
 
