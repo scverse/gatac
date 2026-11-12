@@ -4,8 +4,8 @@
 /* ── Brand colours ───────────────────────────────────────────────────────── */
 :root {
     /* Links follow each mode's temperature: on light, sphinx-book-theme's blue,
-       the docs' colour before scverse-doc (4.8:1 on white); on the sepia of
-       dark mode, a softer shade of the amber `accent` in conf.py (8.0:1). The
+       the docs' colour before scverse-doc (4.8:1 on white); on dark, a softer
+       shade of the amber `accent` in conf.py (8.0:1 on the page). The
        theme derives the text shade and the tints from the accent: pin them. */
     --scverse-color-accent-text: light-dark(#176de8, #d69e64);
     --scverse-color-accent-decorative: light-dark(#176de8, #e68c2c);
@@ -32,35 +32,32 @@ html[data-theme="dark"] {
     --pst-color-link-hover: #f7be83;
 }
 
-/* ── Dark mode: sepia ────────────────────────────────────────────────────── */
-/* The theme derives its dark neutrals from a cool blue (oklch hue 245); these
-   are the same steps in a warm brown, a little less bright for the text.
+/* ── Dark mode ───────────────────────────────────────────────────────────── */
+/* The page is the near-black of the earlier docs (pydata-sphinx-theme's
+   #121212). The panels keep the theme's blue-grey (oklch hue 245), lighter
+   than its defaults so that they stand out from the page: about the shades of
+   the earlier docs. Text and headings are the theme's.
    pydata-sphinx-theme also sets data-theme="dark" when following the system. */
 html[data-theme="dark"] {
-    --scverse-color-background: oklch(18% 0.012 70);
-    --scverse-color-surface-alt: oklch(21% 0.016 70); /* search field */
-    /* code blocks, inline code, copy buttons, the boxes of the SVG diagrams;
-       as light as pydata-sphinx-theme's dark surface (#29313d), so they stand out from the page */
-    --scverse-color-surface: oklch(31% 0.022 70);
+    --scverse-color-background: #121212;
+    /* search field, above the page */
+    --scverse-color-surface-alt: oklch(22% 0.02 245);
+    /* code blocks, inline code, copy buttons, the boxes of the SVG diagrams:
+       as light as the earlier docs' #29313d */
+    --scverse-color-surface: oklch(31% 0.022 245);
     /* inline code border, above the surface */
-    --scverse-color-border-muted: oklch(37% 0.022 70);
-    --scverse-color-border: oklch(41% 0.024 70);
-    --scverse-color-text: oklch(91% 0.018 80);
-    --scverse-color-text-secondary: oklch(80% 0.02 75);
+    --scverse-color-border-muted: oklch(37% 0.022 245);
     /* 5:1 or more on the cards and code surface, for the small chart labels */
-    --scverse-color-text-muted: oklch(71% 0.022 70);
-    --scverse-color-heading: oklch(86% 0.016 78);
-    --scverse-color-code-bg: oklch(20% 0.014 70);
-    --scverse-color-footer-bg: oklch(22% 0.018 70);
+    --scverse-color-text-muted: oklch(71% 0.02 245);
     /* cards, admonitions, tabs, dropdowns, notebook HTML outputs: lighter than
-       the page, a step below the code surface */
-    --pst-color-on-background: oklch(27% 0.024 70);
+       the page, a step below the code surface (the earlier docs' #222832) */
+    --pst-color-on-background: oklch(27% 0.024 245);
     /* Tables: the theme stripes the rows with the surface and card shades, so
        the first row has the header's shade. The header keeps the surface; the
        rows step down from it, the first one darkest, and the inner borders are
-       sepia instead of the theme's slate. */
-    --pst-color-table-row-zebra-low-bg: oklch(22% 0.016 70);
-    --pst-color-table-row-zebra-high-bg: oklch(25% 0.02 70);
+       blue-grey instead of the theme's fixed #364150. */
+    --pst-color-table-row-zebra-low-bg: oklch(22% 0.016 245);
+    --pst-color-table-row-zebra-high-bg: oklch(25% 0.02 245);
     --pst-color-table-inner-border: var(--scverse-color-border-muted);
 }
 
