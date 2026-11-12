@@ -14,7 +14,6 @@ Global option:
 | --------------- | -------------------------- |
 | `-v, --verbose` | Enable debug-level logging |
 
-
 ```{toctree}
 :maxdepth: 1
 :hidden:
