@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
 ]
 # Everything gatac imports itself, not only through scanpy; floors are scanpy's
 dependencies = [
@@ -33,6 +34,8 @@ dependencies = [
     "seaborn>=0.13.2",
     "statsmodels>=0.14",
     "tqdm>=4.66.0",
+    # for debug logging (referenced from the issue template)
+    "session-info2",
 ]
 
 [project.optional-dependencies]
@@ -89,15 +92,15 @@ conflicts = [
 
 [dependency-groups]
 test = [
-    "pytest>=8",
+    "pytest>=9",  # [tool.pytest] table
     "pytest-timeout>=2",
     "pytest-xdist>=3.6",
     "coverage>=7.10",
     "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
 ]
-# Lint (ruff) and its pre-commit hook; `uv run pre-commit install` once per clone
+# Lint (ruff) and the git hooks. Run `uv run prek install` once per clone
 dev = [
-    "pre-commit>=4",
+    "prek>=0.2",
     "ruff>=0.17",
 ]
 docs = [
@@ -156,8 +159,9 @@ isort.known-first-party = ["gatac"]
 # variables, but each runs in the iteration that defines it
 "src/gatac/tobias/bindetect.py" = ["B023"]
 
-[tool.pytest.ini_options]
+[tool.pytest]
 testpaths = ["tests"]
+strict = true
 # A hung GPU test fails after 2 minutes instead of holding the CI runner.
 # Four workers share the one GPU, one per vCPU of the CI runner (g4dn.xlarge);
 # more only contend for the GPU (-n 8 is no faster). Pass -n0 to run in one
@@ -173,3 +177,23 @@ run.data_file = "test-data/.coverage"
 # Numba compiles these functions: their bodies never run as Python
 report.exclude_also = ["if TYPE_CHECKING:", "@(numba\\.)?njit"]
 xml.output = "test-data/coverage.xml"
+
+[tool.cruft]
+# Project files the scverse template must not touch on `cruft update`
+skip = [
+  ".git",
+  "src",
+  "tests",
+  "README.md",
+  "CHANGELOG.md",
+  "docs/api.md",
+  "docs/api",
+  "docs/changelog.md",
+  "docs/references.bib",
+  "docs/references.md",
+  "docs/notebooks/example.ipynb",
+  # GPU CI: test-gpu.yml, checks.yml and release.yml replace the CPU workflows of the template
+  ".github/workflows/build.yaml",
+  ".github/workflows/release.yaml",
+  ".github/workflows/test.yaml",
+]

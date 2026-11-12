@@ -1,5 +1,6 @@
 [envs.default]
 installer = "uv"
+dependency-groups = ["dev"]
 
 [envs.default.pip]
 extra_index_urls = [
@@ -122,3 +123,19 @@ overrides.name."rapids_prerelease-13$".extra-dependencies = [
 [[envs.hatch-test.matrix]]
 deps = ["stable", "dev", "rapids_prerelease"]
 cuda = ["12", "13"]
+
+[envs.docs]
+dependency-groups = ["docs"]
+scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
+scripts.clean = "git clean -fdX -- {args:docs}"
+scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+
+[envs.hatch-check-code]
+dependencies = ["prek"]
+scripts.lint-check = "echo 'try `hatch check code --fix`'; false"
+scripts.lint-fix = "prek run -a --no-group=format --no-group=typecheck"
+
+[envs.hatch-check-fmt]
+dependencies = ["prek"]
+scripts.format-check = "echo 'try `hatch check fmt --fix`'; false"
+scripts.format-fix = "prek run -a --group=format --no-group=typecheck"
