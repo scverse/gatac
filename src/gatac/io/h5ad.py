@@ -22,7 +22,7 @@ def read_h5ad(
     """
     Read an ``.h5ad`` file, its sparse matrices read and decompressed on the GPU.
 
-    As :func:`anndata.read_h5ad`, except that the CSR matrices (``X``,
+    As :func:`anndata.io.read_h5ad`, except that the CSR matrices (``X``,
     ``layers``, ``raw.X``) are read with KvikIO and, when gzip-compressed,
     inflated on the GPU by nvCOMP, each chunk's checksum checked. anndata
     reads everything else, and also reads a matrix the GPU reader does not
@@ -35,7 +35,7 @@ def read_h5ad(
         The ``.h5ad`` file.
     backed
         ``"r"`` or ``"r+"`` (``True`` is ``"r+"``): open the file backed,
-        with :func:`anndata.read_h5ad`. The matrix stays on disk; GATAC's
+        with :func:`anndata.io.read_h5ad`. The matrix stays on disk. GATAC
         functions read it from there onto the GPU (see
         [count matrices on disk](/api/io.md#count-matrices-on-disk)).
     to_gpu
@@ -45,13 +45,13 @@ def read_h5ad(
         at most 2³¹ − 1 entries: integer counts become float32. ``raw.X``
         stays in host memory.
     **kwargs
-        Other arguments of :func:`anndata.read_h5ad` (``as_sparse``, ...):
+        Other arguments of :func:`anndata.io.read_h5ad` (``as_sparse``, ...):
         anndata then reads the whole file.
 
     Returns
     -------
     AnnData
-        As :func:`anndata.read_h5ad` returns it: the same values, value
+        As :func:`anndata.io.read_h5ad` returns it: the same values, value
         dtypes and types. The index arrays of a CSR matrix are int32 when
         they fit, as scipy builds them (anndata reads them so from 0.14).
     """

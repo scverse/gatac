@@ -8,7 +8,7 @@ def motif_enrichment(enrichment, top_motifs=10, max_cols=4, palette=None):
 
     Parameters
     ----------
-    enrichment : dict[str, pandas.DataFrame]
+    enrichment : dict
         Mapping from a peak-set name (e.g. a cluster label) to a DataFrame
         returned by :func:`gatac.motif.enrichment`. Each DataFrame must
         contain ``name`` and ``adjusted p-value`` columns.
@@ -16,8 +16,8 @@ def motif_enrichment(enrichment, top_motifs=10, max_cols=4, palette=None):
         Number of top motifs to display per peak set.
     max_cols : int, default 4
         Maximum number of subplot columns.
-    palette : list of color-like, optional
-        Custom colour cycle. Defaults to a tab20-based palette.
+    palette : list, optional
+        Custom colour cycle, as matplotlib colours. Defaults to a tab20-based palette.
 
     Returns
     -------

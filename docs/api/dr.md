@@ -27,13 +27,14 @@ requires cuGraph for the clustering step; `lsi` does not.
    iterative_lsi
    project_lsi
    model_from_adata
+   LSIModel
 ```
 
 The individual stages of the LSI pipeline are importable from their module,
 for building a custom iterative scheme or inspecting one step in isolation
-(`from gatac.dr.lsi import scale_dims`). `scale_dims` is ArchR's `scaleDims` —
-note it standardises each _cell_ across its dimensions, not each dimension
-across cells.
+(`from gatac.dr.lsi import scale_dims`). `scale_dims` is the `scaleDims` of ArchR.
+It standardises each _cell_ over the dimensions, not each dimension across
+cells.
 
 ```{eval-rst}
 .. currentmodule:: gatac.dr.lsi
@@ -47,4 +48,5 @@ across cells.
    accessibility_pool
    cluster_var_features
    scale_dims
+   drop_depth_correlated
 ```

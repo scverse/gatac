@@ -678,7 +678,7 @@ def make_gene_matrix(
 
     Returns
     -------
-    adata : AnnData
+    adata : anndata.AnnData
         AnnData object with gene activity matrix
 
     Examples

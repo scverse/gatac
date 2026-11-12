@@ -343,7 +343,7 @@ class LSIModel:
     scale_by_sv: bool = True  #: embedding is U·S (True) or U (False)
     deterministic: bool = True  #: whether the *reproducible* solver ran
     random_state: int = 0
-    depth_cor: np.ndarray | None = None  #: |r| with log10 depth, per component
+    depth_cor: np.ndarray | None = None  #: ``|r|`` with log10 depth, per component
     dims_dropped: np.ndarray = field(default_factory=lambda: np.array([], dtype=int))
     n_held_out: int = 0
     n_zero_depth_projected: int = 0
@@ -522,7 +522,7 @@ def _flip_signs(u: cp.ndarray, vt: cp.ndarray) -> tuple[cp.ndarray, cp.ndarray]:
 
 
 def _pinned_signs(u: cp.ndarray) -> cp.ndarray:
-    """Per-column ``±1`` from ``sum(u³)``; the rule of :func:`_flip_signs`."""
+    """Per-column ``±1`` from ``sum(u³)``, the rule of ``_flip_signs``."""
     crit = (u.astype(cp.float64) ** 3).sum(axis=0)
     fallback = u.astype(cp.float64).sum(axis=0)
     crit = cp.where(crit == 0, fallback, crit)
@@ -634,7 +634,7 @@ def _svd(
     falls back to ``svds`` with the global RNG scoped to ``random_state``,
     which controls the start vector but not cuSPARSE.
 
-    Component signs are pinned by :func:`_flip_signs`, without which the
+    Component signs are pinned by ``_flip_signs``, without which the
     output is not reproducible run to run even when everything else is.
     """
     n_rows, n_cols = X.shape
@@ -678,7 +678,7 @@ def scale_dims(embedding: np.ndarray, scale_max: float | None = None) -> np.ndar
     0, sd 1), not every column. Per-dimension standardisation is a different
     operation and gives different results downstream — notably it leaves the
     depth correlation of a component unchanged, whereas ArchR's per-cell
-    scaling does not (see :func:`drop_depth_correlated`).
+    scaling does not (see :func:`~gatac.dr.lsi.drop_depth_correlated`).
 
     ArchR applies this before clustering and before its ``corCutOff`` filter,
     but the stored ``matSVD`` itself is unscaled — scaling happens on the way
@@ -701,7 +701,7 @@ def scale_dims(embedding: np.ndarray, scale_max: float | None = None) -> np.ndar
     GATAC's rule shows against any of them (10, 13, 17). So ArchR's clustering,
     and therefore the features its next iteration selects, depend in part on its
     solver's RNG; that is one of the mechanisms behind its ~0.93 seed-to-seed
-    feature Jaccard. :func:`_flip_signs` pins GATAC's sign to the data instead,
+    feature Jaccard. ``_flip_signs`` pins the GATAC sign to the data instead,
     which is the reproducible choice but does not, and cannot, reproduce any
     particular ArchR run.
 
@@ -740,7 +740,7 @@ def drop_depth_correlated(
     analogue of ArchR's ``nFrags`` — not the nonzero count of whichever feature
     submatrix was used; using the latter drops components ArchR keeps.
 
-    *embedding* should already be scaled with :func:`scale_dims`, since that is
+    *embedding* should already be scaled with :func:`~gatac.dr.lsi.scale_dims`, since that is
     what ArchR correlates. Its per-cell z-scoring is not a per-column
     transform, so unlike a per-dimension standardisation it genuinely changes
     the correlations.
@@ -1333,7 +1333,7 @@ def accessibility_pool(accessibility: np.ndarray, total_features: int = 500_000)
     """
     The feature *pool* variable-feature scoring runs over.
 
-    Distinct from :func:`initial_features`, and easy to conflate with it.
+    Distinct from :func:`~gatac.dr.lsi.initial_features`, and easy to conflate with it.
     ``.identifyVarFeatures`` takes a plain top-N::
 
         groupFeatures <- totalAcc[sort(head(order(totalAcc$rowSums,
@@ -1393,7 +1393,7 @@ def cluster_var_features(
     ----------
     X_pool
         Cells × features matrix restricted to the accessibility pool from
-        :func:`initial_features` — ArchR scores over that pool, not over every
+        :func:`~gatac.dr.lsi.initial_features`. ArchR scores over that pool, not over every
         feature in the matrix.
     clusters
         Integer cluster label per cell.
@@ -1874,9 +1874,9 @@ def iterative_lsi(
     Each round therefore selects features that separate the structure the
     previous round found.
 
-    The loop, per round after the first: :func:`scale_dims` →
-    :func:`drop_depth_correlated` → cluster →
-    :func:`cluster_var_features` → LSI.
+    The loop, per round after the first: :func:`~gatac.dr.lsi.scale_dims` →
+    :func:`~gatac.dr.lsi.drop_depth_correlated` → cluster →
+    :func:`~gatac.dr.lsi.cluster_var_features` → LSI.
 
     Parameters
     ----------
@@ -1893,8 +1893,8 @@ def iterative_lsi(
     total_features
         Size of the pool that variable-feature scoring runs over
         (``totalFeatures``). Note this is a plain top-N, while the *initial*
-        selection is a rank window — see :func:`accessibility_pool` and
-        :func:`initial_features`.
+        selection is a rank window (see :func:`~gatac.dr.lsi.accessibility_pool` and
+        :func:`~gatac.dr.lsi.initial_features`).
     filter_quantile
         Sizes the head skipped by the initial rank window
         (``filterQuantile``).
@@ -1908,7 +1908,7 @@ def iterative_lsi(
         ``{"resolution": 2.0, "max_clusters": 6, "k": 20, "flavor": "leiden"}``.
         Defaults are ArchR's iterative-LSI ``clusterParams``; ``flavor`` picks
         Leiden :cite:p:`Traag2019` or Louvain :cite:p:`Blondel2008`. Every
-        keyword of :func:`~gatac.dr._clustering.snn_cluster` is accepted, ``quantize`` and
+        keyword of ``snn_cluster`` is accepted, ``quantize`` and
         ``max_resolution_retries`` included; the values actually used are
         recorded in ``uns["iterative_lsi"]["params"]`` under a ``cluster_``
         prefix.

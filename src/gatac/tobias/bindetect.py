@@ -861,9 +861,10 @@ def bindetect_sites(
 
     Parameters
     ----------
-    peaks : FootprintTracks, BED path, DataFrame or sequence of ``chrom:start-end``
-        The peaks (merged as TOBIAS does). Passing the tracks guarantees they
-        match the footprinted regions.
+    peaks : FootprintTracks, Path, DataFrame or Sequence
+        The peaks (merged as TOBIAS does): the tracks, a BED path, a DataFrame or
+        ``chrom:start-end`` strings. Passing the tracks guarantees they match the
+        footprinted regions.
     motifs : str, Path or list of DNAMotif
         MEME file (read like TOBIAS, including ``nsites``) or GATAC motifs.
     genome_fasta : str or Path, optional

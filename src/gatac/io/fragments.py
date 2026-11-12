@@ -167,7 +167,7 @@ class FragmentFile:
         return self._barcodes
 
     def _prefixed(self, names: pa.Array) -> pa.Array:
-        """Stored barcode names with :attr:`barcode_prefix` in front."""
+        """Stored barcode names with ``barcode_prefix`` in front."""
         if not self.barcode_prefix:
             return names
         return pc.binary_join_element_wise(self.barcode_prefix, names, "")
@@ -319,7 +319,7 @@ class FragmentFile:
         columns : list of str
             Any of ``chrom``, ``start``, ``end``, ``count``, ``barcode``.
             ``chrom`` is returned as an int32 index into ``chroms`` (into
-            :attr:`chroms` when ``chroms`` is None). ``barcode`` is returned
+            ``chroms`` when ``chroms`` is None). ``barcode`` is returned
             as the uint32 barcode id, and only when ``cells`` is None.
         row_groups_per_batch : int
             Row groups read per batch (default 64).
@@ -501,7 +501,7 @@ class FragmentFile:
 
         Rows are ``chrom, start, end, barcode, count`` with the barcode names
         of the original fragments file, without the file's
-        :attr:`barcode_prefix`. A path ending in ``.gz`` is written as
+        ``barcode_prefix``. A path ending in ``.gz`` is written as
         BGZF, the blocked gzip of ``bgzip``: any gzip reader opens it, and
         ``tabix -p bed`` indexes it when the fragments are sorted by position,
         as in a Cell Ranger file. Any other path is written uncompressed.
@@ -834,7 +834,7 @@ def _write_cells(
     decoded to names, and the file is encoded and compressed by cuDF.
 
     ``cells`` holds ``barcode_id`` (in ``fragments``), ``barcode`` (the name
-    to store, without :attr:`barcode_prefix`, the output's prefix), and
+    to store, without ``barcode_prefix``, the output's prefix), and
     ``n_unique`` and ``n_total`` counted on ``chroms``, the chromosomes to
     keep (None keeps all). The output keeps the input's chromosome ids.
     Returns the numbers of fragments read and written.

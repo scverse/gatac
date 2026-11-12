@@ -1,59 +1,52 @@
 """Sphinx configuration for GATAC documentation."""
 
+# `scverse_doc` sets the theme and shared defaults, see https://scverse-doc.readthedocs.io
+# For the full list of options, see https://www.sphinx-doc.org/page/usage/configuration.html
+
 import sys
 from datetime import datetime
+from importlib.metadata import metadata
 from pathlib import Path
 
-# Add the project root to the path so autodoc can find the package
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from scverse_doc.config import DEFAULTS
+from scverse_doc.registry import intersphinx
 
-# Pre-import packages that must NOT be loaded inside sphinx's mock context.
-# sphinx mocks cupy/cupyx; anndata's compat layer tries to import them at load
-# time, and the mock interceptor causes a deadlock on first import inside the
-# mock context.  Pre-importing here ensures they are already in sys.modules
-# before any mock context is entered.
-# Inspired by scverse/rapids-singlecell docs/conf.py.
-import anndata  # noqa: F401
-import scanpy  # noqa: F401
+HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE.parent / "src"))
+
+# Import the packages that must not load inside the sphinx mock context.
+# sphinx mocks cupy/cupyx, and the compat layer of anndata imports them at load
+# time: inside the mock context, that first import deadlocks. Imported here,
+# they are in sys.modules before any mock context starts.
+# As in scverse/rapids-singlecell docs/conf.py.
+import anndata  # noqa: E402, F401
+import scanpy  # noqa: E402, F401
 
 # -- Project information -----------------------------------------------------
+info = metadata("gatac")
 project = "GATAC"
-copyright = f"{datetime.now().year}, GATAC contributors"
-author = "GATAC contributors"
-
-# The full version, including alpha/beta/rc tags
-try:
-    from gatac import __version__
-
-    release = __version__
-    version = ".".join(release.split(".")[:2])
-except ImportError:
-    release = "0.1.0"
-    version = "0.1"
+author = info["Author"] or "GATAC contributors"
+copyright = f"{datetime.now():%Y}, GATAC contributors"
+version = release = info["Version"]
+source_repository = "https://github.com/scverse/gatac"
 
 # -- General configuration ---------------------------------------------------
 extensions = [
-    # Core Sphinx
-    "sphinx.ext.autodoc",
-    "sphinx.ext.autosummary",
-    "sphinx.ext.napoleon",
-    "sphinx.ext.intersphinx",
+    "scverse_doc",  # sets up napoleon, so it comes before sphinx_autodoc_typehints
+    "scverse_misc.sphinx_ext",
     "sphinx.ext.githubpages",
     "sphinx.ext.extlinks",
-    # scanpydoc (theme + extensions); must come after napoleon
-    "scanpydoc",
-    # Notebooks + Markdown (myst_nb already loads myst_parser)
-    "myst_nb",
-    # UX
-    "sphinx_copybutton",
-    "sphinx_design",
+    "sphinx_autodoc_typehints",
     "sphinxcontrib.mermaid",
     # Citations: {cite:p}`key` in pages and :cite:p:`key` in docstrings,
     # resolved against references.bib and listed on references.md
     "sphinxcontrib.bibtex",
+    "IPython.sphinxext.ipython_console_highlighting",
 ]
 
 bibtex_bibfiles = ["references.bib"]
+typehints_defaults = "braces"
+always_use_bars_union = True
 
 # Release notes: {pr}`12`, {issue}`34`
 extlinks = {
@@ -61,42 +54,30 @@ extlinks = {
     "pr": ("https://github.com/scverse/gatac/pull/%s", "pr%s"),
 }
 
-# MyST extensions
-myst_enable_extensions = [
-    "colon_fence",
-    "deflist",
-    "html_image",
-    "substitution",
-]
+myst_enable_extensions = [*DEFAULTS.myst_enable_extensions, "substitution"]
 myst_heading_anchors = 4
+myst_substitutions = {"version": release}
 
-myst_substitutions = {
-    "version": release,
-}
+# The tutorials show the logs of each step: keep stderr, merged in order below
+nb_output_stderr = "show"
+nb_merge_streams = False
 
-# Notebook execution
-nb_execution_mode = "off"  # Notebooks pre-executed; set to "auto" for live builds
-nb_execution_timeout = 600
-
-# Napoleon settings (NumPy-style docstrings)
-napoleon_google_docstring = False
-napoleon_numpy_docstring = True
-napoleon_include_init_with_doc = False
-napoleon_use_rtype = True
-napoleon_use_param = True
 napoleon_preprocess_types = True
 napoleon_use_ivar = True
 
-# Autodoc settings
-autodoc_default_options = {
-    "members": True,
-    "undoc-members": False,
-    "show-inheritance": True,
-    "member-order": "bysource",
+# The API pages list members in the order of the source
+autodoc_member_order = "bysource"
+autodoc_default_options = {"show-inheritance": True}
+# Short type names in docstrings
+napoleon_type_aliases = {
+    "AnnData": "anndata.AnnData",
+    "DataFrame": "pandas.DataFrame",
+    "Path": "pathlib.Path",
+    "np.ndarray": "numpy.ndarray",
+    "BINDetectResult": "gatac.tobias.BINDetectResult",
+    "DNAMotif": "gatac.motif.DNAMotif",
+    "FootprintTracks": "gatac.tobias.FootprintTracks",
 }
-autodoc_typehints = "description"
-autodoc_typehints_format = "short"
-autosummary_generate = True
 
 # Mock GPU / optional imports that are not available in the docs environment
 autodoc_mock_imports = [
@@ -108,31 +89,20 @@ autodoc_mock_imports = [
     "MOODS",
 ]
 
-# Intersphinx mapping
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-    "numpy": ("https://numpy.org/doc/stable/", None),
-    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
-    "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
-    "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
-    "pandas": ("https://pandas.pydata.org/docs/", None),
+# scverse core packages, Python, NumPy, SciPy, pandas and Matplotlib come from the registry
+intersphinx_mapping = intersphinx() | {
+    "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
+    "cupy": ("https://docs.cupy.dev/en/stable/", None),
+    "pyarrow": ("https://arrow.apache.org/docs/", None),
 }
-intersphinx_timeout = 5  # seconds; avoids hanging on blocked network in CI/HPC
 
 # Copy button settings
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
 
-# Top-level landing page; main content lives next to conf.py in the docs/ tree.
-root_doc = "index"
-
 templates_path = ["_templates"]
 exclude_patterns = [
-    "_build",
-    "_templates/**",
-    "Thumbs.db",
-    ".DS_Store",
-    ".ipynb_checkpoints",
+    *DEFAULTS.exclude_patterns,
     "notebooks/README.md",  # the gatac-tutorials repo readme
     "scripts/**",  # the scripts that draw the figures of _static/
     # each version's notes are included by release-notes/index.md, not pages
@@ -141,31 +111,33 @@ exclude_patterns = [
 ]
 
 # -- Options for HTML output -------------------------------------------------
-html_theme = "scanpydoc"
 html_title = "GATAC: GPU-Accelerated scATACseq Analysis"
 html_logo = "_static/logo_outlines.svg"
-
 html_theme_options = {
-    "repository_url": "https://github.com/scverse/gatac",
-    "repository_branch": "main",
-    "use_repository_button": True,
     "navigation_with_keys": False,
-    # pydata-sphinx-theme>=0.20 injects a header search field unless this is
-    # set explicitly, duplicating the sidebar one; sphinx-book-theme's own
-    # empty default is ignored.
-    "navbar_persistent": [],
+    "show_toc_level": 2,
 }
+html_show_sphinx = False
 
+# OpenGraph metadata for link previews. Generated cards are off: they cannot use the SVG logo.
+ogp_site_url = "https://gatac.readthedocs.io/"
+ogp_site_name = "GATAC"
+ogp_social_cards = {"enable": False}
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
-# -- Source suffix -----------------------------------------------------------
-# myst_nb owns both .md and .ipynb; use "myst-nb" so Sphinx can find the parser.
-source_suffix = {
-    ".rst": "restructuredtext",
-    ".md": "myst-nb",
-    ".ipynb": "myst-nb",
+xref_overrides = {
+    # If building the documentation fails because a type annotation links to a private path
+    # (e.g. `igraph._igraph.GraphBase`), map it to the documented name here.
+    # For a missing link that can't be fixed this way, add it to `nitpick_ignore` instead.
+    "gatac.dr.lsi.LSIModel": "gatac.dr.LSIModel",
 }
+
+# Private classes in public signatures
+nitpick_ignore = [
+    ("py:class", "gatac.tobias.bindetect._Motif"),
+    ("py:class", "gatac.tobias.footprint.TrackLayout"),
+]
 
 
 # The tutorials live in the gatac-tutorials submodule and enter the docs

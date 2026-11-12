@@ -733,7 +733,7 @@ def make_tile_matrix(
 
     Returns
     -------
-    adata : AnnData
+    adata : anndata.AnnData
         AnnData object with tile matrix
 
     Examples
