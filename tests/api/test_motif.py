@@ -35,7 +35,8 @@ def _region_group(var_names, hotspots) -> np.ndarray:
 
 
 def _log2fc(peaks, g) -> np.ndarray:
-    X = peaks.X.tocsr() if sp.issparse(peaks.X) else sp.csr_matrix(peaks.X)
+    # scipy-stubs narrow issparse to SparseABC
+    X = peaks.X.tocsr() if sp.issparse(peaks.X) else sp.csr_matrix(peaks.X)  # type: ignore[attr-defined]
     inside = (peaks.obs["group"] == f"g{g}").to_numpy()
     a = np.asarray(X[inside].mean(0)).ravel()
     b = np.asarray(X[~inside].mean(0)).ravel()
@@ -175,7 +176,7 @@ def test_gc_matched_background_matches_target_gc(gc_world):
     # Targets are removed from the pool, so leave GC-rich candidates in it.
     rich = np.flatnonzero(gc > 0.6)
     target = regions[rich[::2]]
-    kw = dict(background_pool=list(regions), replace=False, random_state=0)
+    kw = {"background_pool": list(regions), "replace": False, "random_state": 0}
     bg = ga.motif.sample_gc_matched_background(list(target), gc_world["fasta"], **kw)
     assert len(bg) == len(target) and len(set(bg)) == len(bg)
     lookup = dict(zip(regions, gc))

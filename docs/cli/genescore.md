@@ -31,34 +31,34 @@ gatac genescore <input.parquet> -g <annotations.gtf>
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                                  |
+| --------------- | -------------------------------------------- |
 | `input.parquet` | Path to the (filtered) fragment Parquet file |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-g`, `--gtf` | **required** | GTF/GFF annotation, or CSV with columns `symbol,seqnames,start,end,strand` |
-| `-o`, `--output` | `<input>_gene_score_matrix.h5ad` | Output h5ad path |
-| `--gene-model` | `exp(-abs(x)/5000) + exp(-1)` | ArchR `geneModel` expression in `x` (signed distance to TSS) |
-| `--tile-size` | `500` | Tile size (bp) |
-| `--extend-upstream` | `1000 100000` | Min/max bp upstream extension of the regulatory window |
-| `--extend-downstream` | `1000 100000` | Min/max bp downstream extension of the regulatory window |
-| `--gene-upstream` | `5000` | bp the gene body is grown upstream before the model is applied |
-| `--gene-downstream` | `0` | bp the gene body is grown downstream before the model is applied |
-| `--no-gene-boundaries` | off | Disable neighbouring-gene boundary clipping |
-| `--use-tss` | off | Build the model on the 1bp TSS instead of the gene body |
-| `--ceiling` | `4` | Max insertions counted per tile (limits pileup bias) |
-| `--gene-scale-factor` | `5.0` | Inverse-gene-width weighting scale factor |
-| `--scale-to` | `10000.0` | Per-cell normalisation target |
-| `-m`, `--min-fragments` | `100` | Minimum unique fragments per barcode |
-| `-e`, `--exclude-chroms` | `chrY chrM` | Chromosomes to exclude |
-| `--metrics` | — | Metrics CSV for quality-based filtering |
-| `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
-| `--low-memory` | off | Process one Parquet row-group at a time |
-| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
-| `--cell-batch-size` | — | Process cells in column batches (lower GPU memory) |
+| Flag                     | Default                          | Description                                                                                                                                                                          |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-g`, `--gtf`            | **required**                     | GTF/GFF annotation, or CSV with columns `symbol,seqnames,start,end,strand`                                                                                                           |
+| `-o`, `--output`         | `<input>_gene_score_matrix.h5ad` | Output h5ad path                                                                                                                                                                     |
+| `--gene-model`           | `exp(-abs(x)/5000) + exp(-1)`    | ArchR `geneModel` expression in `x` (signed distance to TSS)                                                                                                                         |
+| `--tile-size`            | `500`                            | Tile size (bp)                                                                                                                                                                       |
+| `--extend-upstream`      | `1000 100000`                    | Min/max bp upstream extension of the regulatory window                                                                                                                               |
+| `--extend-downstream`    | `1000 100000`                    | Min/max bp downstream extension of the regulatory window                                                                                                                             |
+| `--gene-upstream`        | `5000`                           | bp the gene body is grown upstream before the model is applied                                                                                                                       |
+| `--gene-downstream`      | `0`                              | bp the gene body is grown downstream before the model is applied                                                                                                                     |
+| `--no-gene-boundaries`   | off                              | Disable neighbouring-gene boundary clipping                                                                                                                                          |
+| `--use-tss`              | off                              | Build the model on the 1bp TSS instead of the gene body                                                                                                                              |
+| `--ceiling`              | `4`                              | Max insertions counted per tile (limits pileup bias)                                                                                                                                 |
+| `--gene-scale-factor`    | `5.0`                            | Inverse-gene-width weighting scale factor                                                                                                                                            |
+| `--scale-to`             | `10000.0`                        | Per-cell normalisation target                                                                                                                                                        |
+| `-m`, `--min-fragments`  | `100`                            | Minimum unique fragments per barcode                                                                                                                                                 |
+| `-e`, `--exclude-chroms` | `chrY chrM`                      | Chromosomes to exclude                                                                                                                                                               |
+| `--metrics`              | —                                | Metrics CSV for quality-based filtering                                                                                                                                              |
+| `--filter`               | —                                | Pandas `DataFrame.query` string applied to metrics                                                                                                                                   |
+| `--low-memory`           | off                              | Process one Parquet row-group at a time                                                                                                                                              |
+| `--compression`          | `gzip`                           | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
+| `--cell-batch-size`      | —                                | Process cells in column batches (lower GPU memory)                                                                                                                                   |
 
 ---
 
@@ -137,8 +137,8 @@ adata_score.write_h5ad("pbmc_gene_score.h5ad")
 
 ## Output AnnData structure
 
-| Slot | Content |
-|------|---------|
-| `adata.X` | Sparse cell × gene normalised score matrix |
-| `adata.obs` | Barcode metadata |
+| Slot        | Content                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| `adata.X`   | Sparse cell × gene normalised score matrix                                                    |
+| `adata.obs` | Barcode metadata                                                                              |
 | `adata.var` | Gene metadata: `name`, `chrom`, `start`, `end`, `strand`, `gene_idx` (indexed by gene `name`) |

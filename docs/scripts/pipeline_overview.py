@@ -1,5 +1,7 @@
-"""docs/_static/pipeline_overview.svg and pipeline_overview_narrow.svg: the pipeline diagram of docs/overview.md,
-wide (desktop) and narrow (phones)."""
+"""Draw the pipeline diagram of docs/overview.md, wide and narrow.
+
+The wide one (desktop) is docs/_static/pipeline_overview.svg, the narrow one (phones) pipeline_overview_narrow.svg.
+"""
 
 from pathlib import Path
 

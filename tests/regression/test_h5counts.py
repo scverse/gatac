@@ -79,7 +79,8 @@ def _same(C: StreamedCounts, X: sp.csr_matrix) -> None:
     assert got.shape == X.shape
     expected_dtype = X.dtype if X.dtype in (np.uint8, np.uint16, np.int32, np.float32) else np.float32
     assert got.dtype == expected_dtype and C._indices.dtype == np.int32
-    assert (got != X.astype(expected_dtype)).nnz == 0
+    # scipy-stubs lack the elementwise != of sparse matrices
+    assert (got != X.astype(expected_dtype)).nnz == 0  # type: ignore[attr-defined]
     # the products see the same matrix
     x = np.random.default_rng(1).random(X.shape[1]).astype(np.float32)
     np.testing.assert_allclose(C.dot(cp.asarray(x)).get(), X.astype(np.float64) @ x, rtol=1e-4)
@@ -218,7 +219,8 @@ def _rich_adata() -> ad.AnnData:
             {"group": pd.Categorical(["a", "b", "c"] * (N_ROWS // 3))}, index=[f"c{i}" for i in range(N_ROWS)]
         ),
         var=pd.DataFrame(index=[f"f{j}" for j in range(N_COLS)]),
-        obsm={"X_emb": np.arange(N_ROWS * 2, dtype=np.float32).reshape(N_ROWS, 2)},
+        # anndata annotates obsm values as Sequence, arrays work
+        obsm={"X_emb": np.arange(N_ROWS * 2, dtype=np.float32).reshape(N_ROWS, 2)},  # type: ignore[dict-item]
         uns={"params": {"k": 3}},
     )
     a.layers["normalized"] = sp.csr_matrix(X / 7.0)  # float64

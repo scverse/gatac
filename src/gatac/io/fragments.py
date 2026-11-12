@@ -1,0 +1,1032 @@
+"""
+GATAC fragment Parquet files: the layout, the reader, and the streaming writer behind :func:`gatac.io.make_parquet`.
+
+Chromosomes and barcodes are integer ids, and the lookup tables travel inside
+the same file::
+
+    chrom_id (uint16)  start (uint32)  length (uint32)  barcode_id (uint32)  count (uint32)
+    bc_name (string)   bc_n_unique (uint32)             bc_n_total (uint32)
+
+The ``bc_*`` columns are a per-barcode table aligned on the row number: row
+``i`` holds barcode id ``i`` (its full original name, its number of fragments
+and its read count) and they are null after the last barcode. Barcode ids are
+ordered by decreasing fragment count. Chromosome names are in the footer
+(``gatac.chroms``), indexed by ``chrom_id``, and so is the sample's barcode
+prefix (``gatac.barcode_prefix``): readers put it in front of every stored
+name, which stays the name of the original fragments file.
+
+Files keep the order of the input fragments and are written with ZSTD,
+delta-encoded starts, and fragment lengths (``end - start``), barcode ids and
+counts as byte-stream-split integers; readers return ``end`` and a uint16
+``count``. Reading them never builds a string column on the GPU: barcodes
+and chromosomes are joined by integer lookups instead of string merges,
+which is where most of the time of the fragment-streaming functions went on
+deep libraries.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import struct
+import zlib
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import cudf
+import cupy as cp
+import duckdb
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.csv as pa_csv
+import pyarrow.parquet as pq
+
+from gatac.gpu import bincount
+
+if TYPE_CHECKING:
+    import pylibcudf as plc
+
+logger = logging.getLogger(__name__)
+
+FORMAT_VERSION = "1"
+FRAGMENT_COLUMNS = ("chrom", "start", "end", "barcode", "count")
+
+
+def sql_string(value) -> str:
+    """``value`` as a SQL string literal, for the statements that take no bound parameters (views, ``COPY ... TO``)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+NAMED_SCHEMA = pa.schema(
+    [
+        ("chrom", pa.string()),
+        ("start", pa.uint32()),
+        ("end", pa.uint32()),
+        ("barcode", pa.string()),
+        ("count", pa.uint16()),
+    ]
+)
+FILE_SCHEMA = pa.schema(
+    [
+        ("chrom_id", pa.uint16()),
+        ("start", pa.uint32()),
+        ("length", pa.uint32()),
+        ("barcode_id", pa.uint32()),
+        ("count", pa.uint32()),
+        ("bc_name", pa.string()),
+        ("bc_n_unique", pa.uint32()),
+        ("bc_n_total", pa.uint32()),
+    ]
+)
+# The fragment columns of FILE_SCHEMA
+ID_SCHEMA = pa.schema(list(FILE_SCHEMA)[:5])
+
+# Stored column behind each logical fragment column
+_STORED_NAME = {"chrom": "chrom_id", "barcode": "barcode_id"}
+
+
+class FragmentFile:
+    """
+    A GATAC fragment Parquet file, as written by :func:`gatac.io.make_parquet`.
+
+    Every GATAC function that reads fragments goes through this class. It
+    streams chromosomes and barcodes as integer ids and decodes them to
+    names when asked.
+
+    Parameters
+    ----------
+    path : str or Path
+        Fragment Parquet file written by :func:`gatac.io.make_parquet`.
+
+    Attributes
+    ----------
+    path : Path
+    chroms : list of str
+        Chromosome names, indexed by ``chrom_id``.
+    n_barcodes : int
+        Number of barcodes (rows of the barcode table).
+    barcode_prefix : str
+        Prefix of every barcode name, from the file footer ("" if none). The
+        stored names are those of the original fragments file; every reader
+        but :meth:`to_tsv` gives them with the prefix.
+    num_row_groups : int
+
+    Examples
+    --------
+    >>> import gatac as ga
+    >>> ff = ga.io.FragmentFile("pbmc.parquet")
+    >>> counts = ff.barcode_counts()  # barcode, n_unique, n_total
+    >>> for batch in ff.iter_batches(["chrom", "start", "end"], chroms=["chr1", "chr2"], cells=counts["barcode"][:100]):
+    ...     ...  # batch: cudf.DataFrame with int chrom / cell indices
+    """
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        pf = pq.ParquetFile(self.path)
+        self._metadata = pf.metadata
+        kv = pf.metadata.metadata or {}
+        if b"gatac.format_version" not in kv:
+            raise ValueError(
+                f"{self.path.name} is not a GATAC fragment file; convert the "
+                "fragments.tsv.gz with gatac.io.make_parquet"
+            )
+        version = kv[b"gatac.format_version"].decode()
+        if version != FORMAT_VERSION:
+            raise ValueError(
+                f"{self.path.name}: fragment format version {version!r} is not supported (expected {FORMAT_VERSION!r})"
+            )
+        self.chroms: list[str] = json.loads(kv[b"gatac.chroms"])
+        self.n_barcodes = int(kv[b"gatac.n_barcodes"])
+        self.barcode_prefix: str = kv.get(b"gatac.barcode_prefix", b"").decode()
+        self._barcodes: np.ndarray | None = None
+        self._barcode_index: pd.Index | None = None
+
+    def __repr__(self) -> str:
+        return f"FragmentFile('{self.path}', rows={self.num_rows:,}, barcodes={self.n_barcodes:,})"
+
+    @property
+    def num_row_groups(self) -> int:
+        """Number of Parquet row groups in the file."""
+        return self._metadata.num_row_groups
+
+    @property
+    def num_rows(self) -> int:
+        """Number of fragments."""
+        return self._metadata.num_rows
+
+    @property
+    def barcodes(self) -> np.ndarray:
+        """Barcode names, with the prefix, as an object array indexed by barcode id (ids by decreasing fragment count)."""
+        if self._barcodes is None:
+            self._barcodes = self._prefixed(self._barcode_table(["bc_name"])["bc_name"]).to_numpy(zero_copy_only=False)
+        return self._barcodes
+
+    def _prefixed(self, names: pa.Array) -> pa.Array:
+        """Stored barcode names with ``barcode_prefix`` in front."""
+        if not self.barcode_prefix:
+            return names
+        return pc.binary_join_element_wise(self.barcode_prefix, names, "")
+
+    def barcode_ids(self, barcodes: Sequence[str]) -> np.ndarray:
+        """Barcode ids of ``barcodes`` (int64), -1 for barcodes absent from the file."""
+        if self._barcode_index is None:
+            self._barcode_index = pd.Index(self.barcodes)
+        return self._barcode_index.get_indexer(pd.Index(np.asarray(barcodes, dtype=object)))
+
+    def _barcode_row_groups(self) -> list[int]:
+        """The leading row groups, which hold the per-barcode table."""
+        row_groups: list[int] = []
+        rows = 0
+        while rows < self.n_barcodes:
+            rows += self._metadata.row_group(len(row_groups)).num_rows
+            row_groups.append(len(row_groups))
+        return row_groups
+
+    def _barcode_table(self, columns: list[str]) -> pa.Table:
+        """The per-barcode table, read from the leading row groups only."""
+        table = pq.ParquetFile(self.path).read_row_groups(self._barcode_row_groups(), columns=columns)
+        return table.slice(0, self.n_barcodes).combine_chunks()
+
+    def _gpu_barcodes(self) -> cudf.Series:
+        """Barcode names, with the prefix, on the GPU, indexed by barcode id."""
+        if self.n_barcodes == 0:
+            return cudf.Series([], dtype="str")
+        names = cudf.read_parquet(self.path, columns=["bc_name"], row_groups=self._barcode_row_groups())
+        names = names["bc_name"].iloc[: self.n_barcodes].reset_index(drop=True)
+        return self.barcode_prefix + names if self.barcode_prefix else names
+
+    def barcode_counts(
+        self,
+        chroms: Sequence[str] | None = None,
+        mito_chroms: Sequence[str] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Per-barcode fragment counts.
+
+        Parameters
+        ----------
+        chroms : list of str, optional
+            Count only fragments on these chromosomes. None counts all.
+        mito_chroms : list of str, optional
+            Also return ``n_mito``, the read count (sum of ``count``) on
+            these chromosomes, among the counted ones.
+
+        Returns
+        -------
+        pd.DataFrame
+            ``barcode``, ``n_unique`` (fragments), ``n_total`` (sum of
+            ``count``) and, with ``mito_chroms``, ``n_mito``. Only barcodes
+            with at least one counted fragment are listed, in no particular
+            order.
+        """
+        if chroms is None and mito_chroms is None:
+            t = self._barcode_table(["bc_name", "bc_n_unique", "bc_n_total"])
+            return pd.DataFrame(
+                {
+                    "barcode": self._prefixed(t["bc_name"]).to_numpy(zero_copy_only=False),
+                    "n_unique": t["bc_n_unique"].to_numpy().astype(np.int64),
+                    "n_total": t["bc_n_total"].to_numpy().astype(np.int64),
+                }
+            )
+
+        out = self._id_counts(chroms, mito_chroms)
+        out.insert(0, "barcode", self.barcodes[out.pop("barcode_id").to_numpy()])
+        return out
+
+    def _id_counts(
+        self,
+        chroms: Sequence[str] | None = None,
+        mito_chroms: Sequence[str] | None = None,
+    ) -> pd.DataFrame:
+        """:meth:`barcode_counts` counted on the GPU, by ``barcode_id`` instead of name."""
+        if chroms is not None and not set(chroms) & set(self.chroms):
+            out = _empty_counts(mito_chroms is not None).drop(columns="barcode")
+            out.insert(0, "barcode_id", pd.Series([], dtype=np.int64))
+            return out
+
+        # One bin per barcode id, summed over the batches on the GPU. Weighted
+        # sums are float64, exact for any read count below 2**53. 16 row
+        # groups per batch keep the GPU memory near 1 GB on any library.
+        names = list(chroms) if chroms is not None else list(self.chroms)
+        columns = ["barcode", "count"] + (["chrom"] if mito_chroms is not None else [])
+        n = self.n_barcodes
+        n_unique = cp.zeros(n, dtype=cp.int64)
+        n_total = cp.zeros(n, dtype=cp.float64)
+        if mito_chroms is not None:
+            n_mito = cp.zeros(n, dtype=cp.float64)
+            is_mito = cp.asarray(np.isin(np.asarray(names, dtype=object), list(mito_chroms)), dtype=cp.float64)
+        for df in self.iter_batches(columns, row_groups_per_batch=16, chroms=chroms):
+            barcode = df["barcode"].values
+            reads = df["count"].values.astype(cp.float64)
+            n_unique += bincount(barcode, minlength=n)
+            n_total += cp.bincount(barcode, weights=reads, minlength=n)
+            if mito_chroms is not None:
+                n_mito += cp.bincount(barcode, weights=reads * is_mito[df["chrom"].values], minlength=n)
+            del df, barcode, reads
+
+        ids = cp.flatnonzero(n_unique)
+        out = pd.DataFrame(
+            {
+                "barcode_id": ids.get(),
+                "n_unique": n_unique[ids].get(),
+                "n_total": n_total[ids].get().astype(np.int64),
+            }
+        )
+        if mito_chroms is not None:
+            out["n_mito"] = n_mito[ids].get().astype(np.int64)
+        return out
+
+    def _row_group_batches(self, row_groups_per_batch: int) -> Iterator[list[int]]:
+        n = self.num_row_groups
+        for i in range(0, n, row_groups_per_batch):
+            yield list(range(i, min(i + row_groups_per_batch, n)))
+
+    def _stored_columns(self, logical: Sequence[str]) -> list[str]:
+        """Stored columns to read for the ``logical`` fragment columns."""
+        stored = []
+        for c in logical:
+            if c == "end":
+                stored += ["start", "length"]
+            else:
+                stored.append(_STORED_NAME.get(c, c))
+        return list(dict.fromkeys(stored))
+
+    def _fragment_column(self, df: cudf.DataFrame, c: str) -> cp.ndarray:
+        """``start``, ``end`` or ``count`` of a batch read with :meth:`_stored_columns`."""
+        if c == "end":
+            return df["start"].values + df["length"].values
+        if c == "count":
+            return df["count"].values.astype(cp.uint16, copy=False)
+        return df[c].values
+
+    def iter_batches(
+        self,
+        columns: Sequence[str] = ("chrom", "start", "end"),
+        row_groups_per_batch: int = 64,
+        chroms: Sequence[str] | None = None,
+        cells: Sequence[str] | np.ndarray | None = None,
+    ) -> Iterator[cudf.DataFrame]:
+        """
+        Stream fragments onto the GPU, a batch of row groups at a time, with chromosomes and cells as integer indices.
+
+        Parameters
+        ----------
+        columns : list of str
+            Any of ``chrom``, ``start``, ``end``, ``count``, ``barcode``.
+            ``chrom`` is returned as an int32 index into ``chroms`` (into
+            ``chroms`` when ``chroms`` is None). ``barcode`` is returned
+            as the uint32 barcode id, and only when ``cells`` is None.
+        row_groups_per_batch : int
+            Row groups read per batch (default 64).
+        chroms : list of str, optional
+            Keep only fragments on these chromosomes.
+        cells : list of str, optional
+            Keep only fragments of these barcodes, and add ``cell``: the int32
+            index of the fragment's barcode in ``cells`` (first occurrence
+            when a barcode is listed twice).
+
+        Yields
+        ------
+        cudf.DataFrame
+            One batch. Row order within a batch is not guaranteed.
+        """
+        columns = list(columns)
+        unknown = set(columns) - set(FRAGMENT_COLUMNS)
+        if unknown:
+            raise ValueError(f"Unknown fragment columns: {sorted(unknown)}")
+        if cells is not None and "barcode" in columns:
+            raise ValueError("Request either `cells` (cell indices) or the `barcode` column, not both")
+        if (chroms is not None and len(chroms) == 0) or (cells is not None and len(cells) == 0):
+            return
+        need_chrom = "chrom" in columns or chroms is not None
+        need_barcode = "barcode" in columns or cells is not None
+        logical = [
+            c
+            for c in FRAGMENT_COLUMNS
+            if (c == "chrom" and need_chrom)
+            or (c == "barcode" and need_barcode)
+            or (c in ("start", "end", "count") and c in columns)
+        ]
+
+        read_cols = self._stored_columns(logical)
+        chrom_lut = cell_lut = None
+        if need_chrom:
+            if chroms is None:
+                chrom_lut = cp.arange(len(self.chroms), dtype=cp.int32)
+            else:
+                pos = {c: i for i, c in enumerate(chroms)}
+                chrom_lut = cp.asarray([pos.get(c, -1) for c in self.chroms], dtype=cp.int32)
+        if cells is not None:
+            cell_names = np.asarray(cells, dtype=object)
+            first = ~pd.Index(cell_names).duplicated()
+            positions = np.flatnonzero(first)
+            ids = self.barcode_ids(cell_names[first])
+            found = ids >= 0
+            cell_lut = cp.full(self.n_barcodes, -1, dtype=cp.int32)
+            cell_lut[cp.asarray(ids[found])] = cp.asarray(positions[found], dtype=cp.int32)
+
+        # Each batch is built in a function so its intermediates are freed
+        # before the next read, not held by the suspended generator.
+        def batch(rgs):
+            df = cudf.read_parquet(self.path, columns=read_cols, row_groups=rgs)
+            keep = None
+            out = {}
+            if need_chrom:
+                chrom = chrom_lut[df["chrom_id"].values]
+                if chroms is not None:
+                    keep = chrom >= 0
+                if "chrom" in columns:
+                    out["chrom"] = chrom
+            for c in ("start", "end", "count"):
+                if c in columns:
+                    out[c] = self._fragment_column(df, c)
+            if cells is not None:
+                cell = cell_lut[df["barcode_id"].values]
+                keep = cell >= 0 if keep is None else keep & (cell >= 0)
+                out["cell"] = cell
+            elif "barcode" in columns:
+                out["barcode"] = df["barcode_id"].values
+            del df
+            if keep is not None:
+                out = {k: v[keep] for k, v in out.items()}
+            return cudf.DataFrame(out)
+
+        for rgs in self._row_group_batches(row_groups_per_batch):
+            yield batch(rgs)
+
+    def read_categorical(
+        self,
+        columns: Sequence[str] | None = None,
+        low_memory: bool = True,
+    ) -> cudf.DataFrame:
+        """
+        Read the whole file into one GPU DataFrame with the named columns.
+
+        The columns are among ``chrom``, ``start``, ``end``, ``barcode`` and
+        ``count``, with ``chrom`` and ``barcode`` as categoricals (sorted
+        categories).
+
+        The categoricals are built from the stored integer ids, without
+        materialising strings on the GPU.
+        """
+        columns = list(columns) if columns is not None else list(FRAGMENT_COLUMNS)
+        with cudf.option_context("io.parquet.low_memory", low_memory):
+            df = cudf.read_parquet(self.path, columns=self._stored_columns(columns))
+        out = {}
+        # end first: it is built from start, which is then popped
+        for c in sorted(columns, key=lambda c: c != "end"):
+            if c == "chrom":
+                out[c] = _categorical_from_ids(df.pop("chrom_id").values, np.asarray(self.chroms, dtype=object))
+            elif c == "barcode":
+                out[c] = _categorical_from_ids(df.pop("barcode_id").values, self.barcodes)
+            else:
+                out[c] = cudf.Series(self._fragment_column(df, c))
+                if c != "end":
+                    df.pop(c)
+        del df
+        return cudf.DataFrame({c: out[c] for c in columns})
+
+    def register(self, con: duckdb.DuckDBPyConnection, name: str = "fragments") -> None:
+        """
+        Create a DuckDB view ``name`` with the named columns (``chrom``, ``start``, ``end``, ``barcode``, ``count``).
+
+        The view joins the chromosome and barcode tables, so its row order is
+        not the file order.
+        """
+        con.register(
+            f"{name}_chroms",
+            pa.table(
+                {
+                    "chrom_id": pa.array(np.arange(len(self.chroms)), pa.uint16()),
+                    "chrom": pa.array(self.chroms, pa.string()),
+                }
+            ),
+        )
+        con.register(
+            f"{name}_barcodes",
+            pa.table(
+                {
+                    "barcode_id": pa.array(np.arange(len(self.barcodes)), pa.uint32()),
+                    "barcode": pa.array(self.barcodes, pa.string()),
+                }
+            ),
+        )
+        con.execute(f"""
+            CREATE OR REPLACE TEMP VIEW {name} AS
+            SELECT c.chrom, f.start, (f.start + f.length)::UINTEGER AS "end", b.barcode,
+                   f.count::USMALLINT AS count
+            FROM read_parquet({sql_string(self.path)}) f
+            JOIN {name}_chroms c USING (chrom_id)
+            JOIN {name}_barcodes b USING (barcode_id)
+        """)
+
+    def iter_arrow(self, batch_size: int = 1_000_000) -> Iterator[pa.Table]:
+        """
+        Stream the file on the CPU as Arrow tables, in file order.
+
+        The tables have the named columns ``chrom``, ``start``, ``end``,
+        ``barcode`` and ``count`` (ids decoded back to names).
+        """
+        return self._iter_arrow(batch_size, pa.array(self.barcodes, pa.string()))
+
+    def _iter_arrow(self, batch_size: int, barcode_names: pa.Array) -> Iterator[pa.Table]:
+        """:meth:`iter_arrow` with ``barcode_names`` as the names of the barcode ids."""
+        pf = pq.ParquetFile(self.path)
+        chrom_names = pa.array(self.chroms, pa.string())
+        for b in pf.iter_batches(batch_size=batch_size, columns=list(FILE_SCHEMA.names[:5])):
+            yield pa.table(
+                [
+                    chrom_names.take(b.column("chrom_id")),
+                    b.column("start"),
+                    pc.add(b.column("start"), b.column("length")),
+                    barcode_names.take(b.column("barcode_id")),
+                    b.column("count").cast(pa.uint16()),
+                ],
+                schema=NAMED_SCHEMA,
+            )
+
+    def to_tsv(
+        self,
+        output_path: str | Path,
+        compresslevel: int = 6,
+        overwrite: bool = False,
+    ) -> Path:
+        """
+        Write the fragments back to a fragments TSV, in file order.
+
+        Rows are ``chrom, start, end, barcode, count`` with the barcode names
+        of the original fragments file, without the file's
+        ``barcode_prefix``. A path ending in ``.gz`` is written as
+        BGZF, the blocked gzip of ``bgzip``: any gzip reader opens it, and
+        ``tabix -p bed`` indexes it when the fragments are sorted by position,
+        as in a Cell Ranger file. Any other path is written uncompressed.
+
+        Parameters
+        ----------
+        output_path : str or Path
+            Output ``.tsv.gz`` (BGZF) or ``.tsv`` file.
+        compresslevel : int
+            zlib compression level of the BGZF blocks (default 6).
+        overwrite : bool
+            Replace ``output_path`` if it exists (default False). The default
+            output name of :func:`gatac.io.to_tsv` is usually the original
+            ``fragments.tsv.gz``, which this protects.
+
+        Returns
+        -------
+        Path
+            Path to the written file.
+
+        Examples
+        --------
+        >>> import gatac as ga
+        >>> ga.io.FragmentFile("pbmc.parquet").to_tsv("pbmc.tsv.gz")
+        """
+        output_path = Path(output_path)
+        if output_path.resolve() == self.path.resolve():
+            raise ValueError(f"output_path must differ from the input: {output_path}")
+        if output_path.exists() and not overwrite:
+            raise FileExistsError(f"{output_path} exists; pass another output path or overwrite=True")
+        options = pa_csv.WriteOptions(include_header=False, delimiter="\t", quoting_style="none")
+        # Write next to the target and rename on success: an existing file is
+        # only replaced by a complete one
+        tmp_path = output_path.with_name(output_path.name + ".tmp")
+        try:
+            out = _BgzfWriter(tmp_path, compresslevel) if output_path.suffix == ".gz" else open(tmp_path, "wb")
+            with out:
+                stored = self._barcode_table(["bc_name"])["bc_name"]
+                for table in self._iter_arrow(1_000_000, stored):
+                    sink = pa.BufferOutputStream()
+                    pa_csv.write_csv(table, sink, options)
+                    out.write(sink.getvalue())
+            os.replace(tmp_path, output_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return output_path
+
+
+FRAGMENT_DTYPES = {"chrom": "category", "start": "uint32", "end": "uint32", "barcode": "category", "count": "uint16"}
+
+
+def read_fragments_parquet(
+    input_path: str | Path,
+    low_memory: bool = True,
+    columns: list[str] | None = None,
+) -> cudf.DataFrame:
+    """
+    Read ATAC fragments from Parquet file optimized for GPU memory.
+
+    Returns the columns of FRAGMENT_DTYPES:
+    ['chrom', 'start', 'end', 'barcode', 'count'], with ``chrom`` and
+    ``barcode`` as categoricals built from the stored integer ids (see
+    :class:`gatac.io.FragmentFile`).
+
+    Examples
+    --------
+    >>> import gatac as ga
+    >>> df = ga.io.read_fragments_parquet("pbmc.parquet")
+    >>> df.columns.tolist()
+    ['chrom', 'start', 'end', 'barcode', 'count']
+    """
+    if columns is None:
+        columns = list(FRAGMENT_DTYPES.keys())
+
+    df = FragmentFile(input_path).read_categorical(columns, low_memory=low_memory)
+
+    # Ensure dtypes match our expectation to save memory
+    for col, dtype in FRAGMENT_DTYPES.items():
+        if col in df.columns and df[col].dtype != dtype:
+            df[col] = df[col].astype(dtype)
+
+    return df
+
+
+# Uncompressed bytes per BGZF block, as in htslib: the compressed block must
+# fit the 16-bit BSIZE field even when the data does not compress.
+_BGZF_BLOCK = 0xFF00
+_BGZF_EOF = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
+
+
+class _BgzfWriter:
+    """Write BGZF: gzip members of at most 64 KiB, compressed on a thread pool."""
+
+    def __init__(self, path: Path, compresslevel: int = 6):
+        self._fh = open(path, "wb")
+        self._level = compresslevel
+        self._pending = b""
+        self._pool = ThreadPoolExecutor(min(8, os.process_cpu_count() or 1))
+
+    def _block(self, data) -> bytes:
+        c = zlib.compressobj(self._level, zlib.DEFLATED, -15)
+        cdata = c.compress(data) + c.flush()
+        # gzip header with the BGZF extra field: "BC", BSIZE = block size - 1
+        header = struct.pack("<4BI2BH2BHH", 0x1F, 0x8B, 8, 4, 0, 0, 0xFF, 6, ord("B"), ord("C"), 2, len(cdata) + 25)
+        return header + cdata + struct.pack("<II", zlib.crc32(data), len(data))
+
+    def write(self, data) -> None:
+        data = memoryview(self._pending + memoryview(data).tobytes())
+        full = len(data) - len(data) % _BGZF_BLOCK
+        chunks = [data[i : i + _BGZF_BLOCK] for i in range(0, full, _BGZF_BLOCK)]
+        for block in self._pool.map(self._block, chunks):
+            self._fh.write(block)
+        self._pending = data[full:].tobytes()
+
+    def close(self, complete: bool = True) -> None:
+        try:
+            if complete:
+                if self._pending:
+                    self._fh.write(self._block(self._pending))
+                self._fh.write(_BGZF_EOF)
+        finally:
+            self._pool.shutdown()
+            self._fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        # No EOF marker after an error, so the file reads as truncated
+        self.close(complete=exc_type is None)
+
+
+def _empty_counts(with_mito: bool) -> pd.DataFrame:
+    cols = {
+        "barcode": pd.Series([], dtype=object),
+        "n_unique": pd.Series([], dtype=np.int64),
+        "n_total": pd.Series([], dtype=np.int64),
+    }
+    if with_mito:
+        cols["n_mito"] = pd.Series([], dtype=np.int64)
+    return pd.DataFrame(cols)
+
+
+def _categorical_from_ids(ids: cp.ndarray, names: np.ndarray) -> cudf.Series:
+    """
+    Build a categorical Series from integer ids into ``names``.
+
+    The categories are the observed names, sorted, as
+    ``astype('category')`` on the strings gives.
+    """
+    # Mark the ids in use; unweighted cp.bincount would take CuPy 14's CUB
+    # histogram, which crashes above ~5M bins (raw barcode counts can reach that)
+    seen = cp.zeros(len(names), dtype=cp.bool_)
+    seen[ids] = True
+    present = cp.flatnonzero(seen).get()
+    observed = names[present]
+    order = pd.Index(observed).argsort()
+    remap = np.full(len(names), -1, dtype=np.int32)
+    remap[present[order]] = np.arange(len(order), dtype=np.int32)
+    codes = cp.asarray(remap)[ids]
+    return cudf.Series(cudf.CategoricalIndex.from_codes(codes, categories=list(observed[order]), ordered=False))
+
+
+# =============================================================================
+# Writer
+# =============================================================================
+
+
+def write_fragments(
+    batches: Callable[[], Iterator[pa.Table]],
+    output_path: str | Path,
+    chroms: Sequence[str] | None = None,
+    row_group_size: int = 1_000_000,
+    barcode_stats: pd.DataFrame | None = None,
+    barcode_prefix: str | None = None,
+) -> Path:
+    """
+    Write fragments to a GATAC fragment Parquet file.
+
+    Parameters
+    ----------
+    batches : callable
+        Returns a fresh iterator of Arrow tables with the named columns (``chrom``, ``start``, ``end``, ``barcode``, ``count``),
+        in the order to write. Called twice unless ``barcode_stats`` is given
+        (once to count fragments per barcode).
+    output_path : str or Path
+    chroms : list of str, optional
+        Chromosome order for ``chrom_id`` (``filter_fragments`` passes the
+        input's, to keep its ids). Chromosomes of the data missing from the
+        list are appended in order of first appearance. Default: order of
+        first appearance.
+    row_group_size : int
+        Rows per Parquet row group (default 1,000,000).
+    barcode_stats : pd.DataFrame, optional
+        ``barcode``, ``n_unique``, ``n_total`` of the data
+        being written, to skip the counting pass.
+    barcode_prefix : str, optional
+        Prefix of the barcode names, written to the footer; the names are
+        stored as given.
+
+    Returns
+    -------
+    Path
+    """
+    output_path = Path(output_path)
+    # Write next to the target and rename on success: no partial file on error
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    try:
+        _write_fragments(batches, tmp_path, chroms, row_group_size, barcode_stats, barcode_prefix)
+        os.replace(tmp_path, output_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return output_path
+
+
+def _write_fragments(batches, output_path, chroms, row_group_size, barcode_stats, barcode_prefix=None) -> None:
+    """Body of :func:`write_fragments`, writing to ``output_path`` directly."""
+    if barcode_stats is None:
+        barcode_stats = _count_barcodes(batches())
+    stats = _sort_barcode_stats(barcode_stats)
+    names = pa.array(stats["barcode"].to_numpy(dtype=object), pa.string())
+    n_unique = pa.array(stats["n_unique"].to_numpy(), pa.uint32())
+    n_total = pa.array(stats["n_total"].to_numpy(), pa.uint32())
+    n_bc = len(names)
+    bc_index = pd.Index(stats["barcode"].to_numpy(dtype=object))
+    chrom_list = list(chroms) if chroms is not None else []
+    chrom_pos = {c: i for i, c in enumerate(chrom_list)}
+    n_given = len(chrom_list)
+
+    writer = pq.ParquetWriter(
+        output_path,
+        FILE_SCHEMA,
+        use_dictionary=["chrom_id"],
+        column_encoding={
+            "start": "DELTA_BINARY_PACKED",
+            "length": "BYTE_STREAM_SPLIT",
+            "barcode_id": "BYTE_STREAM_SPLIT",
+            "count": "BYTE_STREAM_SPLIT",
+            "bc_name": "DELTA_LENGTH_BYTE_ARRAY",
+            "bc_n_unique": "DELTA_BINARY_PACKED",
+            "bc_n_total": "DELTA_BINARY_PACKED",
+        },
+        # _GpuWriter writes the same layout.
+        # Data page v1: cuDF's chunked (low_memory) reader fails on v2 data pages.
+        # bc_name is not DELTA_BYTE_ARRAY: with the page index, cuDF (26.02)
+        # reads those strings back as NUL bytes.
+        # Byte-stream split stores byte k of every value together: the high
+        # bytes of barcode ids (by decreasing frequency), lengths and counts
+        # are almost always 0 and ZSTD all but removes them, which brings
+        # these columns close to their entropy where dictionary encoding
+        # does not. cuDF (26.02) fails to decode it on uint16, so length and
+        # count are uint32. DuckDB reads it from 2.0.
+        compression="zstd",
+        write_page_index=True,
+        dictionary_pagesize_limit=64 << 20,
+    )
+    n = 0
+
+    def row_groups():
+        nonlocal n
+        for chunk in _fixed_size_chunks(batches(), row_group_size):
+            k = chunk.num_rows
+            chrom_id = _encode(chunk["chrom"], chrom_pos, chrom_list)
+            barcode_enc = chunk["barcode"].combine_chunks().dictionary_encode()
+            gid = bc_index.get_indexer(barcode_enc.dictionary.to_numpy(zero_copy_only=False))
+            if (gid < 0).any():
+                raise ValueError("Fragment barcode missing from the barcode statistics")
+            barcode_id = gid.astype(np.uint32)[barcode_enc.indices.to_numpy()]
+            lo, hi = min(n, n_bc), min(n + k, n_bc)
+            pad = k - (hi - lo)
+            yield pa.table(
+                [
+                    pa.array(chrom_id, pa.uint16()),
+                    chunk["start"].cast(pa.uint32()),
+                    _lengths(chunk),
+                    pa.array(barcode_id, pa.uint32()),
+                    chunk["count"].cast(pa.uint16()).cast(pa.uint32()),
+                    pa.concat_arrays([names.slice(lo, hi - lo), pa.nulls(pad, pa.string())]),
+                    pa.concat_arrays([n_unique.slice(lo, hi - lo), pa.nulls(pad, pa.uint32())]),
+                    pa.concat_arrays([n_total.slice(lo, hi - lo), pa.nulls(pad, pa.uint32())]),
+                ],
+                schema=FILE_SCHEMA,
+            )
+            n += k
+
+    with writer:
+        # The next row group is read and encoded while this one is compressed
+        for table in _prefetch(row_groups()):
+            writer.write_table(table, row_group_size=row_group_size)
+        if n < n_bc:
+            raise ValueError("The barcode statistics list barcodes that have no fragment")
+        if len(chrom_list) > 65535:
+            raise ValueError("More than 65,535 chromosomes are not supported (chrom_id is uint16)")
+        if chroms is not None and len(chrom_list) > n_given:
+            logger.warning(
+                f"{len(chrom_list) - n_given} chromosome(s) not in `chroms` were appended: {chrom_list[n_given:][:5]}"
+            )
+        writer.add_key_value_metadata(_footer(chrom_list, n_bc, barcode_prefix))
+    logger.debug(f"Wrote {n:,} fragments, {n_bc:,} barcodes")
+
+
+def _footer(chroms: list[str], n_barcodes: int, barcode_prefix: str | None) -> dict:
+    """The key-value metadata of a fragment file."""
+    return {
+        "gatac.format_version": FORMAT_VERSION,
+        "gatac.chroms": json.dumps(chroms),
+        "gatac.n_barcodes": str(n_barcodes),
+        "gatac.barcode_prefix": barcode_prefix or "",
+    }
+
+
+def _sort_barcode_stats(stats: pd.DataFrame) -> pd.DataFrame:
+    """Barcode statistics in barcode id order: by decreasing fragment count, then name."""
+    return stats.sort_values(["n_unique", "barcode"], ascending=[False, True], kind="stable")
+
+
+def _write_cells(
+    fragments: FragmentFile,
+    output_path: str | Path,
+    cells: pd.DataFrame,
+    chroms: Sequence[str] | None = None,
+    row_group_size: int = 1_000_000,
+    row_groups_per_batch: int = 16,
+    barcode_prefix: str | None = None,
+) -> tuple[int, int]:
+    """
+    Write the fragments of some barcodes of ``fragments`` to a new fragment file on the GPU.
+
+    The fragments stay in file order, the ids are renumbered without being
+    decoded to names, and the file is encoded and compressed by cuDF.
+
+    ``cells`` holds ``barcode_id`` (in ``fragments``), ``barcode`` (the name
+    to store, without ``barcode_prefix``, the output's prefix), and
+    ``n_unique`` and ``n_total`` counted on ``chroms``, the chromosomes to
+    keep (None keeps all). The output keeps the input's chromosome ids.
+    Returns the numbers of fragments read and written.
+    """
+    output_path = Path(output_path)
+    stats = _sort_barcode_stats(cells)
+    remap = cp.full(fragments.n_barcodes, -1, dtype=cp.int64)
+    remap[cp.asarray(stats["barcode_id"].to_numpy())] = cp.arange(len(stats))
+    keep_chrom = None
+    if chroms is not None:
+        keep_chrom = cp.asarray(np.isin(np.asarray(fragments.chroms, dtype=object), list(chroms)))
+
+    n_in = 0
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    try:
+        writer = _GpuWriter(tmp_path, list(fragments.chroms), stats, row_group_size, barcode_prefix)
+        for rgs in fragments._row_group_batches(row_groups_per_batch):
+            df = cudf.read_parquet(fragments.path, columns=ID_SCHEMA.names, row_groups=rgs)
+            n_in += len(df)
+            barcode_id = remap[df["barcode_id"].values]
+            keep = barcode_id >= 0
+            if keep_chrom is not None:
+                keep &= keep_chrom[df["chrom_id"].values]
+            df = df[keep]
+            df["barcode_id"] = barcode_id[keep].astype(cp.uint32)
+            writer.write(df)
+            del df, barcode_id, keep
+        n_out = writer.close()
+        os.replace(tmp_path, output_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return n_in, n_out
+
+
+class _GpuWriter:
+    """
+    Streaming cuDF writer of fragments encoded as ids, in the layout of :func:`_write_fragments`.
+
+    The fragments come as cuDF frames with the :data:`ID_SCHEMA` columns.
+    Rows are buffered on the GPU and written in whole row groups.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        chroms: list[str],
+        stats: pd.DataFrame,
+        row_group_size: int,
+        barcode_prefix: str | None = None,
+        rows_per_write: int = 16_000_000,
+    ):
+        self.path, self.chroms, self.row_group_size = path, chroms, row_group_size
+        self.barcode_prefix = barcode_prefix
+        self.rows_per_write = max(rows_per_write // row_group_size, 1) * row_group_size
+        self.names = cudf.Series(stats["barcode"].to_numpy(dtype=object), dtype="str")
+        self.n_unique = cudf.Series(stats["n_unique"].to_numpy().astype(np.uint32))
+        self.n_total = cudf.Series(stats["n_total"].to_numpy().astype(np.uint32))
+        self.n_bc = len(stats)
+        self.buffer: list[cudf.DataFrame] = []
+        self.n_buffered, self.n = 0, 0
+        self.writer: plc.io.parquet.ChunkedParquetWriter | None = None
+
+    def write(self, df: cudf.DataFrame) -> None:
+        if len(df):
+            self.buffer.append(df)
+            self.n_buffered += len(df)
+        if self.n_buffered >= self.rows_per_write:
+            self._flush(final=False)
+
+    def close(self) -> int:
+        """Write the buffered rows and the footer; returns the number of fragments written."""
+        if self.n_buffered:
+            self._flush(final=True)
+        if self.writer is None:
+            # No fragment: the CPU writer writes the empty file
+            _write_fragments(
+                lambda: iter([]), self.path, self.chroms, self.row_group_size, _empty_counts(False), self.barcode_prefix
+            )
+        else:
+            self.writer.close([])
+        if self.n < self.n_bc:
+            raise ValueError("The barcode statistics list barcodes that have no fragment")
+        return self.n
+
+    def _flush(self, final: bool) -> None:
+        joined = cudf.concat(self.buffer, ignore_index=True)
+        # Whole row groups only, until the last write
+        cut = len(joined) if final else len(joined) // self.row_group_size * self.row_group_size
+        rest = joined.iloc[cut:]
+        self.buffer, self.n_buffered = ([rest], len(rest)) if len(rest) else ([], 0)
+        self._write(joined.iloc[:cut].reset_index(drop=True))
+
+    def _write(self, df: cudf.DataFrame) -> None:
+        import pylibcudf as plc
+        from cudf.core.column import column_empty
+
+        # The barcode table goes in the leading rows, null after its end
+        k = len(df)
+        lo, hi = min(self.n, self.n_bc), min(self.n + k, self.n_bc)
+        for name, values in (("bc_name", self.names), ("bc_n_unique", self.n_unique), ("bc_n_total", self.n_total)):
+            nulls = cudf.Series._from_column(column_empty(k - (hi - lo), values.dtype))
+            df[name] = cudf.concat([values.iloc[lo:hi], nulls], ignore_index=True) if hi > lo else nulls
+        table, _ = df[FILE_SCHEMA.names].to_pylibcudf()
+        if self.writer is None:
+            self.writer = plc.io.parquet.ChunkedParquetWriter.from_options(self._options(table))
+        self.writer.write(table)
+        self.n += k
+
+    def _options(self, table):
+        import pylibcudf as plc
+
+        enc = plc.io.types.ColumnEncoding
+        encodings = {
+            "chrom_id": enc.DICTIONARY,
+            "start": enc.DELTA_BINARY_PACKED,
+            "length": enc.BYTE_STREAM_SPLIT,
+            "barcode_id": enc.BYTE_STREAM_SPLIT,
+            "count": enc.BYTE_STREAM_SPLIT,
+            "bc_name": enc.DELTA_LENGTH_BYTE_ARRAY,
+            "bc_n_unique": enc.DELTA_BINARY_PACKED,
+            "bc_n_total": enc.DELTA_BINARY_PACKED,
+        }
+        metadata = plc.io.types.TableInputMetadata(table)
+        for i, name in enumerate(FILE_SCHEMA.names):
+            metadata.column_metadata[i].set_name(name).set_encoding(encodings[name])
+        # Data page v1 (cuDF's default), and the page index through column statistics
+        return (
+            plc.io.parquet.ChunkedParquetWriterOptions.builder(plc.io.SinkInfo([str(self.path)]))
+            .metadata(metadata)
+            .compression(plc.io.types.CompressionType.ZSTD)
+            .stats_level(plc.io.types.StatisticsFreq.STATISTICS_COLUMN)
+            .row_group_size_rows(self.row_group_size)
+            .key_value_metadata([_footer(self.chroms, self.n_bc, self.barcode_prefix)])
+            .build()
+        )
+
+
+def _lengths(chunk: pa.Table) -> pa.ChunkedArray:
+    """Fragment lengths ``end - start`` of a named chunk, as uint32."""
+    start, end = chunk["start"].cast(pa.uint32()), chunk["end"].cast(pa.uint32())
+    try:
+        return pc.subtract_checked(end, start)
+    except pa.ArrowInvalid:
+        raise ValueError("A fragment ends before it starts (end < start)") from None
+
+
+def _encode(values: pa.ChunkedArray, pos: dict, names: list) -> np.ndarray:
+    """Integer ids of ``values`` into ``names``, appending unseen values in order."""
+    enc = values.combine_chunks().dictionary_encode()
+    for v in enc.dictionary.to_pylist():
+        if v not in pos:
+            pos[v] = len(names)
+            names.append(v)
+    lut = np.array([pos[v] for v in enc.dictionary.to_pylist()], dtype=np.int64)
+    return lut[enc.indices.to_numpy()]
+
+
+def _prefetch(items: Iterator) -> Iterator:
+    """Iterate ``items`` on a worker thread, one item ahead of the consumer."""
+    done = object()
+    with ThreadPoolExecutor(1) as pool:
+        nxt = pool.submit(next, items, done)
+        while (item := nxt.result()) is not done:
+            nxt = pool.submit(next, items, done)
+            yield item
+
+
+def _count_barcodes(batches: Iterator[pa.Table]) -> pd.DataFrame:
+    """``barcode``, ``n_unique``, ``n_total`` over a stream of fragment tables."""
+    parts = []
+    for t in batches:
+        agg = t.group_by("barcode").aggregate([("count", "count"), ("count", "sum")])
+        parts.append(agg.to_pandas())
+    if not parts:
+        return _empty_counts(False)
+    df = pd.concat(parts, ignore_index=True)
+    df = df.groupby("barcode", sort=False).sum().reset_index()
+    return df.rename(columns={"count_count": "n_unique", "count_sum": "n_total"})
+
+
+def _fixed_size_chunks(tables: Iterator[pa.Table], size: int) -> Iterator[pa.Table]:
+    """Re-slice a stream of tables into tables of exactly ``size`` rows (last may be shorter)."""
+    buf, n = [], 0
+    for t in tables:
+        if t.num_rows == 0:
+            continue
+        buf.append(t)
+        n += t.num_rows
+        while n >= size:
+            joined = pa.concat_tables(buf)
+            yield joined.slice(0, size)
+            rest = joined.slice(size)
+            buf, n = ([rest], rest.num_rows) if rest.num_rows else ([], 0)
+    if n:
+        yield pa.concat_tables(buf)

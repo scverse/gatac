@@ -31,7 +31,8 @@ def _synthetic(n_cells: int = 900, n_features: int = 4000, n_groups: int = 4, se
     rng = np.random.default_rng(seed)
     group = rng.integers(0, n_groups, n_cells)
     block = n_features // n_groups
-    rows, cols = [], []
+    rows: list[np.ndarray] = []
+    cols: list[np.ndarray] = []
     for c in range(n_cells):
         # a shared background plus a block enriched in this cell's group
         bg = rng.choice(n_features, size=rng.integers(150, 300), replace=False)
@@ -40,9 +41,9 @@ def _synthetic(n_cells: int = 900, n_features: int = 4000, n_groups: int = 4, se
         idx = np.unique(np.concatenate([bg, fg]))
         rows.append(np.full(idx.size, c))
         cols.append(idx)
-    rows = np.concatenate(rows)
-    cols = np.concatenate(cols)
-    X = sp.csr_matrix((np.ones(rows.size, np.float32), (rows, cols)), shape=(n_cells, n_features))
+    row_idx = np.concatenate(rows)
+    col_idx = np.concatenate(cols)
+    X = sp.csr_matrix((np.ones(row_idx.size, np.float32), (row_idx, col_idx)), shape=(n_cells, n_features))
     return X
 
 

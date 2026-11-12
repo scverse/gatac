@@ -1,6 +1,6 @@
 # `gatac metrics`
 
-Compute per-barcode quality metrics from a fragment Parquet file.  All
+Compute per-barcode quality metrics from a fragment Parquet file. All
 computation is GPU-accelerated using streaming row-group processing, so files
 larger than GPU VRAM are handled transparently.
 
@@ -20,31 +20,31 @@ gatac metrics <input.parquet> -g <annotations.gtf>
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                       |
+| --------------- | --------------------------------- |
 | `input.parquet` | Path to the fragment Parquet file |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-g`, `--gtf` | **required** | GTF annotation file (used to extract TSS positions) |
-| `-o`, `--output` | `<input>_metrics.csv` | Output CSV path |
-| `--min-frags` | `100` | Minimum unique fragments; barcodes below this are excluded |
-| `--batch-size` | `64` | Parquet row-groups processed per GPU batch |
-| `--memory-resource` | `cuda-async` | RAPIDS memory resource (`cuda-async`, `managed`, `managed-pool`, `cuda`) |
+| Flag                | Default               | Description                                                              |
+| ------------------- | --------------------- | ------------------------------------------------------------------------ |
+| `-g`, `--gtf`       | **required**          | GTF annotation file (used to extract TSS positions)                      |
+| `-o`, `--output`    | `<input>_metrics.csv` | Output CSV path                                                          |
+| `--min-frags`       | `100`                 | Minimum unique fragments; barcodes below this are excluded               |
+| `--batch-size`      | `64`                  | Parquet row-groups processed per GPU batch                               |
+| `--memory-resource` | `cuda-async`          | RAPIDS memory resource (`cuda-async`, `managed`, `managed-pool`, `cuda`) |
 
 ---
 
 ## Computed metrics
 
-| Column | Description |
-|--------|-------------|
-| `barcode` | Cell barcode |
-| `tsse_score` | TSS enrichment score (signal/background ratio) |
-| `n_unique` | Number of unique (deduplicated) fragments |
-| `duplicate_fraction` | Fraction of total reads that are duplicates |
-| `mito_fraction` | Fraction of fragments mapping to mitochondrial contigs |
+| Column               | Description                                            |
+| -------------------- | ------------------------------------------------------ |
+| `barcode`            | Cell barcode                                           |
+| `tsse_score`         | TSS enrichment score (signal/background ratio)         |
+| `n_unique`           | Number of unique (deduplicated) fragments              |
+| `duplicate_fraction` | Fraction of total reads that are duplicates            |
+| `mito_fraction`      | Fraction of fragments mapping to mitochondrial contigs |
 
 ---
 

@@ -1,0 +1,1264 @@
+"""
+Peak calling, merging and the cell × peak matrix.
+
+``call`` runs MACS3's narrow-peak caller per group of cells on the GPU (see
+``_macs``), with SnapATAC2's settings by default; ``merge`` and
+``make_matrix`` follow SnapATAC2's ``merge_peaks`` and peak counting.
+"""
+
+from __future__ import annotations
+
+import gc
+import logging
+from collections import defaultdict
+from math import log
+from pathlib import Path
+from typing import Literal
+
+import cudf
+import cupy as cp
+import numpy as np
+import pandas as pd
+from anndata import AnnData
+from numba import njit, prange
+
+from gatac._readers import read_bed
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
+from gatac.pp._utils import async_memory_pool, cleanup_gpu_memory
+from gatac.pp.gene import optimize_sparse_matrix_dtype
+from gatac.pp.genome import get_chrom_sizes
+from gatac.pp.tile import _iter_slabs
+
+from . import _macs
+
+logger = logging.getLogger(__name__)
+
+# GPU memory pool references
+mempool = cp.get_default_memory_pool()
+pinned_mempool = cp.get_default_pinned_memory_pool()
+
+
+# =============================================================================
+# Reading the fragments of the groups
+# =============================================================================
+
+# Host memory a group's fragments take while read: uint32 starts and ends
+_HOST_BYTES_PER_FRAGMENT = 8
+
+
+def _source_parquet_name(source_file: str) -> str:
+    """
+    Map a ``source_file`` value to the name of the fragment file.
+
+    A Parquet file name, as tile matrices of several files record it, is
+    kept. An h5ad name maps ``{sample}_tile.h5ad`` or ``{sample}.h5ad`` to
+    ``{sample}.parquet``.
+    """
+    if source_file.endswith(".parquet"):
+        return source_file
+    name = source_file.replace(".h5ad", "")
+    if name.endswith("_tile"):
+        name = name[:-5]
+    return f"{name}.parquet"
+
+
+def _available_host_memory() -> int:
+    """
+    Bytes of host memory still available.
+
+    The available memory of the system is capped by the limit of each cgroup
+    the process is in (a SLURM job, a container), less the memory the
+    processes of that cgroup use.
+    """
+    with open("/proc/meminfo") as f:
+        info = dict(line.split(":", 1) for line in f)
+    available = int(info["MemAvailable"].split()[0]) * 1024
+    try:
+        with open("/proc/self/cgroup") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return available
+    for line in lines:
+        _, controllers, path = line.split(":", 2)
+        if controllers == "":
+            root, limit_file, used_key = Path("/sys/fs/cgroup"), "memory.max", "anon"
+        elif "memory" in controllers.split(","):
+            root, limit_file, used_key = Path("/sys/fs/cgroup/memory"), "memory.limit_in_bytes", "total_rss"
+        else:
+            continue
+        # The limit may be set on any ancestor (SLURM sets it on the job)
+        d = root / path.lstrip("/")
+        while True:
+            try:
+                limit = int((d / limit_file).read_text())
+                stat = dict(l.split() for l in (d / "memory.stat").read_text().splitlines())
+                available = min(available, limit - int(stat[used_key]))
+            except (OSError, ValueError, KeyError):
+                pass
+            if d == root:
+                break
+            d = d.parent
+    return max(available, 0)
+
+
+def _group_fragment_counts(sources: list, n_groups: int) -> np.ndarray:
+    """Fragments of each group, from the barcode tables of the files (all chromosomes)."""
+    n = np.zeros(n_groups, np.int64)
+    for fragments, cells, cell_group in sources:
+        counts = fragments.barcode_counts()
+        per_cell = pd.Series(counts["n_unique"].to_numpy(), index=counts["barcode"].to_numpy())
+        cell_n = per_cell.reindex(cells).fillna(0).to_numpy()
+        n += np.bincount(cell_group, weights=cell_n, minlength=n_groups).astype(np.int64)
+    return n
+
+
+def _group_passes(n_fragments: np.ndarray, cap: int) -> list:
+    """
+    Return the groups read in each pass over the files, at most ``cap`` fragments per pass.
+
+    Groups are placed by first fit, largest groups first. A group above
+    ``cap`` gets a separate pass.
+    """
+    passes: list[list[int]] = []
+    room: list[int] = []
+    for i in np.argsort(-n_fragments, kind="stable"):
+        n = int(n_fragments[i])
+        k = next((k for k, r in enumerate(room) if n <= r), None)
+        if k is None:
+            passes.append([])
+            room.append(cap)
+            k = len(passes) - 1
+        passes[k].append(int(i))
+        room[k] -= n
+    return passes
+
+
+def _read_groups(
+    fragments: FragmentFile,
+    cells: np.ndarray,
+    cell_group: np.ndarray,
+    out: list,
+    chroms: list | None,
+    batch_size: int,
+) -> None:
+    """
+    Add the fragments of ``cells`` to ``out[group][chrom]``, a list of host arrays.
+
+    The arrays are ``(starts, ends)``, and ``group`` is ``cell_group`` of the
+    cell.
+
+    Each batch is sorted by (group, chromosome) on the GPU and copied to the
+    host once, so the file is read a single time whatever the number of groups.
+    Each group keeps its own copy, freed once its peaks are called.
+    """
+    names = list(chroms) if chroms is not None else list(fragments.chroms)
+    lut = cp.asarray(cell_group, dtype=cp.int64)
+    n_chroms = len(names)
+    # iter_batches takes any array of names, not only a Sequence
+    for df in fragments.iter_batches(["chrom", "start", "end"], batch_size, chroms=chroms, cells=cells):
+        if len(df) == 0:
+            continue
+        key = lut[df["cell"].values] * n_chroms + df["chrom"].values.astype(cp.int64)
+        order = cp.argsort(key)
+        key = key[order].get()
+        starts = df["start"].values[order].get()
+        ends = df["end"].values[order].get()
+        del df, order
+        bounds = np.flatnonzero(key[1:] != key[:-1]) + 1
+        for lo, hi in zip(np.concatenate(([0], bounds)), np.concatenate((bounds, [key.size]))):
+            group, chrom = divmod(int(key[lo]), n_chroms)
+            out[group][names[chrom]].append((starts[lo:hi].copy(), ends[lo:hi].copy()))
+        mempool.free_all_blocks()
+
+
+def _concat_group(chunks: dict) -> dict:
+    """``{chrom: [(starts, ends), ...]}`` to ``{chrom: (starts, ends)}``, emptying ``chunks`` as it goes."""
+    out = {}
+    for c in list(chunks):
+        parts = chunks.pop(c)
+        out[c] = (np.concatenate([s for s, _ in parts]), np.concatenate([e for _, e in parts]))
+    return out
+
+
+# =============================================================================
+# Main Public API
+# =============================================================================
+
+
+def call(
+    adata: AnnData,
+    groupby: str,
+    parquet_path: str | Path,
+    *,
+    genome: str | dict = "hg38",
+    q_thresh: float = 0.05,
+    d_treat: int = 200,
+    shift: int | None = None,
+    d_ctrl: int = 10000,
+    max_gap: int = 30,
+    peak_amp: int = 200,
+    fe_cutoff: float = 1.0,
+    call_summits: bool = True,
+    macs3_version: Literal["3.0", "3.1"] = "3.0",
+    key_added: str = "gmacs",
+    inplace: bool = True,
+    verbose: bool = True,
+    batch_size: int = 10,
+    filter_chromosomes: bool = True,
+    host_memory_gb: float | None = None,
+) -> dict | None:
+    """
+    Call peaks per group of cells with MACS3, on the GPU.
+
+    Gives the peaks of SnapATAC2's ``macs3`` :cite:p:`Zhang2024`, which runs
+    MACS3 :cite:p:`Zhang2008` on each group: the Tn5 insertions of the
+    group's fragments (``start`` on the + strand, ``end - 1`` on the -
+    strand) are piled up after a shift of ``shift`` and an extension to
+    ``d_treat``; the local lambda is the pileup in a ``d_ctrl`` window,
+    floored at the genome background; runs whose q-value passes
+    ``q_thresh`` are joined across gaps of at most ``max_gap`` into peaks of
+    at least ``peak_amp`` bp, and summits are called inside each peak. The
+    computation is MACS3's, on run-length pileups on the GPU, so peaks,
+    summits and scores are the ones MACS3 reports, at a fraction of the
+    time. Fragments are read once for all the groups that fit in
+    `host_memory_gb`.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix (typically a tiled matrix).
+        If `source_file` is in obs, it's used to map cells to parquet files.
+    groupby : str
+        Key in `adata.obs` containing cluster/group assignments.
+    parquet_path : str or Path
+        Path to parquet file or directory containing parquet files.
+        If directory, uses `source_file` obs to find specific files.
+    genome : str or dict
+        Genome name (e.g., 'hg38', 'mm10') or dict of chromosome sizes.
+        Its total length is MACS3's genome size (``-g``), as SnapATAC2 sets
+        it, and its chromosomes are those kept with `filter_chromosomes`.
+    q_thresh : float
+        Q-value cutoff (MACS3 ``-q``, default: 0.05).
+    d_treat : int
+        Fragment size the insertions are extended to, in bp (MACS3
+        ``--extsize``, default: 200).
+    shift : int, optional
+        Shift of the insertions before extension (MACS3 ``--shift``).
+        Default: ``-(d_treat // 2)``, which centers the extension on the
+        insertion (-100 for the default ``d_treat``, as in SnapATAC2).
+    d_ctrl : int
+        Window of the local lambda, in bp (MACS3 ``--llocal``, default: 10000).
+    max_gap : int
+        Largest gap between significant runs joined into one peak (MACS3
+        ``--max-gap``, default: 30, as in SnapATAC2).
+    peak_amp : int
+        Minimum peak length in bp (MACS3 ``--min-length``, default: 200),
+        also the smoothing window of the summit caller.
+    fe_cutoff : float
+        Fold-enrichment cutoff at the summit (MACS3 ``--fe-cutoff``, default: 1.0).
+    call_summits : bool
+        Call every summit of a peak (MACS3 ``--call-summits``), one row per
+        summit, as SnapATAC2 does (default: True). With False, one summit
+        per peak.
+    macs3_version : {"3.0", "3.1"}
+        Summit filtering of MACS3 3.0, which SnapATAC2 (<= 2.9) uses, or of
+        MACS3 3.1, which fixed it (default: "3.0"). Only summits differ.
+    key_added : str
+        Key in `adata.uns` where peaks will be stored (default: 'gmacs')
+    inplace : bool
+        If True, store results in `adata.uns[key_added]` (default: True)
+    verbose : bool
+        If True, show tqdm progress bars (default: True)
+    batch_size : int
+        Number of parquet row groups to load at once (default: 10).
+        Increase for faster processing, decrease to reduce memory usage.
+    filter_chromosomes : bool
+        If True, only keep fragments from chromosomes recognized by the
+        provided genome (keys if genome is a dict, or standard chromosomes
+        for the named genome) (default: True).
+    host_memory_gb : float, optional
+        Host memory for the fragments held at once, in GB (8 bytes per
+        fragment). Groups that do not fit together are read in further
+        passes over the files; results are the same. Default: half the
+        available memory, within the limit of the job or container if any.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame] or None
+        If `inplace=False`, returns dict mapping group names to peak DataFrames.
+        Each DataFrame has the columns of SnapATAC2's ``macs3``: chrom, start,
+        end, name, score, strand, signal_value (fold enrichment), p_value and
+        q_value (-log10) and peak (summit offset from start), one row per
+        summit.
+
+    Examples
+    --------
+    >>> import gatac
+    >>> # Load tiled AnnData with cluster assignments
+    >>> adata = sc.read_h5ad("tiled_matrix.h5ad")
+    >>> # Call peaks per cluster (default settings for ATAC-seq)
+    >>> gatac.peak.call(
+    ...     adata,
+    ...     groupby="leiden",
+    ...     parquet_path="/path/to/fragments.parquet",
+    ... )
+    >>> # Access peaks for cluster "0"
+    >>> peaks_cluster0 = adata.uns["gmacs"]["0"]
+    """
+    parquet_path = Path(parquet_path)
+    if macs3_version not in ("3.0", "3.1"):
+        raise ValueError(f"macs3_version must be '3.0' or '3.1', got {macs3_version!r}")
+
+    # Get genome length
+    if isinstance(genome, str):
+        chrom_sizes = get_chrom_sizes(genome)
+    else:
+        chrom_sizes = genome
+    genome_length = sum(chrom_sizes.values())
+    logger.info(f"Using genome length: {genome_length:,} bp")
+
+    # Get cluster assignments
+    if groupby not in adata.obs.columns:
+        raise ValueError(f"'{groupby}' not found in adata.obs")
+
+    labels = adata.obs[groupby]
+    groups = [g for g in labels.unique() if not pd.isna(g)]
+    logger.info(f"Calling peaks for {len(groups)} groups in '{groupby}'")
+    group_index = pd.Index(groups)
+    cell_group = group_index.get_indexer(labels)
+    has_group = cell_group >= 0
+
+    params = _macs.Params(
+        gsize=genome_length,
+        log_qvalue=log(q_thresh, 10) * -1,
+        extsize=d_treat,
+        shift=-(d_treat // 2) if shift is None else shift,
+        llocal=d_ctrl,
+        max_gap=max_gap,
+        min_length=peak_amp,
+        fe_cutoff=fe_cutoff,
+        call_summits=call_summits,
+        macs3_version=macs3_version,
+    )
+    chroms = sorted(chrom_sizes) if filter_chromosomes else None
+
+    # (file, cells, their groups) to read
+    if parquet_path.is_dir():
+        # Directory mode - use source_file obs
+        if "source_file" not in adata.obs.columns:
+            raise ValueError(
+                "parquet_path is a directory but 'source_file' not in adata.obs. "
+                "Please provide a single parquet file path instead."
+            )
+        source = adata.obs["source_file"].to_numpy()
+        source_files = pd.unique(source[has_group])
+        logger.info(f"Using {len(source_files)} source files from source_file obs")
+        sources = []
+        for src_file in source_files:
+            src_path = parquet_path / _source_parquet_name(src_file)
+            if not src_path.exists():
+                logger.warning(f"Parquet file not found: {src_path}")
+                continue
+            sel = has_group & (source == src_file)
+            sources.append((FragmentFile(src_path), adata.obs_names.to_numpy()[sel], cell_group[sel]))
+    else:
+        sources = [(FragmentFile(parquet_path), adata.obs_names.to_numpy()[has_group], cell_group[has_group])]
+
+    # Groups are read together, in as few passes over the files as the host
+    # memory allows, and called smallest first so that each group's call
+    # runs with the fragments of fewer groups still held
+    n_frag = _group_fragment_counts(sources, len(groups))
+    if host_memory_gb is None:
+        budget = 0.5 * _available_host_memory()
+    else:
+        budget = host_memory_gb * 1e9
+    passes = _group_passes(n_frag, int(budget // _HOST_BYTES_PER_FRAGMENT))
+    if len(passes) > 1:
+        logger.info(f"Reading the groups in {len(passes)} passes to fit {budget / 1e9:.0f} GB of host memory")
+
+    if verbose:
+        from gatac._progress import tqdm
+    peaks_dict = {}
+    for k, members in enumerate(passes):
+        chunks: dict[int, defaultdict[str, list[tuple[np.ndarray, np.ndarray]]]] = {
+            i: defaultdict(list) for i in members
+        }
+        lut = np.full(len(groups), -1, np.int64)
+        lut[members] = np.arange(len(members))
+        step = "" if len(passes) == 1 else f" ({k + 1}/{len(passes)})"
+        files = tqdm(sources, desc=f"Reading files{step}") if verbose else sources
+        for ff, cells, cg in files:
+            sel = lut[cg] >= 0
+            if sel.any():
+                _read_groups(ff, cells[sel], lut[cg[sel]], [chunks[i] for i in members], chroms, batch_size)
+        gc.collect()
+
+        order = sorted(members, key=lambda i: n_frag[i])
+        for i in tqdm(order, desc=f"Groups{step}") if verbose else order:
+            group_str = str(groups[i])
+            fragments = _concat_group(chunks.pop(i))
+            num_fragments = sum(len(s) for s, _ in fragments.values())
+            if num_fragments == 0:
+                logger.warning(f"  No fragments found for group {group_str}")
+                peaks_dict[group_str] = _macs._empty()
+                continue
+            logger.info(f"Group {group_str}: {num_fragments:,} fragments, calling peaks...")
+            peaks = _macs.callpeak(fragments, params)
+            del fragments
+            peaks_dict[group_str] = peaks
+            logger.info(f"  Found {len(peaks):,} summits")
+            mempool.free_all_blocks()
+            pinned_mempool.free_all_blocks()
+    peaks_dict = {str(g): peaks_dict[str(g)] for g in groups}
+
+    if inplace:
+        adata.uns[key_added] = peaks_dict
+        return None
+    else:
+        return peaks_dict
+
+
+@njit(cache=True, parallel=True)
+def _iterative_merge_numba(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    p_values: np.ndarray,
+    group_ids: np.ndarray,
+    n_groups: int,
+) -> np.ndarray:
+    """
+    Numba-accelerated iterative merge for all groups at once.
+
+    For each group of overlapping peaks, repeatedly select the most significant
+    peak (highest p_value = -log10(p)), remove all overlapping peaks, repeat.
+
+    Parameters
+    ----------
+    starts : np.ndarray
+        Peak start positions (sorted by position within each chromosome)
+    ends : np.ndarray
+        Peak end positions
+    p_values : np.ndarray
+        Peak p-values (-log10(p), higher = more significant)
+    group_ids : np.ndarray
+        Group ID for each peak (peaks with same ID are overlapping)
+    n_groups : int
+        Total number of groups
+
+    Returns
+    -------
+    np.ndarray
+        Boolean mask where True indicates peaks to keep
+    """
+    n = len(starts)
+    keep_mask = np.zeros(n, dtype=np.bool_)
+
+    # Pre-compute group boundaries for faster access
+    # Find first and last index of each group
+    group_start_idx = np.zeros(n_groups, dtype=np.int64)
+    group_end_idx = np.zeros(n_groups, dtype=np.int64)
+
+    # Since data is sorted by position and groups are contiguous,
+    # we can find boundaries efficiently
+    if n > 0:
+        group_start_idx[0] = 0
+        for i in range(1, n):
+            if group_ids[i] != group_ids[i - 1]:
+                group_end_idx[group_ids[i - 1]] = i
+                group_start_idx[group_ids[i]] = i
+        group_end_idx[group_ids[n - 1]] = n
+
+    # Process each group in parallel
+    for group_id in prange(n_groups):
+        start_i = group_start_idx[group_id]
+        end_i = group_end_idx[group_id]
+        n_group = end_i - start_i
+
+        if n_group == 0:
+            continue
+
+        if n_group == 1:
+            keep_mask[start_i] = True
+            continue
+
+        # Track which peaks in the group are still available
+        available = np.ones(n_group, dtype=np.bool_)
+
+        while True:
+            # Find the best available peak (highest p_value); among equal
+            # p-values the last in position order, as Rust's max_by in SnapATAC2
+            best_local_idx = -1
+            best_pval = -np.inf
+
+            for i in range(n_group):
+                if available[i]:
+                    idx = start_i + i
+                    if p_values[idx] >= best_pval:
+                        best_pval = p_values[idx]
+                        best_local_idx = i
+
+            if best_local_idx == -1:
+                break
+
+            # Keep this peak
+            best_idx = start_i + best_local_idx
+            keep_mask[best_idx] = True
+
+            # Remove all overlapping peaks
+            best_start = starts[best_idx]
+            best_end = ends[best_idx]
+
+            for i in range(n_group):
+                if available[i]:
+                    idx = start_i + i
+                    # Check overlap: start < best_end AND end > best_start
+                    if starts[idx] < best_end and ends[idx] > best_start:
+                        available[i] = False
+
+    return keep_mask
+
+
+@njit(cache=True)
+def _find_overlapping_groups_with_chroms_numba(starts: np.ndarray, ends: np.ndarray, chroms: np.ndarray) -> tuple:
+    """
+    Numba-accelerated function to find groups of overlapping intervals with chromosome awareness.
+
+    Given sorted intervals by (chromosome, start), assigns a group ID to each interval.
+    Intervals that overlap (or are adjacent) within the same chromosome get the same group ID.
+    Chromosome changes always start a new group.
+
+    Parameters
+    ----------
+    starts : np.ndarray
+        Start positions (must be sorted by chrom, then start)
+    ends : np.ndarray
+        End positions
+    chroms : np.ndarray
+        Chromosome codes (integers)
+
+    Returns
+    -------
+    tuple
+        (group_ids array, number of groups)
+    """
+    n = len(starts)
+    if n == 0:
+        return np.zeros(0, dtype=np.int64), 0
+
+    group_ids = np.zeros(n, dtype=np.int64)
+    current_group = 0
+    current_end = ends[0]
+    current_chrom = chroms[0]
+
+    for i in range(1, n):
+        # New group if chromosome changes or no overlap
+        if chroms[i] != current_chrom:
+            # Chromosome change - start new group
+            current_group += 1
+            current_chrom = chroms[i]
+            current_end = ends[i]
+        elif starts[i] <= current_end:
+            # Same chromosome, overlapping - extend group
+            if ends[i] > current_end:
+                current_end = ends[i]
+        else:
+            # Same chromosome, no overlap - new group
+            current_group += 1
+            current_end = ends[i]
+        group_ids[i] = current_group
+
+    return group_ids, current_group + 1
+
+
+def merge(
+    peaks: dict[str, pd.DataFrame] | AnnData,
+    chrom_sizes: str | dict[str, int] | None = None,
+    half_width: int = 250,
+    use_rep: str = "gmacs",
+    key_added: str = "peaks",
+    inplace: bool = True,
+) -> pd.DataFrame | None:
+    """Merge peaks from different groups into fixed-width, non-overlapping peaks.
+
+    This mirrors the behavior of SnapATAC2's ``merge`` :cite:p:`Zhang2024`.
+
+    The algorithm expands each peak summit by ``half_width`` on both sides,
+    sorts peaks by genomic position, groups overlapping or adjacent intervals,
+    and then iteratively keeps the most significant peak in each overlap group
+    while discarding the overlapping alternatives.
+
+    This algorithm matches SnapATAC2's Rust implementation which uses merge_sorted_bed_with
+    to group overlapping intervals before applying iterative_merge.
+
+    Parameters
+    ----------
+    peaks
+        Peak information from different groups. Either a dict mapping group names
+        to pandas DataFrames with peak info, or an AnnData object containing
+        peaks in `.uns[use_rep]`.
+    chrom_sizes
+        Chromosome sizes. If a string is provided, it is interpreted as a genome
+        name passed to `get_chrom_sizes`. If peaks is an AnnData and chrom_sizes
+        is None, will try to infer from adata.uns['reference_sequences'].
+    half_width
+        Half width of the merged peaks.
+    use_rep
+        When peaks is an AnnData, key in `.uns` containing peak information.
+    key_added
+        When peaks is an AnnData and inplace=True, key in `.uns` to store merged peaks.
+    inplace
+        When peaks is an AnnData, whether to store results in `.uns[key_added]`.
+
+    Returns
+    -------
+    pd.DataFrame or None
+        A dataframe with merged, fixed-width, non-overlapping peaks.
+        If peaks is an AnnData and inplace=True, returns None and stores in
+        `.uns[key_added]`.
+
+    Examples
+    --------
+    >>> import gatac as ga
+    >>> # Operate in-place on an AnnData: stores results in adata.uns["peaks"]
+    >>> ga.peak.merge(adata, use_rep="gmacs", key_added="peaks")
+    >>> # Or pass a dict of per-group peak DataFrames:
+    >>> peaks_df = ga.peak.merge(
+    ...     adata.uns["gmacs"],
+    ...     chrom_sizes="hg38",
+    ...     half_width=250,
+    ... )
+    """
+    # Handle AnnData input
+    if hasattr(peaks, "uns"):
+        adata = peaks
+        if use_rep not in adata.uns:
+            raise ValueError(f"'{use_rep}' not found in adata.uns")
+        peaks_dict = adata.uns[use_rep]
+
+        # Try to infer chrom_sizes if not provided
+        if chrom_sizes is None:
+            if "reference_sequences" in adata.uns:
+                ref_seqs = adata.uns["reference_sequences"]
+                if isinstance(ref_seqs, pd.DataFrame):
+                    chrom_sizes = dict(zip(ref_seqs["reference_seq_name"], ref_seqs["reference_seq_length"]))
+                else:
+                    raise ValueError("chrom_sizes must be provided when reference_sequences is not a DataFrame")
+            else:
+                raise ValueError("chrom_sizes must be provided when AnnData lacks reference_sequences in uns")
+    else:
+        peaks_dict = peaks
+        adata = None
+        if chrom_sizes is None:
+            raise ValueError("chrom_sizes must be provided when peaks is a dict")
+
+    if isinstance(chrom_sizes, str):
+        chrom_sizes = get_chrom_sizes(chrom_sizes)
+
+    if not peaks_dict:
+        result = pd.DataFrame()
+        if adata is not None and inplace:
+            adata.uns[key_added] = result
+            return None
+        return result
+
+    required_cols = {"chrom", "start", "end", "p_value"}
+    expanded_peaks = []
+
+    # Process each group's peaks - expand summits to fixed width
+    for _, df in peaks_dict.items():
+        if df is None or len(df) == 0:
+            continue
+        missing = required_cols.difference(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns in peaks: {sorted(missing)}")
+
+        df_copy = df.copy()
+
+        # Calculate summit position using numpy for speed
+        start_vals = df_copy["start"].values.astype(np.int64)
+        if "peak" in df_copy.columns:
+            peak_vals = df_copy["peak"].values.astype(np.int64)
+            summit = start_vals + peak_vals
+        else:
+            end_vals = df_copy["end"].values.astype(np.int64)
+            summit = (start_vals + end_vals) // 2
+
+        # Expand to fixed width - match SnapATAC2's half-open interval convention
+        start = np.maximum(summit - half_width, 0)
+        df_copy["start"] = start
+        df_copy["end"] = summit + half_width + 1  # +1 for half-open interval
+        df_copy["peak"] = summit - start
+
+        expanded_peaks.append(df_copy)
+
+    if len(expanded_peaks) == 0:
+        result = pd.DataFrame()
+        if adata is not None and inplace:
+            adata.uns[key_added] = result
+            return None
+        return result
+
+    # Concatenate all peaks and move to GPU
+    all_peaks = pd.concat(expanded_peaks, ignore_index=True)
+    all_peaks_gpu = cudf.DataFrame(all_peaks)
+
+    # Get arrays on GPU
+    starts_cp = all_peaks_gpu["start"].to_cupy().astype(cp.int64)
+    ends_cp = all_peaks_gpu["end"].to_cupy().astype(cp.int64)
+    p_values_cp = all_peaks_gpu["p_value"].to_cupy().astype(cp.float64)
+
+    # Create chromosome encoding on GPU
+    chrom_cat = all_peaks_gpu["chrom"].astype("category")
+    chrom_codes_cp = chrom_cat.cat.codes.to_cupy().astype(cp.int32)
+
+    # Peaks are merged unclipped (start saturating at 0) and clipped to the
+    # chromosome afterwards, as SnapATAC2 does
+    starts_cp = cp.maximum(starts_cp, 0)
+
+    # Global sort: by chromosome code, then by start, then by end
+    # Use composite key for stable sorting on GPU
+    max_pos = int(cp.max(ends_cp)) + 1
+    sort_key = chrom_codes_cp.astype(cp.int64) * (max_pos * max_pos) + starts_cp * max_pos + ends_cp
+    global_sort_idx = cp.argsort(sort_key)
+
+    # Apply sort to all arrays
+    sorted_starts = starts_cp[global_sort_idx]
+    sorted_ends = ends_cp[global_sort_idx]
+    sorted_pvals = p_values_cp[global_sort_idx]
+    sorted_chroms = chrom_codes_cp[global_sort_idx]
+
+    # Process ALL chromosomes in ONE batch using combined approach:
+    # 1. Find overlapping groups (treating chromosome changes as group boundaries)
+    # 2. Run iterative merge on all groups in parallel
+
+    # Find overlapping groups with chromosome boundaries
+    # A new group starts when: (a) chromosome changes OR (b) no overlap with previous
+    # Transfer to CPU once for the grouping/merge algorithm
+    sorted_starts_np = cp.asnumpy(sorted_starts)
+    sorted_ends_np = cp.asnumpy(sorted_ends)
+    sorted_pvals_np = cp.asnumpy(sorted_pvals)
+    sorted_chroms_np = cp.asnumpy(sorted_chroms)
+
+    # Use optimized numba function for grouping with chromosome awareness
+    group_ids_np, n_groups = _find_overlapping_groups_with_chroms_numba(
+        sorted_starts_np, sorted_ends_np, sorted_chroms_np
+    )
+
+    # Run parallel iterative merge across all groups
+    keep_mask_np = _iterative_merge_numba(sorted_starts_np, sorted_ends_np, sorted_pvals_np, group_ids_np, n_groups)
+
+    # Transfer result back to GPU
+    keep_mask_cp = cp.asarray(keep_mask_np)
+
+    # Get kept indices in original order
+    kept_sorted_indices = cp.where(keep_mask_cp)[0]
+    kept_original_indices = global_sort_idx[kept_sorted_indices]
+
+    # Filter on GPU and convert back
+    if len(kept_original_indices) == 0:
+        result = pd.DataFrame(columns=all_peaks.columns)
+    else:
+        # Use GPU filtering
+        result_gpu = all_peaks_gpu.iloc[cp.asnumpy(kept_original_indices)]
+        result = result_gpu.to_pandas()
+
+    # Cleanup GPU memory
+    del all_peaks_gpu, starts_cp, ends_cp, p_values_cp, chrom_codes_cp
+    del sorted_starts, sorted_ends, sorted_pvals, sorted_chroms, global_sort_idx
+    mempool.free_all_blocks()
+    pinned_mempool.free_all_blocks()
+
+    # Deduplicate exact duplicates (same chrom, start, end) keeping most significant
+    if len(result) > 0 and "p_value" in result.columns:
+        logger.debug(f"Deduplicating {len(result):,} peaks...")
+
+        # Convert to cuDF for GPU-accelerated groupby
+        result_gpu = cudf.DataFrame(result)
+
+        # Sort by p-value to ensure most significant is first in each group
+        # p-values are -log10(p), so higher values are MORE significant
+        result_gpu = result_gpu.sort_values("p_value", ascending=False)
+
+        # Drop duplicates based on (chrom, start, end), keeping first (most significant)
+        result_gpu = result_gpu.drop_duplicates(subset=["chrom", "start", "end"], keep="first")
+
+        # Convert back to pandas
+        result = result_gpu.to_pandas()
+
+        del result_gpu
+        mempool.free_all_blocks()
+        pinned_mempool.free_all_blocks()
+
+        logger.debug(f"After deduplication: {len(result):,} peaks")
+
+    # Clip to the chromosomes, as SnapATAC2's clip_peak
+    if len(result) > 0:
+        size = result["chrom"].map(chrom_sizes).to_numpy(dtype=np.float64)
+        known = ~np.isnan(size)
+        start = result["start"].to_numpy(dtype=np.int64)
+        end = result["end"].to_numpy(dtype=np.int64)
+        size = np.where(known, size, np.iinfo(np.int64).max).astype(np.int64)
+        new_start = np.minimum(start, size)
+        new_end = np.minimum(end, size)
+        result["peak"] = np.minimum(new_start + result["peak"].to_numpy(dtype=np.int64), new_end) - new_start
+        result["start"] = new_start
+        result["end"] = new_end
+
+    # Store in AnnData if requested
+    if adata is not None and inplace:
+        adata.uns[key_added] = result
+        return None
+
+    return result
+
+
+def _expand_ranges(lo: cp.ndarray, hi: cp.ndarray) -> tuple[cp.ndarray, cp.ndarray]:
+    """``(i, j)`` for every ``j`` in ``[lo[i], hi[i])``, as two index arrays."""
+    n = cp.maximum(hi - lo, 0)
+    total = int(n.sum())
+    if total == 0:
+        return cp.empty(0, dtype=cp.int64), cp.empty(0, dtype=cp.int64)
+    ends = cp.cumsum(n)
+    k = cp.arange(total, dtype=cp.int64)
+    i = cp.searchsorted(ends, k, side="right")
+    return i, k - (ends - n)[i] + lo[i]
+
+
+def _peak_keys(peaks_df: pd.DataFrame, chroms: list) -> tuple:
+    """
+    Encode the peaks on ``chroms`` as sorted int64 keys of their starts and ends.
+
+    The keys are ``chrom << 32 | position``, ``chrom`` being the index in
+    ``chroms``, and come with the column of each peak in the matrix (the row
+    of the peak in ``peaks_df``). Also returns the widest peak and whether
+    the peaks are disjoint.
+    """
+    code = pd.Series(np.arange(len(chroms), dtype=np.int64), index=chroms)
+    on = peaks_df["chrom"].isin(chroms).to_numpy()
+    chrom = code.reindex(peaks_df["chrom"].to_numpy()[on]).to_numpy() << 32
+    starts = cp.asarray(chrom | peaks_df["start"].to_numpy()[on].astype(np.int64))
+    ends = cp.asarray(chrom | peaks_df["end"].to_numpy()[on].astype(np.int64))
+    cols = cp.asarray(np.flatnonzero(on), dtype=cp.int64)
+    order = cp.argsort(starts)
+    starts, ends, cols = starts[order], ends[order], cols[order]
+    if len(starts) == 0:
+        return starts, ends, cols, 0, True
+    max_width = int((ends - starts).max())
+    disjoint = bool(cp.all(starts[1:] >= ends[:-1]))
+    return starts, ends, cols, max_width, disjoint
+
+
+def _peak_key_counts_gpu(
+    df: cudf.DataFrame,
+    peaks: tuple,
+    n_peaks: int,
+    counting_strategy: str = "paired-insertion",
+) -> tuple[cp.ndarray, cp.ndarray]:
+    """
+    Per (cell, peak) counts of one batch of fragments, kept on the GPU.
+
+    They come as sorted int64 keys ``cell * n_peaks + peak`` and int32
+    counts.
+
+    ``df`` has the 'chrom', 'start', 'end' and 'cell' columns of
+    :meth:`FragmentFile.iter_batches`, ``peaks`` is :func:`_peak_keys` of
+    the same chromosomes. Positions are compared as keys
+    ``chrom << 32 | position``, so all chromosomes are counted at once.
+    """
+    peak_starts, peak_ends, peak_cols, max_width, disjoint = peaks
+    chrom = df["chrom"].values.astype(cp.int64) << 32
+    start = chrom | df["start"].values.astype(cp.int64)
+    end = chrom | df["end"].values.astype(cp.int64)
+    del chrom
+
+    if counting_strategy == "fragment":
+        # Frag overlaps peak if: frag_start < peak_end AND frag_end > peak_start
+        lo = cp.searchsorted(peak_starts, start - max_width, side="right")
+        hi = cp.searchsorted(peak_starts, end, side="left")
+        f, p = _expand_ranges(lo, hi)
+        keep = peak_ends[p] > start[f]
+        f, p = f[keep], p[keep]
+    elif disjoint:
+        # Insertions at start and end - 1. Peaks from peak.merge never
+        # overlap, so the peak holding a position is the last one starting
+        # at or before it
+        ins2 = end - 1
+        idx1 = cp.searchsorted(peak_starts, start, side="right") - 1
+        valid1 = (idx1 >= 0) & (start < peak_ends[idx1])
+        idx2 = cp.searchsorted(peak_starts, ins2, side="right") - 1
+        valid2 = (idx2 >= 0) & (ins2 < peak_ends[idx2])
+        if counting_strategy == "paired-insertion":
+            # Both insertions in one peak: count the fragment once
+            valid2 &= ~valid1 | (idx1 != idx2)
+        v1, v2 = cp.flatnonzero(valid1), cp.flatnonzero(valid2)
+        f, p = cp.concatenate([v1, v2]), cp.concatenate([idx1[v1], idx2[v2]])
+        del ins2, idx1, idx2, valid1, valid2, v1, v2
+    else:
+        # A peak_file may hold overlapping peaks: then every peak starting
+        # within the widest peak's width before the position is a candidate
+        fs, ps = [], []
+        for pos in (start, end - 1):
+            lo = cp.searchsorted(peak_starts, pos - max_width, side="right")
+            hi = cp.searchsorted(peak_starts, pos, side="right")
+            f, p = _expand_ranges(lo, hi)
+            keep = pos[f] < peak_ends[p]
+            fs.append(f[keep])
+            ps.append(p[keep])
+        f, p = cp.concatenate(fs), cp.concatenate(ps)
+        if counting_strategy == "paired-insertion":
+            # A fragment with both insertions in one peak counts once
+            pair = cp.unique(f * len(peak_starts) + p)
+            f, p = pair // len(peak_starts), pair % len(peak_starts)
+    del start, end
+
+    key = df["cell"].values.astype(cp.int64)[f] * n_peaks + peak_cols[p]
+    del f, p
+    agg = cudf.DataFrame({"key": key}).groupby("key", sort=True).size()
+    return agg.index.values, agg.values.astype(cp.int32, copy=False)
+
+
+def _count_file_peaks(
+    fragments: FragmentFile,
+    cells: list,
+    chroms: list,
+    peaks: tuple,
+    n_peaks: int,
+    batch_size: int,
+    counting_strategy: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Return the peak counts of ``cells`` in one fragment file as host CSR components.
+
+    The components are ``(row_nnz, cols, data)`` of the ``len(cells)`` rows,
+    with columns sorted within each row. The counts of each batch stay on the
+    GPU, and the rows are summed and assembled there a slab of cells at a
+    time.
+    """
+    keys, counts = [], []
+    for df in fragments.iter_batches(["chrom", "start", "end"], batch_size, chroms=chroms, cells=cells):
+        if len(df) > 0:
+            k, c = _peak_key_counts_gpu(df, peaks, n_peaks, counting_strategy)
+            keys.append(k)
+            counts.append(c)
+        del df
+    row_nnz = np.zeros(len(cells), dtype=np.int64)
+    if not keys:
+        return row_nnz, np.zeros(0, np.int32), np.zeros(0, np.int32)
+    cols_parts, data_parts = [], []
+    for r0, r1, rows, cols, data in _iter_slabs(keys, counts, len(cells), n_peaks):
+        row_nnz[r0:r1] = bincount(rows - r0, minlength=r1 - r0).get()
+        cols_parts.append(cols.get())
+        data_parts.append(data.get())
+    del keys, counts
+    if not cols_parts:
+        return row_nnz, np.zeros(0, np.int32), np.zeros(0, np.int32)
+    return row_nnz, np.concatenate(cols_parts), np.concatenate(data_parts)
+
+
+def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
+    """
+    Assemble the CSR matrix of per-file rows, in the smallest count dtype.
+
+    Each part is ``(rows, row_nnz, cols, data)``, ``rows`` being the sorted
+    output rows of the cells of the file. A row given by several files is
+    their sum.
+    """
+    import scipy.sparse as sp
+
+    hits = np.zeros(n_cells, dtype=np.int64)
+    for rows, *_ in parts:
+        hits[rows] += 1
+    if hits.max(initial=0) > 1:
+        # the same cell in several files (a list of files): sum them
+        rows = np.concatenate([np.repeat(r, n) for r, n, _, _ in parts])
+        X = sp.coo_matrix(
+            (np.concatenate([d for *_, d in parts]), (rows, np.concatenate([c for _, _, c, _ in parts]))),
+            shape=(n_cells, n_peaks),
+        ).tocsr()
+        return X.astype(optimize_sparse_matrix_dtype(int(X.data.max())), copy=False)
+
+    row_nnz = np.zeros(n_cells, dtype=np.int64)
+    for rows, n, _, _ in parts:
+        row_nnz[rows] = n
+    nnz = int(row_nnz.sum())
+    # one index dtype for both arrays, as scipy picks it
+    idx_dtype: type[np.signedinteger] = np.int32 if max(nnz, n_peaks) <= np.iinfo(np.int32).max else np.int64
+    indptr = np.zeros(n_cells + 1, dtype=idx_dtype)
+    np.cumsum(row_nnz, out=indptr[1:])
+    max_count = max((int(d.max()) for *_, d in parts if len(d)), default=0)
+    data = np.empty(nnz, dtype=optimize_sparse_matrix_dtype(max_count) if nnz else np.int32)
+    indices = np.empty(nnz, dtype=idx_dtype)
+    for rows, n, c, d in parts:
+        # each file's rows go to their place in the matrix: one slice when
+        # they are consecutive (rows are sorted)
+        if rows[-1] - rows[0] + 1 == len(rows):
+            lo = int(indptr[rows[0]])
+            data[lo : lo + len(d)] = d
+            indices[lo : lo + len(c)] = c
+            continue
+        dest = np.repeat(indptr[rows] - (np.cumsum(n) - n), n) + np.arange(len(c))
+        data[dest] = d
+        indices[dest] = c
+    return sp.csr_matrix((data, indices, indptr), shape=(n_cells, n_peaks))
+
+
+def make_matrix(
+    adata: AnnData,
+    parquet_path: str | Path | list[str | Path],
+    *,
+    use_rep: str = "peaks",
+    peak_file: Path | None = None,
+    genome: str | dict = "hg38",
+    counting_strategy: str = "paired-insertion",
+    inplace: bool = False,
+    batch_size: int = 50,
+    verbose: bool | str = True,
+    filter_chromosomes: bool = True,
+) -> AnnData | None:
+    """Generate cell by peak count matrix.
+
+    This function counts fragment insertions overlapping with peak regions to create
+    a cell × peak count matrix. Efficiently processes multiple parquet files
+    using batched row group reading to minimize memory usage.
+
+    Parameters
+    ----------
+    adata
+        The annotated data matrix (typically a tiled matrix).
+        If `source_file` is in obs, it's used to map cells to parquet files.
+    parquet_path
+        Path to parquet file, directory containing parquet files, or a list
+        of parquet file paths.
+        - If a single file: all cells are read from this file.
+        - If a directory: uses `source_file` obs to find specific files.
+        - If a list of files: processes all files, matching barcodes to cells.
+    use_rep
+        Key in `.uns` containing peak information. The peaks can be a DataFrame
+        with 'chrom', 'start', 'end' columns.
+    peak_file
+        BED file containing peaks. If provided, peak information will be read
+        from this file instead of `use_rep`.
+    genome
+        Genome name (e.g., 'hg38', 'mm10') or dict of chromosome sizes.
+        Used for validation and chromosome filtering.
+    counting_strategy
+        Counting strategy for peak matrix generation. ``"paired-insertion"``
+        counts Tn5 insertions at fragment ends and counts a fragment once if
+        both ends land in the same peak; this matches SnapATAC2's default.
+        ``"insertion"`` counts each insertion separately, so a fragment with
+        both ends in a peak contributes 2. ``"fragment"`` is the legacy mode
+        that counts any fragment overlapping the peak.
+    inplace
+        Whether to add the peak matrix to the AnnData object (not recommended,
+        will replace .X). If False, returns a new AnnData object.
+    batch_size
+        Number of parquet row groups to load at once (default: 50).
+        Larger values are faster but use more GPU memory.
+    verbose
+        Controls progress reporting. ``False`` disables progress output.
+        ``True`` or ``"tqdm"`` shows a tqdm progress bar. ``"log"`` logs
+        one line per file with ETA for non-interactive environments.
+    filter_chromosomes : bool
+        If True, only keep fragments from chromosomes recognized by the
+        provided genome (keys if genome is a dict, or standard chromosomes
+        for the named genome) (default: True).
+
+    Returns
+    -------
+    AnnData or None
+        If inplace=False, returns a new AnnData object with the peak matrix.
+        Otherwise returns None and modifies adata in place.
+
+    Examples
+    --------
+    >>> import gatac
+    >>> # After calling peaks and merging
+    >>> gatac.peak.merge(adata, use_rep="gmacs", key_added="peaks")
+    >>> # Create peak matrix from a single file
+    >>> peak_mat = gatac.peak.make_matrix(
+    ...     adata,
+    ...     parquet_path="/path/to/fragments.parquet",
+    ...     use_rep="peaks",
+    ...     inplace=False,
+    ... )
+    >>> # Create peak matrix from multiple files
+    >>> peak_mat = gatac.peak.make_matrix(
+    ...     adata,
+    ...     parquet_path=["/path/to/sample1.parquet", "/path/to/sample2.parquet"],
+    ...     use_rep="peaks",
+    ...     inplace=False,
+    ... )
+    >>> # Create peak matrix from directory (uses source_file obs)
+    >>> peak_mat = gatac.peak.make_matrix(
+    ...     adata,
+    ...     parquet_path="/path/to/parquet_dir/",
+    ...     use_rep="peaks",
+    ...     inplace=False,
+    ... )
+    """
+    from anndata import AnnData as AD
+
+    # Get peaks: a peak_file takes precedence over use_rep
+    if peak_file is not None:
+        # Read from BED file
+        peaks_df = read_bed(peak_file)
+    elif use_rep is not None:
+        if use_rep not in adata.uns:
+            raise ValueError(f"'{use_rep}' not found in adata.uns")
+        peaks_df = adata.uns[use_rep]
+        if not isinstance(peaks_df, pd.DataFrame):
+            raise ValueError(f"adata.uns['{use_rep}'] must be a DataFrame")
+        if not all(col in peaks_df.columns for col in ["chrom", "start", "end"]):
+            raise ValueError("Peaks DataFrame must have 'chrom', 'start', 'end' columns")
+        peaks_df = peaks_df[["chrom", "start", "end"]].copy()
+    else:
+        raise ValueError("Must specify either peak_file or use_rep")
+
+    # Get chrom sizes for filtering
+    if isinstance(genome, str):
+        chrom_sizes = get_chrom_sizes(genome)
+    else:
+        chrom_sizes = genome
+    chrom_names = list(chrom_sizes.keys()) if chrom_sizes is not None else None
+
+    logger.info(f"Counting fragments in {len(peaks_df):,} peaks")
+
+    # Sort peaks
+    peaks_df = peaks_df.sort_values(["chrom", "start"]).reset_index(drop=True)
+    n_cells = len(adata.obs)
+    n_peaks = len(peaks_df)
+
+    # Only fragments on chromosomes with peaks can overlap one
+    allowed = set(chrom_names) if filter_chromosomes and chrom_names is not None else None
+    chroms = [c for c in pd.unique(peaks_df["chrom"].astype(str)) if allowed is None or c in allowed]
+
+    # Create cell index mapping (barcode -> row index)
+    barcode_to_idx = {cell: idx for idx, cell in enumerate(adata.obs.index)}
+    all_barcodes = set(adata.obs.index)
+
+    # Determine parquet files to process
+    if isinstance(parquet_path, list):
+        # List of parquet files provided directly
+        parquet_files = [Path(p) for p in parquet_path]
+        file_to_barcodes = dict.fromkeys(parquet_files, all_barcodes)
+        logger.info(f"Processing {len(parquet_files)} parquet files (list mode)")
+    else:
+        parquet_path = Path(parquet_path)
+
+        if parquet_path.is_dir():
+            # Directory mode - use source_file obs to map cells to files
+            if "source_file" not in adata.obs.columns:
+                raise ValueError("parquet_path is a directory but 'source_file' not in adata.obs")
+
+            # Group barcodes by source file
+            file_to_barcodes = defaultdict(set)
+            for barcode, src_file in adata.obs["source_file"].items():
+                parquet_name = _source_parquet_name(src_file)
+                parquet_file = parquet_path / parquet_name
+                file_to_barcodes[parquet_file].add(barcode)
+
+            parquet_files = list(file_to_barcodes.keys())
+            logger.info(f"Processing {len(parquet_files)} parquet files (directory mode)")
+        else:
+            # Single file mode
+            parquet_files = [parquet_path]
+            file_to_barcodes = {parquet_path: all_barcodes}
+            logger.info("Processing single parquet file")
+
+    # Process each parquet file
+    n_files = len(parquet_files)
+    if verbose == "tqdm" or verbose is True:
+        from gatac._progress import tqdm
+
+        file_iter = tqdm(parquet_files, desc="Parquet files")
+    else:
+        file_iter = parquet_files
+
+    import time
+
+    start_time = time.time()
+
+    # Per file: the output rows of its cells and their peak counts
+    parts = []
+    with async_memory_pool():
+        peaks = _peak_keys(peaks_df, chroms)
+        for file_idx, parquet_file in enumerate(file_iter):
+            if not parquet_file.exists():
+                logger.warning(f"Parquet file not found: {parquet_file}")
+                continue
+
+            barcodes_for_file = file_to_barcodes[parquet_file]
+
+            if len(barcodes_for_file) == 0:
+                continue
+
+            # Log progress if verbose="log"
+            if verbose == "log":
+                elapsed = time.time() - start_time
+                if file_idx > 0:
+                    eta = elapsed / file_idx * (n_files - file_idx)
+                    eta_str = f", ETA: {eta:.1f}s"
+                else:
+                    eta_str = ""
+                logger.info(
+                    f"[{file_idx + 1}/{n_files}] Processing {parquet_file.name}: "
+                    f"{len(barcodes_for_file):,} barcodes{eta_str}"
+                )
+
+            logger.debug(f"Processing {parquet_file.name}: {len(barcodes_for_file):,} barcodes")
+
+            # The file's cells in matrix order
+            cells = sorted(barcodes_for_file, key=barcode_to_idx.__getitem__)
+            row_nnz, cols, data = _count_file_peaks(
+                FragmentFile(parquet_file),
+                cells,
+                chroms,
+                peaks,
+                n_peaks,
+                batch_size,
+                counting_strategy,
+            )
+            if len(cols) > 0:
+                rows = np.fromiter((barcode_to_idx[b] for b in cells), dtype=np.int64, count=len(cells))
+                # cells without a count here, as all of a list's cells are in other files
+                seen = row_nnz > 0
+                parts.append((rows[seen], row_nnz[seen], cols, data))
+        del peaks
+    cleanup_gpu_memory()
+
+    count_matrix = _assemble_rows(parts, n_cells, n_peaks)
+    del parts
+
+    logger.info(f"Peak matrix: {n_cells:,} cells × {n_peaks:,} peaks")
+    if n_cells * n_peaks > 0:
+        logger.info(f"Sparsity: {100 * (1 - count_matrix.nnz / (n_cells * n_peaks)):.2f}%")
+
+    # Create peak names (vectorized)
+    peak_names = (
+        peaks_df["chrom"].astype(str) + ":" + peaks_df["start"].astype(str) + "-" + peaks_df["end"].astype(str)
+    ).tolist()
+
+    if inplace:
+        # Replace .X with peak matrix (not recommended)
+        adata.X = count_matrix
+        # Update var to match peaks
+        adata.var = pd.DataFrame(index=peak_names)
+        for col in peaks_df.columns:
+            if col not in ["chrom", "start", "end"]:
+                adata.var[col] = peaks_df[col].values
+        return None
+    else:
+        # Create new AnnData
+        var_df = pd.DataFrame(index=peak_names)
+        for col in peaks_df.columns:
+            if col not in ["chrom", "start", "end"]:
+                var_df[col] = peaks_df[col].values
+
+        new_adata = AD(
+            X=count_matrix,
+            # the AnnData annotation omits the Dataset2D obs of a lazy AnnData, accepted at runtime
+            obs=adata.obs.copy(),  # type: ignore[arg-type]
+            var=var_df,
+        )
+        return new_adata

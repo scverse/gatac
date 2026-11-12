@@ -1,139 +1,193 @@
-/* GATAC documentation — custom styles (scanpydoc / sphinx-book-theme base) */
+/* GATAC documentation — custom styles on top of the scverse-doc theme.
+   The link colour comes from the theme's `accent` option in conf.py. */
 
 /* ── Brand colours ───────────────────────────────────────────────────────── */
 :root {
-  --gatac-green:     #73b301;   /* logo green */
-  --gatac-green-dark:#5a8c00;
-  --gatac-gpu:       #76b900;   /* NVIDIA green */
-  --pst-color-link-hover: var(--gatac-green);
-  --pst-color-secondary: var(--gatac-green);
+    /* Links follow each mode's temperature: on light, sphinx-book-theme's blue,
+       the docs' colour before scverse-doc (4.8:1 on white); on the sepia of
+       dark mode, a softer shade of the amber `accent` in conf.py (8.0:1). The
+       theme derives the text shade and the tints from the accent: pin them. */
+    --scverse-color-accent-text: light-dark(#176de8, #d69e64);
+    --scverse-color-accent-decorative: light-dark(#176de8, #e68c2c);
+    --gatac-green: #73b301; /* logo green */
+    --gatac-green-dark: #5a8c00;
+    --gatac-gpu: #76b900; /* NVIDIA green */
+    --pst-color-secondary: var(--gatac-green);
 }
 
+/* Hovered links keep their hue, darker on light and lighter on dark. The theme
+   sets its hover colour on html[data-theme], which outranks :root, so these do too */
 html[data-theme="light"] {
-  --pst-color-secondary: var(--gatac-green);
+    --pst-color-secondary: var(--gatac-green);
+    --pst-color-link-hover: #0f4fa8;
 }
 
 html[data-theme="dark"] {
-  --pst-color-link-hover: var(--gatac-green);
-  --pst-color-secondary: var(--gatac-green);
+    --pst-color-secondary: var(--gatac-green);
+    --pst-color-link-hover: #f7be83;
 }
 
-/* ── Logo spacing ────────────────────────────────────────────────────────── */
+/* ── Dark mode: sepia ────────────────────────────────────────────────────── */
+/* The theme derives its dark neutrals from a cool blue (oklch hue 245); these
+   are the same steps in a warm brown, a little less bright for the text.
+   pydata-sphinx-theme also sets data-theme="dark" when following the system. */
+html[data-theme="dark"] {
+    --scverse-color-background: oklch(18% 0.012 70);
+    --scverse-color-surface-alt: oklch(21% 0.016 70); /* search field */
+    --scverse-color-surface: oklch(25% 0.02 70); /* inline code, copy buttons */
+    --scverse-color-border-muted: oklch(31% 0.02 70);
+    --scverse-color-border: oklch(41% 0.024 70);
+    --scverse-color-text: oklch(91% 0.018 80);
+    --scverse-color-text-secondary: oklch(80% 0.02 75);
+    --scverse-color-text-muted: oklch(67% 0.022 70);
+    --scverse-color-heading: oklch(86% 0.016 78);
+    --scverse-color-code-bg: oklch(20% 0.014 70);
+    --scverse-color-footer-bg: oklch(22% 0.018 70);
+    --pst-color-on-background: oklch(23% 0.022 70); /* cards */
+}
+
+/* ── Logo ──────────────────────────────────────────────────────────────── */
+/* The theme puts the logo in the sidebar with `height: 100%; width: auto` on an
+   auto-height link. The SVG has a viewBox but no width or height, so it has no
+   size of its own, and some browsers (Safari) draw it zero-wide: size it here. */
 .navbar-brand img {
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  max-height: 100px;
+    width: 100%;
+    max-width: 15rem;
+    height: auto;
+}
+
+/* ── Primary sidebar width (pydata-sphinx-theme default: 25%) ─────────────── */
+@media (min-width: 960px) {
+    .bd-sidebar-primary {
+        --pst-sidebar-primary-width: 20%;
+    }
+}
+
+/* ── Primary sidebar spacing: tighter than the theme's ───────────────────── */
+/* Links: 0.25rem above and below in the theme */
+nav.bd-links li > a,
+.bd-sidebar-primary li.has-children > .reference {
+    padding-block: 0.125rem;
+}
+/* The expand arrow of a page with subpages: as tall as its link (30px in the theme) */
+.bd-sidebar-primary li.has-children > details > summary .toctree-toggle {
+    height: calc(1lh + 0.25rem);
+}
+/* Section headings: 1.25rem above, 0.5rem below in the theme */
+nav.bd-links p.caption {
+    margin-top: 0.875rem;
+    margin-bottom: 0.25rem;
 }
 
 /* ── Toctree caption headings (sidebar section labels) ───────────────────── */
 p.caption .caption-text,
 .bd-sidebar-secondary .onthispage {
-  color: var(--gatac-green);
-  font-weight: 600;
-  text-transform: uppercase;
+    color: var(--gatac-green);
+    font-weight: 600;
+    text-transform: uppercase;
 }
 
 /* ── Custom small/smaller roles (mirrors rapids-singlecell usage) ─────────── */
-.small   { font-size: 40% !important; }
-.smaller { font-size: 70% !important; }
+.small {
+    font-size: 40% !important;
+}
+.smaller {
+    font-size: 70% !important;
+}
 
 /* ── Landing page hero cards ─────────────────────────────────────────────── */
 .sd-card {
-  border-radius: 8px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+    border-radius: 8px;
+    transition:
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
 }
 
 .sd-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
 }
 
 /* Card footers with several buttons: side by side, not stacked */
 .sd-card-footer p.sd-card-text {
-  display: inline-block;
-  margin: 0 0.5rem 0 0;
+    display: inline-block;
+    margin: 0 0.5rem 0 0;
 }
 
 /* ── API summary tables ──────────────────────────────────────────────────── */
 table.autosummary td:first-child code {
-  white-space: nowrap;
+    white-space: nowrap;
 }
 
 /* ── Code blocks ─────────────────────────────────────────────────────────── */
 div.highlight pre {
-  border-radius: 6px;
+    border-radius: 6px;
 }
 
 /* Inline code */
 code.literal {
-  background-color: var(--pst-color-surface);
-  border: 1px solid var(--pst-color-border);
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 0.88em;
+    background-color: var(--pst-color-surface);
+    border: 1px solid var(--pst-color-border);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 0.88em;
 }
 
 /* ── Mermaid diagrams ────────────────────────────────────────────────────── */
 .mermaid svg {
-  max-width: 100%;
-  border-radius: 6px;
-}
-
-/* ── Sidebar active link ─────────────────────────────────────────────────── */
-.bd-sidebar-primary .nav-link.active {
-  border-left: 3px solid var(--gatac-green);
-  font-weight: 600;
+    max-width: 100%;
+    border-radius: 6px;
 }
 
 /* ── Back-to-top button ──────────────────────────────────────────────────── */
 #pst-back-to-top {
-  background-color: var(--gatac-green);
-  color: #fff;
+    background-color: var(--gatac-green);
+    color: #fff;
 }
 
 #pst-back-to-top:hover {
-  background-color: var(--gatac-green-dark);
-  color: #fff;
+    background-color: var(--gatac-green-dark);
+    color: #fff;
 }
 
 #pst-back-to-top:focus-visible {
-  outline-color: var(--gatac-green);
+    outline-color: var(--gatac-green);
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 footer.bd-footer {
-  border-top: 1px solid var(--pst-color-border);
-  font-size: 0.85rem;
+    border-top: 1px solid var(--pst-color-border);
+    font-size: 0.85rem;
 }
 
 /* ── GPU badge (used in API pages) ──────────────────────────────────────── */
 .gpu-badge {
-  display: inline-block;
-  background: var(--gatac-gpu);
-  color: #000;
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 3px;
-  vertical-align: middle;
-  margin-left: 4px;
+    display: inline-block;
+    background: var(--gatac-gpu);
+    color: #000;
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
 }
 
 /* ── Responsive tables ───────────────────────────────────────────────────── */
 table.docutils {
-  width: 100%;
-  overflow-x: auto;
-  display: block;
+    width: 100%;
+    overflow-x: auto;
+    display: block;
 }
 
 /* ── Heading anchor links ─────────────────────────────────────────────────── */
 a.headerlink {
-  color: var(--gatac-green);
+    color: var(--gatac-green);
 }
 
 a.headerlink:hover {
-  color: var(--gatac-green-dark);
+    color: var(--gatac-green-dark);
 }
 
 /* ── Notebook output images ──────────────────────────────────────────────── */
@@ -141,50 +195,61 @@ a.headerlink:hover {
    images scale responsively with the page width.                             */
 .cell_output img,
 .output img {
-  max-width: 100%;
-  height: auto !important;
-  width: auto !important;
+    max-width: 100%;
+    height: auto !important;
+    width: auto !important;
 }
 
 /* ── Dark mode overrides ─────────────────────────────────────────────────── */
-html[data-theme="dark"] {
-  --gatac-blue: #58a6ff;
-}
-
 html[data-theme="dark"] code.literal {
-  background-color: #161b22;
-  border-color: #30363d;
+    background-color: var(--pst-color-surface);
+    border-color: var(--pst-color-border-muted);
 }
 
 /* Release notes: {small}`date` and {smaller}`author` */
-.small { font-size: 0.8em; font-weight: normal; opacity: 0.75; }
-.smaller { font-size: 0.75em; opacity: 0.75; }
+.small {
+    font-size: 0.8em;
+    font-weight: normal;
+    opacity: 0.75;
+}
+.smaller {
+    font-size: 0.75em;
+    opacity: 0.75;
+}
 
 /* Wide SVG diagrams: on narrow screens keep a readable size and scroll
    sideways instead of shrinking the text (e.g. the Parquet file layout) */
 .diagram-scroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 .diagram-scroll > svg {
-  min-width: 600px;
+    min-width: 600px;
 }
 /* "Scroll sideways" hint above such a diagram, only where it does scroll
    (the diagram is at least 600px wide; the article has 1rem side padding) */
 .diagram-scroll-hint {
-  display: none;
-  margin: 0 0 0.25rem;
-  font-size: 0.8em;
-  text-align: right;
-  color: var(--pst-color-text-muted);
+    display: none;
+    margin: 0 0 0.25rem;
+    font-size: 0.8em;
+    text-align: right;
+    color: var(--pst-color-text-muted);
 }
 @media (max-width: 640px) {
-  .diagram-scroll-hint { display: block; }
+    .diagram-scroll-hint {
+        display: block;
+    }
 }
 
 /* A diagram drawn twice: the wide layout, and a vertical one for phones */
-.diagram-narrow { display: none; }
+.diagram-narrow {
+    display: none;
+}
 @media (max-width: 640px) {
-  .diagram-wide { display: none; }
-  .diagram-narrow { display: block; }
+    .diagram-wide {
+        display: none;
+    }
+    .diagram-narrow {
+        display: block;
+    }
 }

@@ -27,24 +27,24 @@ gatac convert --samples SHEET.csv [--output-dir DIR] [-j WORKERS]
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
-| `input` | Path (or glob pattern) to one or more TSV.GZ fragment files, or `.parquet` files to write back to TSV.GZ |
+| Argument | Description                                                                                              |
+| -------- | -------------------------------------------------------------------------------------------------------- |
+| `input`  | Path (or glob pattern) to one or more TSV.GZ fragment files, or `.parquet` files to write back to TSV.GZ |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--samples` | — | [Sample sheet](#manual-your-own-names) (CSV) instead of input files: `fragments`, and optionally `output` and `barcode_prefix`, one row per file |
-| `--output`, `-o` | `<input>.parquet` (`<input>.tsv.gz` for a `.parquet` input) | Output file(s): one per input, or one with `{sample}` |
-| `--output-dir` | same dir as input | Directory for the outputs not named by `-o` |
-| `-j`, `--workers` | `auto` | Worker processes for parallel batch conversion ([Workers](#workers)) |
-| `--barcode-prefix` | — | Barcode prefix of the cells, stored in the file footer and changed with [`gatac rename`](rename): one per input, or one with `{sample}`, replaced by each file's [sample name](#automatic-sample); TSV inputs only |
-| `--file-prefix` | — | Prefix of the output file names: one per input, or one with `{sample}`; TSV inputs only |
-| `--gpu` | on when nvCOMP is installed | Require the GPU conversion: fail if nvCOMP, cuDF or CuPy is missing |
-| `--cpu` | off | Convert every file with DuckDB on the CPU (same Parquet) |
-| `--skip-invalid` | off | Skip the lines that are not a fragment (other than 5 fields, a field that is not a number, an empty field) and log how many, instead of failing |
-| `--overwrite` | off | Replace existing TSV outputs; `.parquet` inputs only |
+| Flag               | Default                                                     | Description                                                                                                                                                                                                        |
+| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--samples`        | —                                                           | [Sample sheet](#manual-your-own-names) (CSV) instead of input files: `fragments`, and optionally `output` and `barcode_prefix`, one row per file                                                                   |
+| `--output`, `-o`   | `<input>.parquet` (`<input>.tsv.gz` for a `.parquet` input) | Output file(s): one per input, or one with `{sample}`                                                                                                                                                              |
+| `--output-dir`     | same dir as input                                           | Directory for the outputs not named by `-o`                                                                                                                                                                        |
+| `-j`, `--workers`  | `auto`                                                      | Worker processes for parallel batch conversion ([Workers](#workers))                                                                                                                                               |
+| `--barcode-prefix` | —                                                           | Barcode prefix of the cells, stored in the file footer and changed with [`gatac rename`](rename): one per input, or one with `{sample}`, replaced by each file's [sample name](#automatic-sample); TSV inputs only |
+| `--file-prefix`    | —                                                           | Prefix of the output file names: one per input, or one with `{sample}`; TSV inputs only                                                                                                                            |
+| `--gpu`            | on when nvCOMP is installed                                 | Require the GPU conversion: fail if nvCOMP, cuDF or CuPy is missing                                                                                                                                                |
+| `--cpu`            | off                                                         | Convert every file with DuckDB on the CPU (same Parquet)                                                                                                                                                           |
+| `--skip-invalid`   | off                                                         | Skip the lines that are not a fragment (other than 5 fields, a field that is not a number, an empty field) and log how many, instead of failing                                                                    |
+| `--overwrite`      | off                                                         | Replace existing TSV outputs; `.parquet` inputs only                                                                                                                                                               |
 
 `-o`, `--barcode-prefix` and `--file-prefix` take one value for all files
 (with `{sample}`) or one value per input file, in the order of the inputs
@@ -228,12 +228,12 @@ must be plain decimal integers on the GPU; DuckDB also reads forms such as
 
 ### Compression
 
-| Input | Read by |
-|-------|---------|
-| BGZF (`bgzip`, as Cell Ranger writes `fragments.tsv.gz`) | GPU |
-| Uncompressed (`.tsv`) | GPU |
-| gzip that is not BGZF (one deflate stream, from `gzip`) | DuckDB: it cannot be split; `bgzip` it to read it on the GPU |
-| Zstandard (`.zst`, SnapATAC2's default export) | DuckDB |
+| Input                                                    | Read by                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------ |
+| BGZF (`bgzip`, as Cell Ranger writes `fragments.tsv.gz`) | GPU                                                          |
+| Uncompressed (`.tsv`)                                    | GPU                                                          |
+| gzip that is not BGZF (one deflate stream, from `gzip`)  | DuckDB: it cannot be split; `bgzip` it to read it on the GPU |
+| Zstandard (`.zst`, SnapATAC2's default export)           | DuckDB                                                       |
 
 The format is read from the file's first bytes, not its extension. Without
 nvCOMP, or with `--cpu`, DuckDB reads every file. A BGZF block that does
@@ -247,7 +247,7 @@ not inflate to the size in its trailer stops the conversion, even with
 Columns: `chrom_id`, `start`, `length` (`end - start`), `barcode_id`,
 `count`, plus the per-barcode table `bc_name`, `bc_n_unique`, `bc_n_total`.
 
-Row *i* of the `bc_*` columns describes barcode id *i* (its full original
+Row _i_ of the `bc_*` columns describes barcode id _i_ (its full original
 name, number of fragments and read count); they are null after the last
 barcode. Barcode ids are ordered by decreasing fragment count. Chromosome
 names are stored in the file footer (`gatac.chroms`). GATAC joins cells and

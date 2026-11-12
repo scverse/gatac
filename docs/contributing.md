@@ -38,17 +38,17 @@ uv run pytest tests/
 
 # Reproducibility benchmarks (requires GPU + data)
 cd reproducibility
-PYTHONPATH=.. pixi run pytest test/
+PYTHONPATH=../src pixi run pytest test/
 ```
 
 The reproducibility environment installs the released GATAC from PyPI;
-`PYTHONPATH=..` makes the tests use your checkout instead. After any change to
+`PYTHONPATH=../src` makes the tests use your checkout instead. After any change to
 a preprocessing or analysis function, run the related reproducibility test:
 
 ```bash
 cd reproducibility
-PYTHONPATH=.. pixi run pytest test/tile_matrix.py
-PYTHONPATH=.. pixi run pytest test/spectral_embedding.py
+PYTHONPATH=../src pixi run pytest test/tile_matrix.py
+PYTHONPATH=../src pixi run pytest test/spectral_embedding.py
 ```
 
 ### GPU tests in CI
@@ -109,7 +109,7 @@ options.
 uv run ruff check --fix && uv run ruff format   # or: uv run pre-commit run --all-files
 ```
 
-The *Checks* workflow builds the package (`uv build`, `twine check
+The _Checks_ workflow builds the package (`uv build`, `twine check
 --strict`), installs the wheel without a CUDA extra, and builds the docs with
 warnings as errors. It runs on GitHub's free runners, on every pull request;
 the GPU tests need the `run-gpu-ci` label.
@@ -134,11 +134,11 @@ from `blank.md`. `index.md` includes it at the top, under its minor version
 always on `main`, dated `the-future`, and **every pull request that users would
 notice adds its line to it**, in the same pull request.
 
-- Put each change under one of the rubrics, in this order: *Features*,
-  *Performance*, *Bug fixes*, *Misc*, *Removals*. Remove the rubrics left
+- Put each change under one of the rubrics, in this order: _Features_,
+  _Performance_, _Bug fixes_, _Misc_, _Removals_. Remove the rubrics left
   empty when releasing.
-- One bullet per change, on one line, starting with a verb: *Add*, *Speed
-  up*, *Fix*, *Match*, *Raise*, *Deprecate*, *Remove*. Say what changes for
+- One bullet per change, on one line, starting with a verb: _Add_, _Speed
+  up_, _Fix_, _Match_, _Raise_, _Deprecate_, _Remove_. Say what changes for
   users, including results that differ from the previous version.
 - Link what it is about with its full path, and `~` to show only the name:
   `` {func}`~gatac.peak.call` ``, `` {class}`~gatac.io.FragmentFile` ``,
@@ -158,8 +158,8 @@ The version is the git tag (hatch-vcs): `v0.1.0` builds `0.1.0`. Publishing a
 GitHub release uploads it to PyPI through trusted publishing
 (`.github/workflows/release.yml`).
 
-Once, before the first release: on PyPI and on TestPyPI, add a *pending
-trusted publisher* for the project `gatac` (owner `scverse`, repository
+Once, before the first release: on PyPI and on TestPyPI, add a _pending
+trusted publisher_ for the project `gatac` (owner `scverse`, repository
 `gatac`, workflow `release.yml`, environment `pypi` on PyPI and `testpypi` on
 TestPyPI), and create both environments in the repository's settings. As in
 scanpy, only version tags (`v[0-9]*.[0-9]*.[0-9]*`) may deploy to `pypi`;
@@ -170,15 +170,15 @@ For each release:
 1. In the version's release notes (`docs/release-notes/X.Y.Z.md`), replace
    `the-future` in its heading by the date (`2026-11-20`).
 2. Run the GPU tests on the release commit (`run-gpu-ci` label, or the Modal
-   script) and check that the *Checks* workflow passes.
-3. Optionally, try the upload on TestPyPI first: *Actions → Release → Run
-   workflow* on `main`, with a version that is not used yet (`0.1.0rc1`), then
+   script) and check that the _Checks_ workflow passes.
+3. Optionally, try the upload on TestPyPI first: _Actions → Release → Run
+   workflow_ on `main`, with a version that is not used yet (`0.1.0rc1`), then
    `pip install -i https://test.pypi.org/simple/ --extra-index-url
    https://pypi.org/simple/ gatac==0.1.0rc1`.
 4. Tag the commit and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
 5. Create a GitHub release of the tag, whose notes link to the release notes
    page: `https://gatac.readthedocs.io/en/latest/release-notes/index.html`.
-   The *Release* workflow builds the sdist and wheel, checks that their
+   The _Release_ workflow builds the sdist and wheel, checks that their
    version is the tag's, and publishes them to PyPI.
 6. On `main`, start the next version's notes: copy `blank.md` to the next
    version's file (`0.1.1.md`), and include it at the top of `index.md`.
@@ -198,7 +198,7 @@ Please open a GitHub issue with:
 
 ## Documentation
 
-The docs live in `docs/`.  To build locally:
+The docs live in `docs/`. To build locally:
 
 ```bash
 uv sync --group docs

@@ -94,12 +94,12 @@ compressed here with ZSTD:
 
 - the fragment data (`chrom_id`, `start`, `length`, `barcode_id`, `count`):
   one line per fragment, in the order of the input file. The `start`
-  position is stored as a *delta* value: the fragments are sorted, so each
+  position is stored as a _delta_ value: the fragments are sorted, so each
   line contains the (small) difference to the previous line. The `end`
   position is stored as `length` (`end - start`), which is a few hundred
   bases for ATAC-seq and therefore almost always starts with a byte of 0.
   All readers of Parquet fragment files provide `end`.
-- a barcode table: row *i* gives the original name of barcode id *i*
+- a barcode table: row _i_ gives the original name of barcode id _i_
   (`bc_name`), with the number of fragments (`bc_n_unique`) and reads
   (`bc_n_total`) of that barcode. So `FragmentFile.barcode_counts()` does not need to read
   the fragments data. Barcodes are given an id in decreasing order of
@@ -300,12 +300,12 @@ Four functions take an AnnData opened with `anndata.read_h5ad(path,
 backed="r")`, or a view of one, and read only what they need from the file
 onto the GPU:
 
-| Function | Reads from the file |
-|---|---|
-| `pp.select_features` | Nothing for a tile matrix that keeps all cells: the per-tile counts in `var` are enough. Otherwise, the matrix once, in row chunks. |
-| `dr.spectral` | Only the selected features. |
-| `motif.compute_deviations` | One row chunk at a time, so memory does not grow with the number of cells. |
-| `peak.markers` | Only the cells it tests. |
+| Function                   | Reads from the file                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pp.select_features`       | Nothing for a tile matrix that keeps all cells: the per-tile counts in `var` are enough. Otherwise, the matrix once, in row chunks. |
+| `dr.spectral`              | Only the selected features.                                                                                                         |
+| `motif.compute_deviations` | One row chunk at a time, so memory does not grow with the number of cells.                                                          |
+| `peak.markers`             | Only the cells it tests.                                                                                                            |
 
 Above 100,000 cells, or when `chunk_size` is given, `dr.spectral` keeps row
 chunks on the GPU while they fit in half of the free GPU memory. The other
@@ -326,11 +326,11 @@ adata.write()  # saves var, obsm, ... into the file, not X
 
 Results are stored as scanpy stores them, in the AnnData given as input:
 
-| Input | Results |
-|---|---|
-| in memory | `adata.obsm` / `adata.uns`, as before |
-| backed, opened `"r"` | in memory only. `adata.write()` saves them (anndata rewrites obs, var, obsm, uns, ... but not X) |
-| backed, opened `"r+"` | in memory and in the file: the new keys only, X untouched |
+| Input                      | Results                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| in memory                  | `adata.obsm` / `adata.uns`, as before                                                                       |
+| backed, opened `"r"`       | in memory only. `adata.write()` saves them (anndata rewrites obs, var, obsm, uns, ... but not X)            |
+| backed, opened `"r+"`      | in memory and in the file: the new keys only, X untouched                                                   |
 | a view of a backed AnnData | nothing stored: `spectral(..., inplace=False)` and `compute_deviations(..., return_adata=True)` return them |
 
 ```python

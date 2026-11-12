@@ -1,50 +1,59 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatch-vcs", "hatchling>=1.27" ]  # 1.27: SPDX license and license-files
+
 [project]
 name = "gatac"
-dynamic = ["version"]
-description = "GPU-accelerated single-cell ATAC-seq analysis, from fragment files to peaks, clusters, motifs and footprints"
+description = """\
+  GPU-accelerated single-cell ATAC-seq analysis, from fragment files to peaks, clusters, motifs and footprints\
+  """
 readme = "README.md"
+keywords = [ "ATAC-seq", "chromatin accessibility", "GPU", "RAPIDS", "single-cell" ]
 license = "BSD-3-Clause"
-license-files = ["LICENSE"]
-authors = [{ name = "Louis Faure" }]
+license-files = [ "LICENSE" ]
+authors = [ { name = "Louis Faure" } ]
 requires-python = ">=3.13"
-keywords = ["ATAC-seq", "single-cell", "chromatin accessibility", "GPU", "RAPIDS"]
 classifiers = [
-    "Environment :: GPU :: NVIDIA CUDA :: 12",
-    "Environment :: GPU :: NVIDIA CUDA :: 13",
-    "Intended Audience :: Science/Research",
-    "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Environment :: GPU :: NVIDIA CUDA :: 12",
+  "Environment :: GPU :: NVIDIA CUDA :: 13",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
 ]
+dynamic = [ "version" ]
 # Everything gatac imports itself, not only through scanpy; floors are scanpy's
 dependencies = [
-    "anndata>=0.10.8",
-    "duckdb>=2.0",
-    "h5py>=3.11",
-    "matplotlib>=3.10",
-    "numba>=0.60",
-    "numpy>=2",
-    "pandas>=2.3",
-    "pyarrow>=22.0.0",
-    "scanpy>=1.11.5",
-    "scikit-learn>=1.6",
-    "scipy>=1.13",
-    "seaborn>=0.13.2",
-    "statsmodels>=0.14",
-    "tqdm>=4.66.0",
+  "anndata>=0.10.8",
+  "duckdb>=2",
+  "h5py>=3.11",
+  "matplotlib>=3.10",
+  "numba>=0.60",
+  "numpy>=2",
+  "pandas>=2.3",
+  "pyarrow>=22",
+  "scanpy>=1.11.5",
+  "scikit-learn>=1.6",
+  "scipy>=1.13",
+  "seaborn>=0.13.2",
+  # for debug logging (referenced from the issue template)
+  "session-info2",
+  "statsmodels>=0.14",
+  "tqdm>=4.66",
 ]
-
-[project.optional-dependencies]
 # Seurat's approximate neighbour search, for `snn_cluster(knn="annoy")` /
 # `iterative_lsi(cluster_params={"knn": "annoy"})`. Only needed to reproduce
 # ArchR's clustering; the default exact GPU search needs nothing extra.
-archr-compat = [
-    "annoy>=1.17",
+optional-dependencies.archr-compat = [
+  "annoy>=1.17",
 ]
 # `tobias` footprint tracks written as bigWig (`FootprintResult.to_bigwig`)
-bigwig = [
-    "pyBigWig>=0.3.22",
+optional-dependencies.bigwig = [
+  "pybigwig>=0.3.22",
 ]
 # RAPIDS floors, not pins, so GATAC installs next to newer releases; cap one
 # here when it breaks GATAC. CuPy is used directly (and its 14.x behaviour).
@@ -53,123 +62,197 @@ bigwig = [
 # so the resolver picks the one matching cuDF. kvikio reads h5ad count
 # matrices straight into GPU memory (`gatac.io.read_h5ad`); each wheel
 # requires the libkvikio of its release, which libcudf pins too.
-rapids-cu12 = [
-    "cudf-cu12>=26.02",
-    "cuml-cu12>=26.02",
-    "cugraph-cu12>=26.02",
-    "cupy-cuda12x[ctk]>=14",
-    "nvidia-nvcomp-cu12>=5.1",
-    "kvikio-cu12>=26.02",
+optional-dependencies.rapids-cu12 = [
+  "cudf-cu12>=26.2",
+  "cugraph-cu12>=26.2",
+  "cuml-cu12>=26.2",
+  "cupy-cuda12x[ctk]>=14",
+  "kvikio-cu12>=26.2",
+  "nvidia-nvcomp-cu12>=5.1",
 ]
-rapids-cu13 = [
-    "cudf-cu13>=26.02",
-    "cuml-cu13>=26.02",
-    "cugraph-cu13>=26.02",
-    "cupy-cuda13x[ctk]>=14",
-    "nvidia-nvcomp-cu13>=5.1",
-    "kvikio-cu13>=26.02",
+optional-dependencies.rapids-cu13 = [
+  "cudf-cu13>=26.2",
+  "cugraph-cu13>=26.2",
+  "cuml-cu13>=26.2",
+  "cupy-cuda13x[ctk]>=14",
+  "kvikio-cu13>=26.2",
+  "nvidia-nvcomp-cu13>=5.1",
+]
+urls.Changelog = "https://gatac.readthedocs.io/en/latest/release-notes/index.html"
+urls.Documentation = "https://gatac.readthedocs.io"
+urls.Issues = "https://github.com/scverse/gatac/issues"
+urls.Source = "https://github.com/scverse/gatac"
+scripts.gatac = "gatac.cli:main"
+
+[dependency-groups]
+# Lint (ruff) and the git hooks. Run `uv run prek install` once per clone
+dev = [
+  "prek>=0.2",
+  "ruff>=0.17",
+  "sphinx-autobuild>=2024", # live preview of the docs
+]
+test = [
+  "coverage>=7.10",
+  "pyfaidx>=0.7,<0.9", # reference for the FASTA reader tests
+  "pytest>=9",         # [tool.pytest] table
+  "pytest-timeout>=2",
+  "pytest-xdist>=3.6",
+]
+docs = [
+  "ipykernel",
+  "ipython",
+  "scverse-doc[full]>=0.5",
+  "scverse-misc[sphinx]>=0.1.8",
+  "sphinx-autodoc-typehints",
+  "sphinx-design>=0.8",          # card-header / card-footer directives
+  "sphinxcontrib-bibtex>=2.6",
+  "sphinxcontrib-mermaid>=0.9",
+]
+typecheck = [
+  "mypy",
+  "pandas-stubs",
+  "scipy-stubs",
+  "types-seaborn",
+  "types-tqdm",
 ]
 
-[project.urls]
-Documentation = "https://gatac.readthedocs.io"
-Source = "https://github.com/scverse/gatac"
-Issues = "https://github.com/scverse/gatac/issues"
-Changelog = "https://gatac.readthedocs.io/en/latest/release-notes/index.html"
-
-[project.scripts]
-gatac = "gatac.cli:main"
+[tool.hatch]
+# The version is the git tag (v0.1.0 -> 0.1.0); between tags, 0.1.1.devN+g<commit>
+version.source = "vcs"
+# The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
+build.targets.sdist.only-include = [ "src/gatac", "tests" ]
 
 [tool.uv]
 conflicts = [
-    [
-        { extra = "rapids-cu12" },
-        { extra = "rapids-cu13" },
-    ],
+  [
+    { extra = "rapids-cu12" },
+    { extra = "rapids-cu13" },
+  ],
 ]
-
-[dependency-groups]
-test = [
-    "pytest>=8",
-    "pytest-timeout>=2",
-    "pytest-xdist>=3.6",
-    "coverage>=7.10",
-    "pyfaidx>=0.7.0,<0.9.0",  # reference for the FASTA reader tests
-]
-# Lint (ruff) and its pre-commit hook; `uv run pre-commit install` once per clone
-dev = [
-    "pre-commit>=4",
-    "ruff>=0.17",
-]
-docs = [
-    "sphinx>=9.1",  # TODO: remove conf.py monkey-patch once executablebooks/MyST-Parser#1052 is fixed
-    "scanpydoc[typehints]>=0.17.5",  # extra pulls a matching sphinx-autodoc-typehints; <0.17.5 breaks with it >=3.14
-    "myst-parser>=4.0",
-    "myst-nb>=1.1",
-    "sphinx-copybutton>=0.5",
-    "sphinx-design>=0.8",  # card-header / card-footer directives
-    "sphinxcontrib-mermaid>=0.9",
-    "sphinx-autobuild>=2024",
-    "numpydoc>=1.7",
-    "sphinx-book-theme>=1.2.0",
-    "sphinxcontrib-bibtex>=2.6",
-]
-
-[build-system]
-requires = ["hatchling>=1.27", "hatch-vcs"]  # 1.27: SPDX license and license-files
-build-backend = "hatchling.build"
-
-# The version is the git tag (v0.1.0 -> 0.1.0); between tags, 0.1.1.devN+g<commit>
-[tool.hatch.version]
-source = "vcs"
-
-# The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
-[tool.hatch.build.targets.sdist]
-only-include = ["gatac", "tests"]
 
 [tool.ruff]
 line-length = 120
+src = [ "src" ]
 # The package, its tests and the docs config; not the submodules
-extend-exclude = ["reproducibility", "tutorials"]
-
-[tool.ruff.lint]
-select = [
-  "E",   # pycodestyle errors
-  "F",   # pyflakes
-  "W",   # pycodestyle warnings
-  "I",   # isort
-  "UP",  # pyupgrade
-  "B",   # bugbear
+extend-exclude = [ "reproducibility", "tutorials" ]
+format.docstring-code-format = true
+lint.select = [
+  "B",      # flake8-bugbear
+  "BLE",    # flake8-blind-except
+  "C4",     # flake8-comprehensions
+  "D",      # pydocstyle
+  "E",      # Error detected by Pycodestyle
+  "F",      # Errors detected by Pyflakes
+  "I",      # isort
+  "RUF100", # Report unused noqa directives
+  "TID",    # flake8-tidy-imports
+  "UP",     # pyupgrade
+  "W",      # Warning detected by Pycodestyle
 ]
-ignore = [
-  "E501", # line too long -> the formatter handles code lines
-  "E731", # lambda assignments are fine
-  "E741", # I, O, l as variable names
+lint.ignore = [
+  "B008", # Errors from function calls in argument defaults. These are fine when the result is immutable.
   "B905", # zip(strict=) on every zip is noise here: the zips pair arrays of one length
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+  "D105", # __magic__ methods are often self-explanatory, allow missing docstrings
+  "D107", # Missing docstring in __init__
+  # Disable one in each pair of mutually incompatible rules
+  "D203", # We don’t want a blank line before a class docstring
+  "D213", # <> We want docstrings to start immediately after the opening triple quote
+  "D400", # first line should end with a period [Bug: doesn’t work with single-line docstrings]
+  "D401", # First line should be in imperative mood; try rephrasing
+  "E501", # line too long -> we accept long comment lines; formatter gets rid of long code lines
+  "E731", # Do not assign a lambda expression, use a def -> lambda expression assignments are convenient
+  "E741", # allow I, O, l as variable names -> I is the identity matrix
 ]
-isort.known-first-party = ["gatac"]
-
-[tool.ruff.lint.per-file-ignores]
-"*/__init__.py" = ["F401", "E402"]
+lint.per-file-ignores."*/__init__.py" = [ "E402", "F401" ]
+lint.per-file-ignores."ci/*" = [ "D103" ]  # tooling, not API
+lint.per-file-ignores."docs/*" = [ "I" ]
+lint.per-file-ignores."docs/scripts/*" = [ "D101", "D102", "D103" ]  # figure drawing helpers
 # Imports after _require_rapids(), which names the CUDA extra to install
-"gatac/gpu.py" = ["E402"]
+lint.per-file-ignores."src/gatac/gpu.py" = [ "E402" ]
 # The closures of the motif scan and the background sampling read the loop's
 # variables, but each runs in the iteration that defines it
-"gatac/tobias/bindetect.py" = ["B023"]
+lint.per-file-ignores."src/gatac/tobias/bindetect.py" = [ "B023" ]
+lint.per-file-ignores."tests/*" = [ "D" ]
+lint.isort.known-first-party = [ "gatac" ]
+lint.pydocstyle.convention = "numpy"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.mypy]
+mypy_path = "src"
+files = [ "src", "tests" ]
+explicit_package_bases = true
+python_version = "3.13"
+warn_redundant_casts = true
+warn_unused_ignores = true
+enable_error_code = [ "ignore-without-code" ]
+warn_unused_configs = true
+
+# RAPIDS and the other GPU libraries are not installed in the typecheck environment,
+# and these dependencies ship without type information
+[[tool.mypy.overrides]]
+module = [
+  "annoy",
+  "cudf.*",
+  "cugraph.*",
+  "cuml.*",
+  "cupy.*",
+  "cupyx.*",
+  "gseapy.*",
+  "h5py.*",
+  "kvikio.*",
+  "nvidia.*",
+  "pyarrow.*",
+  "pyBigWig",
+  "pyfaidx.*",
+  "pylibcudf.*",
+  "rapidgzip.*",
+  "rmm.*",
+  "sklearn.*",
+  "statsmodels.*",
+]
+ignore_missing_imports = true
+
+# scanpy has inline annotations but no py.typed marker
+[[tool.mypy.overrides]]
+module = [ "scanpy", "scanpy.*" ]
+follow_untyped_imports = true
+
+[tool.pytest]
 # A hung GPU test fails after 2 minutes instead of holding the CI runner.
 # Four workers share the one GPU, one per vCPU of the CI runner (g4dn.xlarge);
 # more only contend for the GPU (-n 8 is no faster). Pass -n0 to run in one
 # process, e.g. for --pdb.
-addopts = ["--import-mode=importlib", "--strict-markers", "--timeout=120", "-n", "4"]
+addopts = [ "--import-mode=importlib", "--strict-markers", "--timeout=120", "-n", "4" ]
+strict = true
+testpaths = [ "tests" ]
 
 [tool.coverage]
-run.source_pkgs = ["gatac"]
-paths.source = ["gatac", "**/site-packages/gatac"]
-run.patch = ["subprocess"]  # test_lsi_reproducible_across_processes runs LSI in a child process
+run.source_pkgs = [ "gatac" ]
 # Hidden: coverage combines every file named like it, and coverage.xml would be one
 run.data_file = "test-data/.coverage"
+run.patch = [ "subprocess" ]  # test_lsi_reproducible_across_processes runs LSI in a child process
+paths.source = [ "src/gatac", "**/site-packages/gatac" ]
 # Numba compiles these functions: their bodies never run as Python
-report.exclude_also = ["if TYPE_CHECKING:", "@(numba\\.)?njit"]
+report.exclude_also = [ "@(numba\\.)?njit", "if TYPE_CHECKING:" ]
 xml.output = "test-data/coverage.xml"
+
+[tool.cruft]
+# Project files the scverse template must not touch on `cruft update`
+skip = [
+  ".git",
+  "src",
+  "tests",
+  "README.md",
+  "CHANGELOG.md",
+  "docs/api.md",
+  "docs/api",
+  "docs/changelog.md",
+  "docs/references.bib",
+  "docs/references.md",
+  "docs/notebooks/example.ipynb",
+  # GPU CI: test-gpu.yml, checks.yml and release.yml replace the CPU workflows of the template
+  ".github/workflows/build.yaml",
+  ".github/workflows/release.yaml",
+  ".github/workflows/test.yaml",
+]

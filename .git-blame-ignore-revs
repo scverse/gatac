@@ -1,3 +1,8 @@
 # ruff format (git config blame.ignoreRevsFile .git-blame-ignore-revs)
 c73cfa00b71933c64c8f46e7642c17ea66d53607
 a298ea312a49496fe8a39616d047b88b39d1752a
+
+# cookiecutter-scverse: biome and pyproject-fmt formatting
+3fe8d67a83a2884d6cce5fd7cfa5a168614ff13f
+# cookiecutter-scverse: the template ruff rules (absolute imports, docstring summaries)
+9b8dd7dfed72c2c7aa8149726f328b785672bb74

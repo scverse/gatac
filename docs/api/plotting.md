@@ -4,7 +4,7 @@ The `gatac.pl` namespace draws the standard diagnostic plots with matplotlib:
 the fragment size distribution of a Parquet fragment file, the TSS enrichment
 and fragment count QC panels from {func}`gatac.pp.compute_metrics`, the
 top enriched motifs per peak set from {func}`gatac.motif.enrichment`, and the
-BINDetect volcano and aggregate footprints from {mod}`gatac.tobias`.
+BINDetect volcano and aggregate footprints from {doc}`gatac.tobias <tobias>`.
 
 ```{eval-rst}
 .. currentmodule:: gatac.pl

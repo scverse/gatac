@@ -1,0 +1,48 @@
+{
+  "template": "https://github.com/scverse/cookiecutter-scverse",
+  "commit": "3cf6a432c391c7b30cc6d5a967c6155312919009",
+  "checkout": "3cf6a43",
+  "context": {
+    "cookiecutter": {
+      "project_name": "gatac",
+      "package_name": "gatac",
+      "project_description": "GPU-accelerated single-cell ATAC-seq analysis, from fragment files to peaks, clusters, motifs and footprints",
+      "author_full_name": "Louis Faure",
+      "author_email": "",
+      "github_user": "scverse",
+      "github_repo": "gatac",
+      "license": "BSD 3-Clause License",
+      "ide_integration": false,
+      "issue_categorization": "issue types",
+      "_copy_without_render": [
+        ".github/workflows/build.yaml",
+        ".github/workflows/test.yaml",
+        "docs/_templates/autosummary/**.rst"
+      ],
+      "_exclude_on_template_update": [
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md",
+        "docs/api.md",
+        "docs/api/**",
+        "docs/citation.md",
+        "docs/index.md",
+        "docs/installation.md",
+        "docs/notebooks/example.ipynb",
+        "docs/quickstart.md",
+        "docs/references.bib",
+        "docs/references.md",
+        "src/**",
+        "tests/**"
+      ],
+      "_render_devdocs": false,
+      "_jinja2_env_vars": {
+        "lstrip_blocks": true,
+        "trim_blocks": true
+      },
+      "_template": "https://github.com/scverse/cookiecutter-scverse",
+      "_commit": "3cf6a432c391c7b30cc6d5a967c6155312919009"
+    }
+  },
+  "directory": null
+}

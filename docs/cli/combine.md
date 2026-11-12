@@ -1,6 +1,6 @@
 # `gatac combine`
 
-Merge multiple AnnData (`.h5ad`) files into a single file.  Uses a
+Merge multiple AnnData (`.h5ad`) files into a single file. Uses a
 memory-efficient file-by-file streaming strategy to handle large multi-sample
 datasets without requiring all data to be resident in memory simultaneously.
 
@@ -18,16 +18,16 @@ gatac combine <input1.h5ad> [input2.h5ad ...] -o <output.h5ad> [--compression {g
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
-| `input` | Two or more h5ad file paths (glob patterns supported) |
+| Argument | Description                                           |
+| -------- | ----------------------------------------------------- |
+| `input`  | Two or more h5ad file paths (glob patterns supported) |
 
 ### Options
 
-| Flag | Description |
-|------|-------------|
-| `-o`, `--output` | **Required.** Output h5ad path |
-| `--compression` | `gzip` (default): HDF5 shuffle + gzip, compressed on the GPU; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
+| Flag             | Description                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-o`, `--output` | **Required.** Output h5ad path                                                                                                                     |
+| `--compression`  | `gzip` (default): HDF5 shuffle + gzip, compressed on the GPU; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 

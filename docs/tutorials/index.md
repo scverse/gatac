@@ -90,7 +90,7 @@ can view them here or download and run them locally after installing GATAC.
 ## Setting up the notebooks
 
 The notebooks are stored in a separate repository and linked as a git
-submodule under `tutorials/` at the repo root.  To initialise:
+submodule under `tutorials/` at the repo root. To initialise:
 
 ```bash
 git submodule update --init --recursive
@@ -108,6 +108,6 @@ uv run jupyter lab tutorials/01_fragment_preprocessing.ipynb
 
 :::{note}
 Pre-computed outputs are committed to the repository so the docs build does
-not require a GPU.  Set `nb_execution_mode = "auto"` in `docs/conf.py` to
+not require a GPU. Set `nb_execution_mode = "auto"` in `docs/conf.py` to
 re-execute notebooks during the docs build.
 :::

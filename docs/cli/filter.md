@@ -22,28 +22,28 @@ gatac filter <input.parquet> [-o OUTPUT]
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
+| Argument        | Description                                                 |
+| --------------- | ----------------------------------------------------------- |
 | `input.parquet` | Path to the fragment Parquet file (glob patterns supported) |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-o`, `--output` | `<input>_filtered.parquet` | Output Parquet path |
-| `--metrics` | — | Path to metrics CSV (from `gatac metrics`) |
-| `-m`, `--min-fragments` | `100` | Minimum unique fragments per barcode |
-| `--filter` | — | Pandas `DataFrame.query` string on the metrics (e.g. `"tsse_score > 5"`) |
-| `-g`, `--genome` | — | Genome name (`hg38`, `mm10`, …) for chromosome allowlist filtering |
-| `--barcode-prefix` | input's | Barcode prefix of the output (see [`gatac rename`](rename)); cells are matched to `--metrics` on the input's names |
-| `--batch-size` | `64` | Unused (kept for compatibility) |
+| Flag                    | Default                    | Description                                                                                                        |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-o`, `--output`        | `<input>_filtered.parquet` | Output Parquet path                                                                                                |
+| `--metrics`             | —                          | Path to metrics CSV (from `gatac metrics`)                                                                         |
+| `-m`, `--min-fragments` | `100`                      | Minimum unique fragments per barcode                                                                               |
+| `--filter`              | —                          | Pandas `DataFrame.query` string on the metrics (e.g. `"tsse_score > 5"`)                                           |
+| `-g`, `--genome`        | —                          | Genome name (`hg38`, `mm10`, …) for chromosome allowlist filtering                                                 |
+| `--barcode-prefix`      | input's                    | Barcode prefix of the output (see [`gatac rename`](rename)); cells are matched to `--metrics` on the input's names |
+| `--batch-size`          | `64`                       | Unused (kept for compatibility)                                                                                    |
 
 ---
 
 ## Filter query syntax
 
 The `--filter` argument accepts any pandas `DataFrame.query` expression
-evaluated against the metrics DataFrame columns.  Supported operators: `>`, `<`, `>=`,
+evaluated against the metrics DataFrame columns. Supported operators: `>`, `<`, `>=`,
 `<=`, `==`, `!=`, `and`, `or`, `not`.
 
 ```bash

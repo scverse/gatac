@@ -31,35 +31,35 @@ gatac tile <input.parquet|input.h5ad|input.h5> [input.parquet ...] -g <genome|ch
 
 ### Positional
 
-| Argument | Description |
-|----------|-------------|
-| `input` | Path to a fragment `.parquet`, interval-matrix `.h5ad`, or 10x `.h5` file; or several fragment `.parquet` files |
+| Argument | Description                                                                                                     |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| `input`  | Path to a fragment `.parquet`, interval-matrix `.h5ad`, or 10x `.h5` file; or several fragment `.parquet` files |
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-g`, `--genome` | **required** | Genome name (`hg38`, `mm10`, …) or path to a 2-column TSV of `chrom\tsize` |
-| `-o`, `--output` | `<input>_tile_matrix.h5ad` | Output h5ad path (required for several inputs) |
-| `-t`, `--tile-size` | `5000` | Tile / bin size in base pairs |
-| `-m`, `--min-fragments` | `100` | Minimum unique fragments per barcode |
-| `-n`, `--n-features` | all tiles | Keep only the N most accessible tiles, without building the full matrix (fragment input); see [Feature selection](#feature-selection) |
-| `-e`, `--exclude-chroms` | `chrM chrY M Y` | Chromosomes to exclude (space-separated) |
-| `--metrics` | — | Metrics CSV for quality-based cell filtering |
-| `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
-| `--count-strategy` | `unique` | Counting strategy: `unique`, `count`, or `binarize` |
-| `--low-memory` | off | Enable low-memory (single row-group) mode |
-| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
+| Flag                     | Default                    | Description                                                                                                                                                                          |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-g`, `--genome`         | **required**               | Genome name (`hg38`, `mm10`, …) or path to a 2-column TSV of `chrom\tsize`                                                                                                           |
+| `-o`, `--output`         | `<input>_tile_matrix.h5ad` | Output h5ad path (required for several inputs)                                                                                                                                       |
+| `-t`, `--tile-size`      | `5000`                     | Tile / bin size in base pairs                                                                                                                                                        |
+| `-m`, `--min-fragments`  | `100`                      | Minimum unique fragments per barcode                                                                                                                                                 |
+| `-n`, `--n-features`     | all tiles                  | Keep only the N most accessible tiles, without building the full matrix (fragment input); see [Feature selection](#feature-selection)                                                |
+| `-e`, `--exclude-chroms` | `chrM chrY M Y`            | Chromosomes to exclude (space-separated)                                                                                                                                             |
+| `--metrics`              | —                          | Metrics CSV for quality-based cell filtering                                                                                                                                         |
+| `--filter`               | —                          | Pandas `DataFrame.query` string applied to metrics                                                                                                                                   |
+| `--count-strategy`       | `unique`                   | Counting strategy: `unique`, `count`, or `binarize`                                                                                                                                  |
+| `--low-memory`           | off                        | Enable low-memory (single row-group) mode                                                                                                                                            |
+| `--compression`          | `gzip`                     | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 
 ---
 
 ## Count strategies
 
-| Strategy | Description | Compatibility |
-|----------|-------------|---------------|
-| `unique` | Unique fragment insertions per tile (deduplicated) | SnapATAC2-compatible (**default**) |
-| `count` | All fragment insertions (not deduplicated) | — |
-| `binarize` | Binary accessibility (0 or 1) | ArchR-compatible |
+| Strategy   | Description                                        | Compatibility                      |
+| ---------- | -------------------------------------------------- | ---------------------------------- |
+| `unique`   | Unique fragment insertions per tile (deduplicated) | SnapATAC2-compatible (**default**) |
+| `count`    | All fragment insertions (not deduplicated)         | —                                  |
+| `binarize` | Binary accessibility (0 or 1)                      | ArchR-compatible                   |
 
 For `.h5ad` and 10x `.h5` inputs, GATAC detects interval-like features from
 `var_names` using names such as `chr1:100-200` or `chr1;100-200`. Those
@@ -95,10 +95,10 @@ later from `var` without reading the matrix.
 
 Pass a genome name string to use built-in chromosome sizes:
 
-| Name | Assembly |
-|------|----------|
-| `hg38` / `GRCh38` | Human GRCh38 (Gencode v41) |
-| `hg19` / `GRCh37` | Human GRCh37 |
+| Name              | Assembly                    |
+| ----------------- | --------------------------- |
+| `hg38` / `GRCh38` | Human GRCh38 (Gencode v41)  |
+| `hg19` / `GRCh37` | Human GRCh37                |
 | `mm10` / `GRCm38` | Mouse GRCm38 (Gencode vM25) |
 | `mm39` / `GRCm39` | Mouse GRCm39 (Gencode vM30) |
 
@@ -216,9 +216,9 @@ adata = ga.pp.build_tile_matrix(tiles, output_path="combined.h5ad")
 
 ## Output AnnData structure
 
-| Slot | Content |
-|------|---------|
-| `adata.X` | Sparse cell × tile count matrix (`scipy.sparse.csr_matrix`) |
-| `adata.obs` | Barcode metadata (barcode string as index) |
-| `adata.var` | Tile metadata: `chrom`, `start`, `end`; tile statistics over all cells: `n_cells`, `count`, `count_sq`; with `-n`, `selected` and `accessibility_count` |
-| `adata.uns["tile_stats"]` | Number of cells the statistics were summed over |
+| Slot                      | Content                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adata.X`                 | Sparse cell × tile count matrix (`scipy.sparse.csr_matrix`)                                                                                             |
+| `adata.obs`               | Barcode metadata (barcode string as index)                                                                                                              |
+| `adata.var`               | Tile metadata: `chrom`, `start`, `end`; tile statistics over all cells: `n_cells`, `count`, `count_sq`; with `-n`, `selected` and `accessibility_count` |
+| `adata.uns["tile_stats"]` | Number of cells the statistics were summed over                                                                                                         |

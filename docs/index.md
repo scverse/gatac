@@ -1,14 +1,12 @@
 ```{toctree}
 :hidden:
-:caption: General
+:caption: Getting started
 :maxdepth: 1
 
 installation
+quickstart
 overview
 tutorials/index
-release-notes/index
-contributing
-extensions
 ```
 
 ```{toctree}
@@ -18,14 +16,18 @@ extensions
 
 api/index
 cli/index
+extensions
 ```
 
 ```{toctree}
 :hidden:
-:caption: About
+:caption: Project
 :maxdepth: 1
 
+release-notes/index
+contributing
 reproducibility
+citation
 references
 license
 credits

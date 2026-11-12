@@ -1,28 +1,41 @@
+# Temp files
 .DS_Store
+*~
+buck-out/
 
-data/*
-refs/*
-uv.lock
-pixi.lock
+# IDEs
+/.idea/
+/.vscode/
+
+# Compiled files
+.venv/
+__pycache__/
 *.pyc
-*.log
-AGENTS.md
-GEMINI.md
+.*cache/
 
+# Distribution / packaging
+/dist/
+
+# Tests and coverage
+/data/
+/node_modules/
+/.coverage*
+# CI test outputs
+test-data/
+
+# docs
+/docs/generated/
+/docs/_build/
+docs/api/generated/
+
+# GATAC: local data, environments and tool notes
+refs/*
+pixi.lock
+uv.lock
+*.log
 *.parquet
 *.csv
 *.h5ad
-.venv
-
-__pycache__/
-
-# doc build related
-_build/
-docs/_build/
-docs/api/generated/
-
-# llm
+AGENTS.md
+GEMINI.md
 agents/
-
-# CI test outputs
-test-data/

@@ -136,7 +136,7 @@ jobs:
       ENV_NAME: ${{ matrix.env.name }}
       # Kernels CuPy compiles at run time (gatac.gpu, motif, tobias), cached across runs
       CUPY_CACHE_DIR: ${{ github.workspace }}/.cache/cupy
-      # Numba's cache=True functions; editable installs would otherwise write them into gatac/
+      # Cache of the Numba cache=True functions, which editable installs would otherwise write into src/gatac/
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.cache/numba
       # The driver's PTX-to-SASS cache, for kernels shipped without code for this GPU
       CUDA_CACHE_PATH: ${{ github.workspace }}/.cache/nv
@@ -155,7 +155,7 @@ jobs:
       - name: Restore file mtimes from git
         # Numba's cache is keyed on the source's mtime; a fresh checkout would invalidate all of it
         run: |
-          git ls-files -z gatac | xargs -0 -P 4 -n 50 sh -c 'for f; do touch -d "@$(git log -1 --format=%ct -- "$f")" "$f"; done' sh
+          git ls-files -z src/gatac | xargs -0 -P 4 -n 50 sh -c 'for f; do touch -d "@$(git log -1 --format=%ct -- "$f")" "$f"; done' sh
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
