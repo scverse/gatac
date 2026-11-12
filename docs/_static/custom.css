@@ -30,6 +30,11 @@ html[data-theme="light"] {
 html[data-theme="dark"] {
     --pst-color-secondary: var(--gatac-green);
     --pst-color-link-hover: #f7be83;
+    /* Links in code and in tables (the API summaries): the theme mixes the
+       accent with the text colour in oklch, and between amber and the text's
+       blue hue the mix turns a pale yellow-green. The same mix, 70% amber,
+       in sRGB: 7.0:1 on the code surface */
+    --pst-color-link-higher-contrast: #deb78f;
 }
 
 /* ── Dark mode ───────────────────────────────────────────────────────────── */

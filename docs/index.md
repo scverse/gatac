@@ -16,7 +16,6 @@ tutorials/index
 
 api/index
 cli/index
-extensions
 ```
 
 ```{toctree}
@@ -26,6 +25,7 @@ extensions
 
 release-notes/index
 contributing
+extensions
 reproducibility
 citation
 references
