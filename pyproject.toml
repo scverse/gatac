@@ -124,7 +124,7 @@ source = "vcs"
 
 # The package and its tests; not the docs notebooks, the reproducibility submodule or CI files
 [tool.hatch.build.targets.sdist]
-only-include = ["gatac", "tests"]
+only-include = ["src/gatac", "tests"]
 
 [tool.ruff]
 line-length = 120
@@ -151,10 +151,10 @@ isort.known-first-party = ["gatac"]
 [tool.ruff.lint.per-file-ignores]
 "*/__init__.py" = ["F401", "E402"]
 # Imports after _require_rapids(), which names the CUDA extra to install
-"gatac/gpu.py" = ["E402"]
+"src/gatac/gpu.py" = ["E402"]
 # The closures of the motif scan and the background sampling read the loop's
 # variables, but each runs in the iteration that defines it
-"gatac/tobias/bindetect.py" = ["B023"]
+"src/gatac/tobias/bindetect.py" = ["B023"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -166,7 +166,7 @@ addopts = ["--import-mode=importlib", "--strict-markers", "--timeout=120", "-n",
 
 [tool.coverage]
 run.source_pkgs = ["gatac"]
-paths.source = ["gatac", "**/site-packages/gatac"]
+paths.source = ["src/gatac", "**/site-packages/gatac"]
 run.patch = ["subprocess"]  # test_lsi_reproducible_across_processes runs LSI in a child process
 # Hidden: coverage combines every file named like it, and coverage.xml would be one
 run.data_file = "test-data/.coverage"

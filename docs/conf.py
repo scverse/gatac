@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add the project root to the path so autodoc can find the package
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Pre-import packages that must NOT be loaded inside sphinx's mock context.
 # sphinx mocks cupy/cupyx; anndata's compat layer tries to import them at load

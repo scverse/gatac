@@ -234,7 +234,7 @@ image = (
         # the package metadata names these, and hatchling checks they exist
         .add_local_file(ROOT / "README.md", f"{SRC}/README.md")
         .add_local_file(ROOT / "LICENSE", f"{SRC}/LICENSE")
-        .add_local_dir(ROOT / "gatac", f"{SRC}/gatac", ignore=IGNORE)
+        .add_local_dir(ROOT / "src", f"{SRC}/src", ignore=IGNORE)
         .add_local_dir(ROOT / "tests", f"{SRC}/tests", ignore=IGNORE)
     )
     if CI
@@ -338,7 +338,7 @@ def main(pytest_args: str = "", gpu: str = "", cpu: float = 0, memory: int = 0, 
     ci = CI | {"gpu": gpu or CI["gpu"], "cpu": cpu or CI["cpu"], "memory": memory or CI["memory"]}
     describe(ci)
     steps = with_pytest_args(ci["steps"], pytest_args) if pytest_args else ci["steps"]
-    mtimes = {str(p.relative_to(ROOT)): p.stat().st_mtime for p in (ROOT / "gatac").rglob("*.py")}
+    mtimes = {str(p.relative_to(ROOT)): p.stat().st_mtime for p in (ROOT / "src").rglob("*.py")}
 
     with modal.Queue.ephemeral() as started:
         call = job.with_options(

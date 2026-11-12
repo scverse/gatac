@@ -54,14 +54,14 @@ translated from MACS3 3.0 and 3.1 and run on run-length pileups on the GPU;
 MACS3 and SnapATAC2 are run as external tools in the reproducibility tests,
 where every summit and score matches. MACS3 is distributed under the
 BSD 3-Clause License (Copyright (c) 2025, macs3 project team); the full notice
-is kept in `gatac/peak/_macs.py`.
+is kept in `src/gatac/peak/_macs.py`.
 
 ## Third-party code
 
 ### MINPACK (via SciPy)
 
-`gatac/tobias/_minpack_relu.cu` is a CUDA adaptation of SciPy's C translation of
-MINPACK's `lmdif` (used by `scipy.optimize.curve_fit`), specialised to the
+`src/gatac/tobias/_minpack_relu.cu` is a CUDA adaptation of `lmdif` from MINPACK, as
+translated to C in SciPy (used by `scipy.optimize.curve_fit`), specialised to the
 two-parameter ReLU fits of TOBIAS ATACorrect. SciPy is distributed under the
 BSD 3-Clause License. This product includes software developed by the
 University of Chicago, as Operator of Argonne National Laboratory (MINPACK,
