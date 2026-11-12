@@ -6,15 +6,7 @@
 installation
 quickstart
 overview
-```
-
-```{toctree}
-:hidden:
-:caption: Guides
-:maxdepth: 1
-
 tutorials/index
-extensions
 ```
 
 ```{toctree}
@@ -24,6 +16,7 @@ extensions
 
 api/index
 cli/index
+extensions
 ```
 
 ```{toctree}
