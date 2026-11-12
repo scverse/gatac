@@ -53,8 +53,9 @@ def read_h5ad(
     Returns
     -------
     AnnData
-        As :func:`anndata.read_h5ad` returns it: the same values, dtypes
-        (index arrays included) and types.
+        As :func:`anndata.read_h5ad` returns it: the same values, value
+        dtypes and types. The index arrays of a CSR matrix are int32 when
+        they fit, as scipy builds them (anndata reads them so from 0.14).
     """
     import anndata as ad
     import h5py

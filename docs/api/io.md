@@ -283,8 +283,8 @@ the shuffle is undone there. The checksum of each chunk is checked on the GPU, s
 a corrupted file raises an error instead of returning wrong counts. anndata
 reads the rest of the file.
 
-The matrices come back in host memory with the dtypes stored in the file, as
-anndata returns them. With `to_gpu=True`, they stay on the GPU as cupy CSR
+The matrices come back in host memory with the value dtypes stored in the
+file. The index arrays are int32 when they fit, as scipy builds them. With `to_gpu=True`, they stay on the GPU as cupy CSR
 matrices, ready for rapids-singlecell. {func}`gatac.io.write_h5ad` writes any
 AnnData with `X` stored as described above.
 

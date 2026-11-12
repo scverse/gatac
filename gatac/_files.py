@@ -97,7 +97,8 @@ def write_h5ad(adata, output_path: str | Path, compression: str | None = "gzip",
         "varm": dict(adata.varm),
         "obsp": dict(adata.obsp),
         "varp": dict(adata.varp),
-        "layers": dict(adata.layers),
+        # anndata >= 0.13 also lists X under the key None
+        "layers": {k: v for k, v in adata.layers.items() if k is not None},
     }
     if adata.raw is not None:
         elems["raw"] = adata.raw

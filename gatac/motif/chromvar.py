@@ -1026,7 +1026,7 @@ def compute_deviations(
         logger.info(f"Computed chromVAR deviations: {dev.shape}. Stored in adata.obsm['{key_added}']")
 
     if return_adata:
-        dev_adata = AnnData(dev, dtype=np.float32, obs=adata.obs.copy())
+        dev_adata = AnnData(dev.astype(np.float32, copy=False), obs=adata.obs.copy())
         dev_adata.var_names = motif_names
         return dev_adata
     return None

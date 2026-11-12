@@ -664,9 +664,10 @@ def read_whole(
     """
     The whole matrix of an open :class:`_Matrix`, for :func:`gatac.io.read_h5ad`.
 
-    A scipy CSR matrix in host memory with the arrays in their stored dtypes,
-    as anndata reads it, read in blocks of at most ``memory_fraction`` of the
-    GPU's free memory; with ``to_gpu=True``, a cupy CSR matrix (float32, or
+    A scipy CSR matrix in host memory, read in blocks of at most ``memory_fraction`` of the
+    GPU's free memory. Values keep their stored dtype. Index arrays are int32
+    when the shape and the number of entries fit, int64 otherwise, as scipy
+    builds them (anndata reads them so from 0.14). With ``to_gpu=True``, a cupy CSR matrix (float32, or
     float64 if stored so, and int32 indices, as cupy requires).
     """
     import cupy as cp
@@ -697,25 +698,27 @@ def read_whole(
                 read(0, nnz, data, indices)
             return cusp.csr_matrix((data, indices, cp.asarray(m.indptr.astype(np.int32))), shape=m.shape)
 
-        idx = m.indices.dtype
+        # one index dtype for indices and indptr, as the scipy constructor chooses it
+        idx = np.dtype(np.int32 if max(n_rows, n_cols, nnz) <= _INT32_MAX else np.int64)
         data, indices = np.empty(nnz, stored), np.empty(nnz, idx)
         if nnz:
-            step = max(_MIN_BLOCK_ENTRIES, int(memory_fraction * _free_gpu_bytes()) // (stored.itemsize + idx.itemsize))
+            per_entry = stored.itemsize + m.indices.dtype.itemsize + idx.itemsize
+            step = max(_MIN_BLOCK_ENTRIES, int(memory_fraction * _free_gpu_bytes()) // per_entry)
             step = min(step, nnz)
-            d, i = cp.empty(step, stored), cp.empty(step, idx)
+            d, i = cp.empty(step, stored), cp.empty(step, m.indices.dtype)
             for a in range(0, nnz, step):
                 b = min(a + step, nnz)
                 read(a, b, d[: b - a], i[: b - a])
                 d[: b - a].get(out=data[a:b])
-                i[: b - a].get(out=indices[a:b])
+                i[: b - a].astype(idx, copy=False).get(out=indices[a:b])
             del d, i
             cp.get_default_memory_pool().free_all_blocks()
     finally:
         if reader is not None:
             reader.close()
-    # assigned, not passed to the constructor, which would narrow int64 index arrays: as anndata does
+    # assigned rather than passed to the constructor, which would scan the arrays to choose idx again
     X = sp.csr_matrix((n_rows, n_cols), dtype=stored)
-    X.data, X.indices, X.indptr = data, indices, m.indptr.astype(m.indptr_dtype)
+    X.data, X.indices, X.indptr = data, indices, m.indptr.astype(idx)
     return X
 
 

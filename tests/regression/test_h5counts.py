@@ -233,8 +233,8 @@ def _rich_adata() -> ad.AnnData:
 @pytest.mark.parametrize("compression", [None, "gzip", "lzf"])
 def test_read_h5ad_reads_what_anndata_reads(tmp_path, monkeypatch, compression):
     """``gatac.io.read_h5ad`` gives what ``anndata.read_h5ad`` gives: X, the CSR layers and raw.X
-    through the GPU reader in their stored dtypes, a filter it does not read (lzf) and dense
-    layers through anndata."""
+    through the GPU reader with their stored value dtypes and the index dtype scipy chooses (as
+    anndata from 0.14), a filter it does not read (lzf) and dense layers through anndata."""
     from gatac.io import read_h5ad
 
     path = tmp_path / "a.h5ad"
@@ -250,7 +250,9 @@ def test_read_h5ad_reads_what_anndata_reads(tmp_path, monkeypatch, compression):
     ]:
         assert type(g) is type(e) and g.dtype == e.dtype
         if sp.issparse(e):
-            assert (g.indices.dtype, g.indptr.dtype) == (e.indices.dtype, e.indptr.dtype)
+            # lzf: anndata reads the whole file, with the index dtypes of the installed version
+            ref = e if compression == "lzf" else sp.csr_matrix((e.data, e.indices, e.indptr), shape=e.shape)
+            assert (g.indices.dtype, g.indptr.dtype) == (ref.indices.dtype, ref.indptr.dtype)
         assert (g != e).sum() == 0
     pd.testing.assert_frame_equal(got.obs, expected.obs)
     pd.testing.assert_frame_equal(got.raw.var, expected.raw.var)
