@@ -22,7 +22,7 @@ gatac genescore <input.parquet> -g <annotations.gtf>
                 [-m MIN_FRAGS] [-e CHROMS ...]
                 [--metrics METRICS] [--filter QUERY]
                 [--low-memory]
-                [--cell-batch-size N]
+                [--cell-batch-size N] [--compression {gzip,none}]
 ```
 
 ---
@@ -57,6 +57,7 @@ gatac genescore <input.parquet> -g <annotations.gtf>
 | `--metrics` | — | Metrics CSV for quality-based filtering |
 | `--filter` | — | Pandas `DataFrame.query` string applied to metrics |
 | `--low-memory` | off | Process one Parquet row-group at a time |
+| `--compression` | `gzip` | `gzip`: HDF5 shuffle + gzip, compressed on the GPU, about 5× smaller and read as fast by GATAC; `none`: uncompressed ([count matrices on disk](../api/io.md#count-matrices-on-disk)) |
 | `--cell-batch-size` | — | Process cells in column batches (lower GPU memory) |
 
 ---

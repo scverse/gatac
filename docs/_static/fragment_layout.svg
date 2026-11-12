@@ -1,86 +1,82 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="100%" style="max-width:760px" role="img" aria-labelledby="cf-layout-title">
-  <title id="cf-layout-title">From fragments.tsv.gz to a GATAC Parquet file</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="19 0 658 635" width="100%" style="max-width:720px;display:block;margin:0 auto" role="img" aria-labelledby="fl-layout-title">
+  <title id="fl-layout-title">From fragments.tsv.gz to a GATAC Parquet file</title>
   <style>
-    .cf-text  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 13px; }
-    .cf-muted { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 11px; }
-    .cf-mono  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-monospace, monospace); font-size: 12px; }
-    .cf-null  { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-monospace, monospace); font-size: 12px; font-style: italic; }
-    .cf-bold  { font-weight: 600; }
-    .cf-delta { fill: #4c8bf5; font-weight: 600; }
-    .cf-box   { fill: var(--pst-color-surface, #f6f8fa); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
-    .cf-file  { fill: none; stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.2; }
-    .cf-line  { stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.4; fill: none; }
-    .cf-head  { fill: var(--pst-color-text-muted, #59636e); }
-    .cf-id    { fill: #73b301; fill-opacity: 0.14; stroke: #73b301; stroke-width: 1.2; }
-    .cf-val   { fill: #4c8bf5; fill-opacity: 0.14; stroke: #4c8bf5; stroke-width: 1.2; }
-    .cf-bc    { fill: #e0a020; fill-opacity: 0.16; stroke: #e0a020; stroke-width: 1.2; }
-    .cf-foot  { fill: #9b6bd3; fill-opacity: 0.14; stroke: #9b6bd3; stroke-width: 1.2; }
+    .fl-text  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 13px; }
+    .fl-muted { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 11px; }
+    .fl-mono  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-monospace, monospace); font-size: 12px; }
+    .fl-null  { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-monospace, monospace); font-size: 12px; font-style: italic; }
+    .fl-bold  { font-weight: 600; }
+    .fl-delta { fill: #205cb3; font-weight: 600; }
+    html[data-theme="dark"] .fl-delta { fill: #91b8ff; }
+    .fl-plain { fill: var(--pst-color-background, #fff); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1.2; }
+    .fl-chr { fill: #4d7c0f; } .fl-bcx { fill: #b07a00; } html[data-theme="dark"] .fl-bcx { fill: #e0a020; } html[data-theme="dark"] .fl-chr { fill: #9fd356; }
+    .fl-box   { fill: var(--pst-color-surface, #f6f8fa); stroke: var(--pst-color-border, #d0d7de); stroke-width: 1; }
+    .fl-file  { fill: none; stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.2; }
+    .fl-line  { stroke: var(--pst-color-text-muted, #59636e); stroke-width: 1.4; fill: none; }
+    .fl-head  { fill: var(--pst-color-text-muted, #59636e); }
+    .fl-id    { fill: #73b301; fill-opacity: 0.14; stroke: #73b301; stroke-width: 1.2; }
+    .fl-val   { fill: #4c8bf5; fill-opacity: 0.14; stroke: #4c8bf5; stroke-width: 1.2; }
+    .fl-bc    { fill: #e0a020; fill-opacity: 0.16; stroke: #e0a020; stroke-width: 1.2; }
+    .fl-foot  { fill: #9b6bd3; fill-opacity: 0.14; stroke: #9b6bd3; stroke-width: 1.2; }
   </style>
   <defs>
-    <marker id="cf-arrow-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" class="cf-head"/>
+    <marker id="fl-arrow-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="fl-head"/>
     </marker>
   </defs>
 
   <!-- fragments.tsv.gz -->
-  <text x="20" y="20" class="cf-text"><tspan class="cf-bold">fragments.tsv.gz</tspan><tspan class="cf-muted" dx="8">names in every row</tspan></text>
-  <rect x="20" y="30" width="720" height="106" rx="6" class="cf-box"/>
-  <text y="52" class="cf-muted"><tspan x="40">chrom</tspan><tspan x="110">start</tspan><tspan x="190">end</tspan><tspan x="270">barcode</tspan><tspan x="380">count</tspan></text>
-  <text y="72" class="cf-mono"><tspan x="40">chr1</tspan><tspan x="110">10001</tspan><tspan x="190">10200</tspan><tspan x="270">AAACGAAC-1</tspan><tspan x="380">2</tspan></text>
-  <text y="90" class="cf-mono"><tspan x="40">chr1</tspan><tspan x="110">10035</tspan><tspan x="190">10180</tspan><tspan x="270">TTGCATGA-1</tspan><tspan x="380">1</tspan></text>
-  <text y="108" class="cf-mono"><tspan x="40">chr1</tspan><tspan x="110">10102</tspan><tspan x="190">10388</tspan><tspan x="270">TTGCATGA-1</tspan><tspan x="380">1</tspan></text>
-  <text y="126" class="cf-mono"><tspan x="40">chr1</tspan><tspan x="110">10240</tspan><tspan x="190">10511</tspan><tspan x="270">GCTTAGCA-1</tspan><tspan x="380">3</tspan></text>
-  <text x="470" y="72" class="cf-muted">Every row repeats the chromosome and the</text>
-  <text x="470" y="88" class="cf-muted">barcode as text: on the GPU, each batch has</text>
-  <text x="470" y="104" class="cf-muted">to decode these strings and join them by a</text>
-  <text x="470" y="120" class="cf-muted">string merge to find cells and chromosomes.</text>
+  <text x="20" y="20" class="fl-text"><tspan class="fl-bold">fragments.tsv.gz</tspan><tspan class="fl-muted" dx="8">names in every row</tspan></text>
+  <rect x="20" y="30" width="656" height="106" rx="6" class="fl-box"/>
+  <text y="52" class="fl-muted"><tspan x="36">chrom</tspan><tspan x="90">start</tspan><tspan x="150">end</tspan><tspan x="210">barcode</tspan><tspan x="300">count</tspan></text>
+  <text y="72" class="fl-mono"><tspan x="36" class="fl-chr">chr1</tspan><tspan x="90">10001</tspan><tspan x="150">10200</tspan><tspan x="210" class="fl-bcx">AAACGAAC-1</tspan><tspan x="300">2</tspan></text>
+  <text y="90" class="fl-mono"><tspan x="36" class="fl-chr">chr1</tspan><tspan x="90">10035</tspan><tspan x="150">10180</tspan><tspan x="210" class="fl-bcx">TTGCATGA-1</tspan><tspan x="300">1</tspan></text>
+  <text y="108" class="fl-mono"><tspan x="36" class="fl-chr">chr1</tspan><tspan x="90">10102</tspan><tspan x="150">10388</tspan><tspan x="210" class="fl-bcx">TTGCATGA-1</tspan><tspan x="300">1</tspan></text>
+  <text y="126" class="fl-mono"><tspan x="36" class="fl-chr">chr1</tspan><tspan x="90">10240</tspan><tspan x="150">10511</tspan><tspan x="210" class="fl-bcx">GCTTAGCA-1</tspan><tspan x="300">3</tspan></text>
+  <text x="386" y="72" class="fl-muted"><tspan class="fl-chr fl-bold">chrom</tspan> → chrom_id, an index into gatac.chroms</text>
+  <text x="386" y="90" class="fl-muted"><tspan class="fl-bcx fl-bold">barcode</tspan> → barcode_id, a row of the barcode table</text>
+  <text x="386" y="108" class="fl-muted">end → length = end − start</text>
 
   <!-- conversion arrow -->
-  <path d="M380,140 V180" class="cf-line" marker-end="url(#cf-arrow-a)"/>
-  <text x="392" y="158" class="cf-text cf-bold">make_parquet · gatac convert</text>
-  <text x="392" y="174" class="cf-muted">names become integer ids; the names are stored once</text>
+  <path d="M198,140 V180" class="fl-line" marker-end="url(#fl-arrow-a)"/>
+  <text x="210" y="165" class="fl-text fl-bold">make_parquet · gatac convert</text>
 
   <!-- the parquet file -->
-  <rect x="20" y="186" width="720" height="384" rx="8" class="cf-file"/>
-  <text x="36" y="208" class="cf-text"><tspan class="cf-bold">pbmc.parquet</tspan><tspan class="cf-muted" dx="8">delta: signed values (+34, −79) are the change from the row above · split: bytes stored by position</tspan></text>
+  <rect x="20" y="186" width="656" height="437" rx="8" class="fl-file"/>
+  <text x="36" y="208" class="fl-text fl-bold">pbmc.parquet</text>
+  <text x="36" y="225" class="fl-muted">delta: change from the row above (+34, −79) · split: bytes stored by position</text>
 
   <!-- row group 0 -->
-  <rect x="36" y="218" width="688" height="196" rx="6" class="cf-box"/>
-  <text x="48" y="236" class="cf-muted">row group 0 · 1,000,000 rows · pages compressed with ZSTD</text>
-  <text x="48" y="256" class="cf-text cf-bold">fragments: one row per fragment</text>
-  <text x="440" y="256" class="cf-text cf-bold">barcode table: row i = barcode id i</text>
-
-  <!-- column strips: fragments -->
-  <rect x="48"  y="264" width="70" height="142" rx="4" class="cf-id"/>
-  <rect x="122" y="264" width="70" height="142" rx="4" class="cf-val"/>
-  <rect x="196" y="264" width="70" height="142" rx="4" class="cf-val"/>
-  <rect x="270" y="264" width="72" height="142" rx="4" class="cf-id"/>
-  <rect x="346" y="264" width="74" height="142" rx="4" class="cf-val"/>
-  <!-- column strips: barcode table -->
-  <rect x="440" y="264" width="106" height="142" rx="4" class="cf-bc"/>
-  <rect x="550" y="264" width="82"  height="142" rx="4" class="cf-bc"/>
-  <rect x="636" y="264" width="76"  height="142" rx="4" class="cf-bc"/>
-
-  <!-- headers: name · encoding · type -->
-  <text y="281" class="cf-text cf-bold" style="font-size:11px"><tspan x="56">chrom_id</tspan><tspan x="130">start</tspan><tspan x="204">length</tspan><tspan x="278">barcode_id</tspan><tspan x="354">count</tspan><tspan x="448">bc_name</tspan><tspan x="558">bc_n_unique</tspan><tspan x="644">bc_n_total</tspan></text>
-  <text y="296" class="cf-muted" style="font-size:10px"><tspan x="56">dict · uint16</tspan><tspan x="130">delta · uint32</tspan><tspan x="204">split · uint32</tspan><tspan x="278">split · uint32</tspan><tspan x="354">split · uint32</tspan><tspan x="448">delta lengths · string</tspan><tspan x="558">delta · uint32</tspan><tspan x="644">delta · uint32</tspan></text>
-  <path d="M48,304 H420 M440,304 H712" class="cf-line" style="stroke-width:0.8"/>
-
-  <!-- values -->
-  <text y="324" class="cf-mono"><tspan x="56">0</tspan><tspan x="130">10001</tspan><tspan x="204">199</tspan><tspan x="278">1</tspan><tspan x="354">2</tspan><tspan x="448">TTGCATGA-1</tspan><tspan x="558">41,203</tspan><tspan x="644">97,410</tspan></text>
-  <text y="344" class="cf-mono"><tspan x="56">0</tspan><tspan x="130" class="cf-delta">+34</tspan><tspan x="204">145</tspan><tspan x="278">0</tspan><tspan x="354">1</tspan><tspan x="448">AAACGAAC-1</tspan><tspan x="558" class="cf-delta">−2,253</tspan><tspan x="644" class="cf-delta">−7,288</tspan></text>
-  <text y="364" class="cf-mono"><tspan x="56">0</tspan><tspan x="130" class="cf-delta">+67</tspan><tspan x="204">286</tspan><tspan x="278">0</tspan><tspan x="354">1</tspan><tspan x="448">GCTTAGCA-1</tspan><tspan x="558" class="cf-delta">−79</tspan><tspan x="644" class="cf-delta">+913</tspan></text>
-  <text y="384" class="cf-mono"><tspan x="56">0</tspan><tspan x="130" class="cf-delta">+138</tspan><tspan x="204">271</tspan><tspan x="278">2</tspan><tspan x="354">3</tspan></text>
-  <text y="384" class="cf-null"><tspan x="448">null</tspan><tspan x="558">null</tspan><tspan x="644">null</tspan></text>
-  <text y="400" class="cf-muted"><tspan x="80">⋮</tspan><tspan x="154">⋮</tspan><tspan x="228">⋮</tspan><tspan x="303">⋮</tspan><tspan x="380">⋮</tspan><tspan x="490">⋮</tspan><tspan x="588">⋮</tspan><tspan x="671">⋮</tspan></text>
+  <rect x="36" y="234" width="624" height="234" rx="6" class="fl-box"/>
+  <text x="48" y="252" class="fl-muted">row group 0 · 1,000,000 rows · pages compressed with ZSTD</text>
+  <rect x="48" y="284" width="64" height="172" rx="4" class="fl-id"/>
+  <rect x="118" y="284" width="56" height="172" rx="4" class="fl-plain"/>
+  <rect x="180" y="284" width="56" height="172" rx="4" class="fl-plain"/>
+  <rect x="242" y="284" width="78" height="172" rx="4" class="fl-bc"/>
+  <rect x="326" y="284" width="50" height="172" rx="4" class="fl-plain"/>
+  <rect x="386" y="284" width="90" height="172" rx="4" class="fl-bc"/>
+  <rect x="482" y="284" width="86" height="172" rx="4" class="fl-bc"/>
+  <rect x="574" y="284" width="74" height="172" rx="4" class="fl-bc"/>
+  <text x="48" y="272" class="fl-text fl-bold">fragments: one row per fragment</text>
+  <text x="386" y="272" class="fl-text fl-bold">barcode table: row i = barcode_id i</text>
+  <text y="302" class="fl-text fl-bold" style="font-size:11px"><tspan x="56">chrom_id</tspan><tspan x="126">start</tspan><tspan x="188">length</tspan><tspan x="250">barcode_id</tspan><tspan x="334">count</tspan><tspan x="394">bc_name</tspan><tspan x="490">bc_n_unique</tspan><tspan x="582">bc_n_total</tspan></text>
+  <text y="317" class="fl-muted"><tspan x="56">dict</tspan><tspan x="126">delta</tspan><tspan x="188">split</tspan><tspan x="250">split</tspan><tspan x="334">split</tspan><tspan x="394">delta lengths</tspan><tspan x="490">delta</tspan><tspan x="582">delta</tspan></text>
+  <text y="331" class="fl-muted"><tspan x="56">uint16</tspan><tspan x="126">uint32</tspan><tspan x="188">uint32</tspan><tspan x="250">uint32</tspan><tspan x="334">uint32</tspan><tspan x="394">string</tspan><tspan x="490">uint32</tspan><tspan x="582">uint32</tspan></text>
+  <path d="M48,341 H376 M386,341 H648" class="fl-line" style="stroke-width:0.8"/>
+  <text y="364" class="fl-mono"><tspan x="56">0</tspan><tspan x="126">10001</tspan><tspan x="188">199</tspan><tspan x="250">1</tspan><tspan x="334">2</tspan><tspan x="394">TTGCATGA-1</tspan><tspan x="490">41203</tspan><tspan x="582">97410</tspan></text>
+  <text y="386" class="fl-mono"><tspan x="56">0</tspan><tspan x="126" class="fl-delta">+34</tspan><tspan x="188">145</tspan><tspan x="250">0</tspan><tspan x="334">1</tspan><tspan x="394">AAACGAAC-1</tspan><tspan x="490" class="fl-delta">−2253</tspan><tspan x="582" class="fl-delta">−7288</tspan></text>
+  <text y="408" class="fl-mono"><tspan x="56">0</tspan><tspan x="126" class="fl-delta">+67</tspan><tspan x="188">286</tspan><tspan x="250">0</tspan><tspan x="334">1</tspan><tspan x="394">GCTTAGCA-1</tspan><tspan x="490" class="fl-delta">−79</tspan><tspan x="582" class="fl-delta">+913</tspan></text>
+  <text y="430" class="fl-mono"><tspan x="56">0</tspan><tspan x="126" class="fl-delta">+138</tspan><tspan x="188">271</tspan><tspan x="250">2</tspan><tspan x="334">3</tspan></text>
+  <text y="430" class="fl-null"><tspan x="394">null</tspan><tspan x="490">null</tspan><tspan x="582">null</tspan></text>
+  <text y="448" class="fl-muted"><tspan x="78">⋮</tspan><tspan x="144">⋮</tspan><tspan x="206">⋮</tspan><tspan x="279">⋮</tspan><tspan x="349">⋮</tspan><tspan x="429">⋮</tspan><tspan x="523">⋮</tspan><tspan x="609">⋮</tspan></text>
 
   <!-- later row groups -->
-  <rect x="36" y="424" width="688" height="40" rx="6" class="cf-box"/>
-  <text x="48" y="448" class="cf-muted">row groups 1 … N · 1,000,000 fragments each, ZSTD · bc_* columns all null (almost no space)</text>
+  <rect x="36" y="480" width="624" height="40" rx="6" class="fl-box"/>
+  <text x="48" y="504" class="fl-muted">row groups 1 … N · up to 1,000,000 rows each · bc_* columns all null (almost no space)</text>
 
   <!-- footer -->
-  <rect x="36" y="474" width="688" height="84" rx="6" class="cf-foot"/>
-  <text x="48" y="495" class="cf-text cf-bold">footer (key-value metadata, not compressed)</text>
-  <text x="48" y="519" class="cf-mono" style="font-size:10.5px">gatac.format_version = 1 · gatac.chroms = ["chr1", "chr2", …] · gatac.n_barcodes = 3</text>
-  <text x="48" y="543" class="cf-mono" style="font-size:10.5px">gatac.barcode_prefix = "pbmc_"<tspan class="cf-muted" dx="12">cell names: prefix + bc_name (pbmc_TTGCATGA-1) · gatac rename edits only this</tspan></text>
+  <rect x="36" y="532" width="624" height="77" rx="6" class="fl-foot"/>
+  <text x="48" y="555" class="fl-text fl-bold">footer (key-value metadata, not compressed)</text>
+  <text x="48" y="577" class="fl-mono" style="font-size:11px">gatac.format_version = 1 · <tspan class="fl-chr">gatac.chroms = ["chr1", "chr2", …]</tspan></text>
+  <text x="48" y="596" class="fl-mono" style="font-size:11px">gatac.n_barcodes = 3 · gatac.barcode_prefix = "pbmc_"</text>
 </svg>

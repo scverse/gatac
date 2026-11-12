@@ -1,14 +1,27 @@
-# Fragment I/O — `gatac.io`
+# I/O — `gatac.io`
 
-The `gatac.io` namespace converts raw fragment TSV.GZ files to GATAC's Parquet
-fragment format, reads them back, and converts them back to TSV. Every GATAC function that reads fragments
-goes through `FragmentFile`; the format itself is described
-[below](#parquet-fragment-format). Every function that reads genome sequence
-goes through `Fasta`, and the BED, GTF and cell metrics readers are the ones
-behind every GATAC argument taking such a file.
+The `gatac.io` namespace provides access to the two kinds of files that
+GATAC reads from and writes:
+
+- **Fragment files:** `gatac.io` converts raw fragment TSV.GZ files into
+  the GATAC Parquet fragment format on the GPU, then reads these files and
+  converts them back to TSV.GZ. Every GATAC function reads fragment files
+  through `FragmentFile`. See
+  [Parquet fragment format](#parquet-fragment-format).
+
+- **Count matrices:** GATAC writes `.h5ad` files for the tile, gene and
+  gene-score count matrices, compressed on GPU. GATAC also reads these
+  matrices directly from disk into GPU memory, see [count matrices on
+  disk](#count-matrices-on-disk).
+
+All GATAC functions that access the genome sequence do so through `Fasta`.
+The BED file, GTF file and cell metrics readers are used by every GATAC
+function that takes these types of files as argument.
 
 ```{eval-rst}
 .. currentmodule:: gatac.io
+
+.. rubric:: Fragment files
 
 .. autosummary::
    :toctree: generated/
@@ -21,6 +34,22 @@ behind every GATAC argument taking such a file.
    to_tsv
    FragmentFile
    read_fragments_parquet
+
+.. rubric:: Count matrices
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   read_h5ad
+   write_h5ad
+
+.. rubric:: Reference and metadata files
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
    Fasta
    read_bed
    read_gtf
@@ -31,52 +60,67 @@ behind every GATAC argument taking such a file.
 
 ## Parquet fragment format
 
-GATAC reads fragments from Parquet files that `make_parquet` (or
-`gatac convert`) writes from a `fragments.tsv.gz`. This page describes how
-these files store the fragments, and why.
+GATAC reads the fragments from Parquet files that were written by
+`gatac.io.make_parquet` (or `gatac convert`) from a `fragments.tsv.gz`
+file. This section explains the file layout and the benefits of it.
 
 ### File layout
 
-A `fragments.tsv.gz` repeats the chromosome and the barcode as text on every
-row. On a deep library that is hundreds of millions of copies of a few dozen
-chromosome names and a few hundred thousand barcodes. Kept as text, every
-batch streamed to the GPU would have to decode these strings and join them
-against the cells and chromosomes asked for, and that string work would take
-most of the time of the fragment-streaming functions.
+In a `fragments.tsv.gz` file, the chromosome and barcode are repeated on every
+line. A deep library has hundreds of millions of lines with a
+few dozen chromosome names and hundreds of thousands of unique barcodes.
+Stored as text, they would have to be inflated and parsed every time the
+fragments are read, then matched against the cell and chromosome names given
+to GATAC. Even with the GPU-accelerated parser used for
+the [conversion](#conversion-on-the-gpu), `compute_metrics` took 23s on a
+`fragments.tsv.gz` with 484 million fragments (H100), and 1.8s on the
+equivalent Parquet file. Converting the file took 24s.
 
-GATAC stores each chromosome and barcode as an integer id instead, and stores
-the names once, inside the same file:
+GATAC stores the chromosome and barcode as integer ids instead, with the
+names listed only once in the same file:
 
+```{raw} html
+<p class="diagram-scroll-hint">Scroll sideways to see the whole diagram →</p>
+```
+
+````{div} diagram-scroll
 ```{raw} html
 :file: ../_static/fragment_layout.svg
 ```
+````
 
-**Row groups** hold the columns, compressed with ZSTD:
+The **row groups** of a Parquet file contain the columns of data,
+compressed here with ZSTD:
 
-- **Fragment columns.** `chrom_id`, `start`, `length` (`end - start`),
-  `barcode_id`, `count`, one row per fragment, in the order of the input
-  file. Every reader gives back `end`.
-- **Barcode table.** `bc_name`, `bc_n_unique` and `bc_n_total`, next to the
-  fragment columns: row *i* holds barcode id *i*'s name in the original
-  file, its number of fragments and its read count. Ids go by decreasing
-  fragment count, so the table fills the first rows and is null after,
-  which costs almost nothing; it gives the counts per barcode without
-  reading the fragments (`FragmentFile.barcode_counts()`). It is stored as
-  columns, compressed and read only when needed, rather than in the
-  footer, which is uncompressed and parsed on every open.
+- the fragment data (`chrom_id`, `start`, `length`, `barcode_id`, `count`):
+  one line per fragment, in the order of the input file. The `start`
+  position is stored as a *delta* value: the fragments are sorted, so each
+  line contains the (small) difference to the previous line. The `end`
+  position is stored as `length` (`end - start`), which is a few hundred
+  bases for ATAC-seq and therefore almost always starts with a byte of 0.
+  All readers of Parquet fragment files provide `end`.
+- a barcode table: row *i* gives the original name of barcode id *i*
+  (`bc_name`), with the number of fragments (`bc_n_unique`) and reads
+  (`bc_n_total`) of that barcode. So `FragmentFile.barcode_counts()` does not need to read
+  the fragments data. Barcodes are given an id in decreasing order of
+  fragments number: the barcode table only fills the first lines, and is null
+  afterwards (doesn't take space).
 
-The **footer** holds the file's key-value metadata, small and read on every
-open:
+The **file footer** contains key-value metadata for the file, which is small
+and can be quickly read every time the file is opened:
 
-- `gatac.format_version`: the version of this layout.
-- `gatac.chroms`: the chromosome names, a JSON list indexed by `chrom_id`.
-- `gatac.n_barcodes`: the number of barcodes, the rows of the barcode table.
-- `gatac.barcode_prefix`: the sample's barcode prefix, empty if none. A
-  cell's name is this prefix followed by its `bc_name`. The barcode table
-  keeps the names of the original `fragments.tsv.gz`, so the prefix is
-  changed by rewriting the footer only, in milliseconds whatever the file's
-  size ({func}`gatac.io.set_barcode_prefix`, `gatac rename`), and
-  {func}`gatac.io.to_tsv` writes the original file back.
+- `gatac.format_version`: format version, in case the format needs to be
+  changed in the future.
+- `gatac.chroms`: the chromosome names in order of `chrom_id`, as a JSON
+  array.
+- `gatac.n_barcodes`: the number of barcodes (rows in barcode table)
+- `gatac.barcode_prefix`: the sample barcode prefix, or an empty string. The
+  name of a cell is this prefix followed by the `bc_name` of the cell. The barcode table
+  holds only the barcode names of the original `fragments.tsv.gz`. Changing
+  the prefix, as `gatac rename` does, rewrites only this part of the footer
+  and takes milliseconds whatever the file size
+  ({func}`gatac.io.set_barcode_prefix`). {func}`gatac.io.to_tsv` writes the
+  original `fragments.tsv.gz`, without the prefix.
 
 ```{important}
 Every GATAC function, metrics and matrices included, names cells with
@@ -85,91 +129,76 @@ itself to get the same names; see
 [Reading a file outside GATAC](#reading-a-file-outside-gatac).
 ```
 
-The file is about 2.8× smaller than the `fragments.tsv.gz` it comes from.
-On PBMC 5k (101M fragments, 477k barcodes), each column of the text file
-gzipped on its own compares with the same data in the Parquet file:
+The Parquet file is 2.8× smaller than the original `fragments.tsv.gz` on
+average. The figure compares each column of the text file, gzipped alone,
+with the same data in the Parquet file. The data is PBMC 5k, with 101 million
+fragments and 477k barcodes. The chromosome column (0.9 MB gzipped, less than
+0.01 MB in Parquet) is too small to show.
 
-| Column | `fragments.tsv.gz` (gzip) | GATAC Parquet |
-|---|---|---|
-| chromosome | 0.9 MB | < 0.01 MB |
-| start | 145.9 MB | 52.8 MB |
-| end (as `length`) | 214.1 MB | 114.5 MB |
-| barcode | 458.1 MB | 170.0 MB |
-| count | 37.1 MB | 31.5 MB |
-| **Whole file** | **1,042 MB** | **369 MB** |
-
-The gzip columns add up to 856 MB: gzip loses the other 186 MB to the rows
-interleaving the columns, which a column store does not pay. The barcode
-names, once per barcode, take 1.9 MB of the 170.0 MB; the rest is the
-`barcode_id` of every fragment. `chrom_id` is dictionary-encoded, the sorted
-starts delta-encode to a few bits, and lengths, barcode ids and counts are
-byte-stream split, all before ZSTD compression (see [Encoding](#encoding)).
-
-```{note}
-Ids are per file: chromosomes are numbered in the order they first appear in
-the `fragments.tsv.gz`, barcodes by decreasing fragment count. A function
-asked for chromosomes or cells by name maps them through that file's own
-`gatac.chroms` and barcode table, so the same chromosome can have different
-ids in two libraries and the results do not depend on it.
-```
-
-### Encoding
-
-| Column | Encoding ([schematic](#file-layout)) | Why it compresses |
-|---|---|---|
-| `chrom_id` | *dict*: dictionary | a few dozen values |
-| `start` | *delta*: `DELTA_BINARY_PACKED` | fragments are sorted by position, so consecutive starts differ by little |
-| `length` | *split*: `BYTE_STREAM_SPLIT` | a few hundred bases: cheaper than `end`, and its high bytes are almost always 0 |
-| `barcode_id` | *split* | ids go by decreasing fragment count, so the cells' ids are small |
-| `count` | *split* | small (duplicate counts), so its high bytes are 0 too |
-| `bc_name` | *delta lengths*: `DELTA_LENGTH_BYTE_ARRAY` | string lengths delta-encoded, then the strings back to back |
-| `bc_n_unique`, `bc_n_total` | *delta* | the table is sorted by decreasing fragment count |
-
-Byte-stream split stores byte *k* of every value together, so the
-near-constant high bytes form runs that ZSTD all but removes. Dictionary
-encoding would pack the values into a few bits each, which ZSTD cannot
-compress further.
-
-Pages are compressed with ZSTD and written as data page v1, which cuDF's
-chunked reader requires. Row groups (`row_group_size`) are the unit GATAC
-streams to the GPU.
-
-```{note}
-`length` and `count` are uint32 although they fit 16 bits: cuDF (26.02)
-fails to decode byte-stream split on uint16, and the two zero bytes take
-almost no space. DuckDB reads byte-stream split integers from version 2.0.
-```
-
-## How GATAC reads the file
-
-Every GATAC function that reads fragments goes through
-{class}`gatac.io.FragmentFile`. To select cells, it turns the cells you ask
-for into a lookup table indexed by barcode id, once per call, and each batch
-on the GPU is then a gather into that table; no string column is ever built
-on the GPU:
-
+````{div} diagram-wide
 ```{raw} html
-:file: ../_static/fragment_lookup.svg
+:file: ../_static/parquet_size.svg
+```
+````
+
+````{div} diagram-narrow
+```{raw} html
+:file: ../_static/parquet_size_narrow.svg
+```
+````
+
+Gzipped one at a time, the columns take 856 MB, against 1,042 MB for the
+whole `fragments.tsv.gz`. The 186 MB difference comes from the text
+alternating between columns on every line, which gzip compresses less well.
+The barcode names only
+take 1.9 MB of the 170 MB barcode column, since they are only stored once per
+barcode: the rest is the `barcode_id` of each fragment. The chromosome name
+is dictionary-encoded. The start positions are sorted and delta-encoded to a
+few bits. The lengths, barcode ids and counts are byte-stream-split. All this
+happens before ZSTD compression.
+
+```{note}
+The integer ids are different for each file: chromosomes are numbered
+depending on the order in which they appear in the `fragments.tsv.gz`, and
+barcodes are numbered by decreasing number of fragments. All GATAC functions
+taking chromosome or cells as argument convert the names given by the user to
+the ids in the file, using the `gatac.chroms` metadata and the barcode table
+in the file. That way the same chromosome can have different ids in two files
+and GATAC's output won't be affected by that.
 ```
 
-Measured on a 484M-fragment library (RTX 5070), against the same data with
-names in every row:
+### Conversion on the GPU
 
-| Function | Names in every row | Integer ids |
-|---|---|---|
-| `compute_metrics` | 51 s | 9 s |
-| `detect_doublets` | 56 s | 13 s |
-| `peak.make_matrix` | 14 s | 6 s |
-| `make_tile_matrix` | 49 s | 30 s |
+Thanks to nvCOMP, `gatac.io.make_parquet`, `gatac.io.make_parquet_batch` and
+`gatac convert` perform the conversion on the GPU, producing the same output
+file as DuckDB. nvCOMP decompresses the BGZF blocks of the `fragments.tsv.gz`
+and then one CUDA thread parses each line in parallel. The resulting lines
+are converted to column arrays and written by the cuDF Parquet writer. The GPU
+memory usage is therefore limited by the size of chunks loaded from the
+input file.
 
-The rest of `make_tile_matrix` is host-side matrix assembly. The whole-file
-read behind the gene matrices (`read_fragments_parquet`) builds its
-categoricals from the ids and needs about a quarter of the GPU memory.
+DuckDB is used for conversion in the following cases:
 
-## Reading a file outside GATAC
+- `fragments.tsv.gz` files compressed with `gzip` instead of `bgzip`.
+  Recompress them with `bgzip` to convert them on the GPU.
+- Zstandard files (`.zst`), the default compression of SnapATAC2.
+- all files if the argument `gpu=False` is passed to `make_parquet*` or if
+  `gatac convert --cpu` is used. This is sometimes necessary to accept lines
+  with unusual formatting that the stricter GPU parser rejects, such as
+  ` 5`, `+5` or `0x5` instead of `5`, or a `#` character in the line.
 
-{class}`gatac.io.FragmentFile` gives the fragments back with names. As a
-DuckDB (2.0 or later) view with the usual columns:
+A BGZF block that does not inflate to the length given in the block footer raises
+an error, even with `skip_invalid=True`.
+However, the CRC32 checksums contained in the BGZF blocks are not checked.
+
+`gatac.io.make_parquet_batch` performs the conversion of multiple files
+simultaneously on the same GPU. The default maximum number of concurrent
+files is 4 (one per available CPU core and 7 GB of GPU memory).
+
+### Reading a file outside GATAC
+
+{class}`gatac.io.FragmentFile` exposes the fragments with names as a
+DuckDB view (version 2.0 or later):
 
 ```python
 import duckdb
@@ -181,10 +210,10 @@ con.sql("SELECT barcode, count(*) AS n FROM fragments GROUP BY barcode")
 ```
 
 `FragmentFile(path).iter_arrow()` streams Arrow tables with the same
-columns, and {func}`gatac.io.to_tsv` writes the fragments back to a
-`fragments.tsv.gz` in file order, BGZF-compressed so `tabix` can index it.
-Both give the cell names with the file's barcode prefix, except
-{func}`gatac.io.to_tsv`, which writes the names of the original file.
+columns. The DuckDB view and `iter_arrow()` include the barcode prefix of
+the file. {func}`gatac.io.to_tsv` writes the original, unprefixed barcodes
+to a `fragments.tsv.gz` in file order, using BGZF compression so `tabix`
+can index it.
 
 Without GATAC, any Parquet reader that decodes byte-stream split
 integers (pyarrow, Polars, cuDF, DuckDB 2.0 or later) gets the ids and the
@@ -208,42 +237,126 @@ end = pc.add(frags["start"], frags["length"])
 
 ---
 
-## Conversion on the GPU
+## Count matrices on disk
 
-`make_parquet`, `make_parquet_batch` and `gatac convert` convert on the GPU
-whenever nvCOMP's Python package is installed (it comes with the `rapids-cu12` /
-`rapids-cu13` extras), and write the same file as the DuckDB route:
+GATAC writes tile, gene and gene-score matrices (`make_tile_matrix`,
+`make_gene_matrix`, `make_gene_score_matrix`, `pp.combine`, ...) as standard
+`.h5ad` files. anndata, scanpy and any HDF5 reader can open them.
 
-1. Fragment files from Cell Ranger are BGZF (bgzip): independent deflate
-   blocks of at most 64 KiB of text. The compressed file is read in chunks,
-   and every block of a chunk is inflated on the GPU by one nvCOMP call.
-2. One CUDA thread per line splits it into its five fields and checks them:
-   5 fields, decimal integers within their types, no empty chromosome,
-   start, end or barcode, `#` comment lines, an empty count is null. This is
-   stricter than DuckDB, which also reads numbers such as ` 5`, `+5` or
-   `0x5` and ends a line at any `#`: a file with such lines converts with
-   `gpu=False` (`gatac convert --cpu`). Both read the same values from the
-   lines they both accept.
-3. A first pass counts fragments per barcode and lists the chromosomes in
-   order of first appearance; a second maps names to ids and streams the
-   rows to cuDF's Parquet writer. Decompressing twice keeps GPU memory
-   bounded by the chunk size.
+### File layout
 
-A gzip file that is not BGZF (one deflate stream, e.g. from `gzip` rather
-than `bgzip`) cannot be split, and is converted by DuckDB; recompress it with
-`bgzip` to convert it on the GPU. Zstandard files (SnapATAC2's
-`ex.export_fragments` writes `.zst` by default) also go to DuckDB. `gpu=False` (`gatac convert --cpu`) uses
-DuckDB for every file.
+GATAC changes two things in how the CSR matrix `X` is stored:
 
-A BGZF block that does not inflate to the size in its trailer is an error,
-even with `skip_invalid=True`, which only skips lines that are not
-fragments. The blocks' CRC32 checksums are not verified, by the GPU or by
-DuckDB: a change inside a block that keeps its size goes unnoticed.
+1. **int32 indices.** Column indices are int32. Row pointers (`indptr`) are
+   int32 too, unless the matrix has more than 2³¹ − 1 stored entries.
+   GATAC 0.1 wrote both as int64.
+2. **Shuffle + gzip compression.** The default, `compression="gzip"`, uses
+   the HDF5 shuffle and deflate filters. GATAC compresses `X` on the GPU with
+   nvCOMP. anndata gzips the rest of the file (`obs`, `var`, ...).
+   `compression=None` (`--compression none`) writes `X` uncompressed.
 
-`make_parquet_batch` runs several conversions that share the GPU, so that one
-file's reading and CPU-side work overlap another's GPU work: by default
-(`workers="auto"`) the CPUs the process may use minus one
-(`os.process_cpu_count()`, which follows a SLURM allocation), at most 4, and
-one per 7 GB of the GPU's free memory. The files that go to DuckDB are
-converted at the same time, in processes of their own that share the
-remaining CPUs as DuckDB threads.
+Before compression, the shuffle groups the bytes of each chunk by their
+position in the value. In a count matrix, the high-order bytes of the counts
+and column indices are mostly zero. After the shuffle, they form long runs
+of zeros that gzip compresses well. The tile matrix of a 5k-cell PBMC
+library takes 36 MB this way, against 58 MB with gzip alone and 190 MB
+uncompressed.
+
+````{div} diagram-wide
+```{raw} html
+:file: ../_static/shuffle_gzip.svg
+```
+````
+
+````{div} diagram-narrow
+```{raw} html
+:file: ../_static/shuffle_gzip_narrow.svg
+```
+````
+
+### Reading on the GPU
+
+{func}`gatac.io.read_h5ad` reads an `.h5ad` file like `anndata.io.read_h5ad`,
+but decompresses the sparse matrices (`X`, `layers`, `raw.X`) on the GPU.
+KvikIO loads the compressed bytes into GPU memory, nvCOMP inflates them, and
+the shuffle is undone there. The checksum of each chunk is checked on the GPU, so
+a corrupted file raises an error instead of returning wrong counts. anndata
+reads the rest of the file.
+
+The matrices come back in host memory with the dtypes stored in the file, as
+anndata returns them. With `to_gpu=True`, they stay on the GPU as cupy CSR
+matrices, ready for rapids-singlecell. {func}`gatac.io.write_h5ad` writes any
+AnnData with `X` stored as described above.
+
+```python
+import gatac as ga
+
+adata = ga.io.read_h5ad("tiles.h5ad", to_gpu=True)  # X is a cupy CSR matrix
+```
+
+### Backed AnnData
+
+Four functions take an AnnData opened with `anndata.read_h5ad(path,
+backed="r")`, or a view of one, and read only what they need from the file
+onto the GPU:
+
+| Function | Reads from the file |
+|---|---|
+| `pp.select_features` | Nothing for a tile matrix that keeps all cells: the per-tile counts in `var` are enough. Otherwise, the matrix once, in row chunks. |
+| `dr.spectral` | Only the selected features. |
+| `motif.compute_deviations` | One row chunk at a time, so memory does not grow with the number of cells. |
+| `peak.markers` | Only the cells it tests. |
+
+Above 100,000 cells, or when `chunk_size` is given, `dr.spectral` keeps row
+chunks on the GPU while they fit in half of the free GPU memory. The other
+chunks go to page-locked host memory and are copied to the GPU for each
+matrix product.
+
+```python
+import anndata as ad
+import gatac as ga
+
+adata = ad.read_h5ad("tiles.h5ad", backed="r")  # X stays on disk
+ga.pp.select_features(adata)  # var["selected"], from the per-tile counts in var
+ga.dr.spectral(adata)  # obsm["X_spectral"], from the selected tiles only
+adata.write()  # saves var, obsm, ... into the file, not X
+```
+
+### Where results go
+
+Results are stored as scanpy stores them, in the AnnData given as input:
+
+| Input | Results |
+|---|---|
+| in memory | `adata.obsm` / `adata.uns`, as before |
+| backed, opened `"r"` | in memory only. `adata.write()` saves them (anndata rewrites obs, var, obsm, uns, ... but not X) |
+| backed, opened `"r+"` | in memory and in the file: the new keys only, X untouched |
+| a view of a backed AnnData | nothing stored: `spectral(..., inplace=False)` and `compute_deviations(..., return_adata=True)` return them |
+
+```python
+import anndata as ad
+import gatac as ga
+
+adata = ad.read_h5ad("combined.h5ad", backed="r+")
+ga.dr.spectral(adata)  # obsm["X_spectral"] is also written to the file
+
+emb = ga.dr.spectral(adata[keep_cells, keep_tiles], inplace=False)  # a view: returned
+```
+
+```{warning}
+Never call `adata.write()` on a view of a backed AnnData: anndata writes the
+view's `obs` next to the file's whole matrix, and the file then opens with
+the wrong shape. Save a view's results to their own file, or store them on
+the whole backed AnnData.
+```
+
+HDF5 does not reclaim the space of rewritten keys, so saving results many
+times grows the file. `h5repack` gives the space back.
+
+### Reading a matrix outside GATAC
+
+anndata, scanpy and other tools read these matrices as usual. Loading a
+whole gzip-compressed matrix with `anndata.read_h5ad` takes several times
+longer than an uncompressed one, because HDF5 inflates it on one CPU core.
+Backed reads (`X[:100]`) are no slower. For files that other tools load
+whole, write them with `compression=None` (`--compression none`).

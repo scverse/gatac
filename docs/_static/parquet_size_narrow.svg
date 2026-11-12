@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 432" width="100%" style="max-width:360px" role="img" aria-labelledby="szn-title">
+  <title id="szn-title">Size on PBMC 5k: fragments.tsv.gz 1,042 MB, GATAC Parquet 369 MB</title>
+  <style>
+    .szn-text  { fill: var(--pst-color-text-base, #1f2328); font-family: var(--pst-font-family-base, sans-serif); font-size: 13px; }
+    .szn-muted { fill: var(--pst-color-text-muted, #59636e); font-family: var(--pst-font-family-base, sans-serif); font-size: 12px; }
+    .szn-bold  { font-weight: 600; }
+    .szn-seg   { font-family: var(--pst-font-family-base, sans-serif); font-size: 11.5px; }
+    .szn-start { fill: #2a78d6; } .szn-i-start { fill: #fff; }
+    .szn-end   { fill: #eb6834; } .szn-i-end   { fill: #fff; }
+    .szn-bc    { fill: #eda100; } .szn-i-bc    { fill: #0b0b0b; }
+    .szn-count { fill: #e87ba4; } .szn-i-count { fill: #0b0b0b; }
+    .szn-rows  { fill: #afb8c1; } .szn-i-rows  { fill: #0b0b0b; }
+    html[data-theme="dark"] .szn-start { fill: #3987e5; }
+    html[data-theme="dark"] .szn-end   { fill: #d95926; }
+    html[data-theme="dark"] .szn-bc    { fill: #c98500; }
+    html[data-theme="dark"] .szn-count { fill: #e8679a; }
+    html[data-theme="dark"] .szn-rows  { fill: #6e7781; } html[data-theme="dark"] .szn-i-rows { fill: #fff; }
+  </style>
+  <rect x="8.0" y="8" width="12" height="12" rx="3" class="szn-start"/>
+  <text x="26.0" y="18" class="szn-muted">start</text>
+  <rect x="73.0" y="8" width="12" height="12" rx="3" class="szn-end"/>
+  <text x="91.0" y="18" class="szn-muted">end (as length)</text>
+  <rect x="200.0" y="8" width="12" height="12" rx="3" class="szn-bc"/>
+  <text x="218.0" y="18" class="szn-muted">barcode</text>
+  <rect x="8.0" y="28" width="12" height="12" rx="3" class="szn-count"/>
+  <text x="26.0" y="38" class="szn-muted">count</text>
+  <rect x="73.0" y="28" width="12" height="12" rx="3" class="szn-rows"/>
+  <text x="91.0" y="38" class="szn-muted">row interleaving</text>
+  <g><title>start: fragments.tsv.gz 145.9 MB, Parquet 52.8 MB (×2.8 smaller)</title>
+    <rect x="60" y="359.0" width="104" height="40.0" rx="3" class="szn-start"/>
+    <text x="112.0" y="383.0" text-anchor="middle" class="szn-seg szn-i-start">146 MB</text>
+  </g>
+  <g><title>end (as length): fragments.tsv.gz 214.1 MB, Parquet 114.5 MB (×1.9 smaller)</title>
+    <rect x="60" y="297.4" width="104" height="59.6" rx="3" class="szn-end"/>
+    <text x="112.0" y="331.2" text-anchor="middle" class="szn-seg szn-i-end">214 MB</text>
+  </g>
+  <g><title>barcode: fragments.tsv.gz 458.1 MB, Parquet 170 MB (×2.7 smaller)</title>
+    <rect x="60" y="165.5" width="104" height="129.9" rx="3" class="szn-bc"/>
+    <text x="112.0" y="234.4" text-anchor="middle" class="szn-seg szn-i-bc">458 MB</text>
+  </g>
+  <g><title>count: fragments.tsv.gz 37.1 MB, Parquet 31.5 MB (×1.2 smaller)</title>
+    <rect x="60" y="154.8" width="104" height="8.7" rx="3" class="szn-count"/>
+  </g>
+  <g><title>row interleaving: 186 MB lost by gzip to the rows interleaving the columns</title>
+    <rect x="60" y="101.2" width="104" height="51.6" rx="3" class="szn-rows"/>
+    <text x="112.0" y="131.0" text-anchor="middle" class="szn-seg szn-i-rows">186 MB</text>
+  </g>
+  <text x="112.0" y="90.2" text-anchor="middle" class="szn-text szn-bold">1,042 MB</text>
+  <text x="112.0" y="422" text-anchor="middle" class="szn-text szn-bold">fragments.tsv.gz</text>
+  <g><title>start: fragments.tsv.gz 145.9 MB, Parquet 52.8 MB (×2.8 smaller)</title>
+    <rect x="196" y="385.8" width="104" height="13.2" rx="3" class="szn-start"/>
+  </g>
+  <g><title>end (as length): fragments.tsv.gz 214.1 MB, Parquet 114.5 MB (×1.9 smaller)</title>
+    <rect x="196" y="352.8" width="104" height="31.0" rx="3" class="szn-end"/>
+    <text x="248.0" y="372.3" text-anchor="middle" class="szn-seg szn-i-end">114 MB</text>
+  </g>
+  <g><title>barcode: fragments.tsv.gz 458.1 MB, Parquet 170 MB (×2.7 smaller)</title>
+    <rect x="196" y="303.9" width="104" height="46.9" rx="3" class="szn-bc"/>
+    <text x="248.0" y="331.4" text-anchor="middle" class="szn-seg szn-i-bc">170 MB</text>
+  </g>
+  <g><title>count: fragments.tsv.gz 37.1 MB, Parquet 31.5 MB (×1.2 smaller)</title>
+    <rect x="196" y="294.8" width="104" height="7.1" rx="3" class="szn-count"/>
+  </g>
+  <text x="248.0" y="267.8" text-anchor="middle" class="szn-text szn-bold">369 MB</text>
+  <text x="248.0" y="283.8" text-anchor="middle" class="szn-text szn-bold">×2.8 smaller</text>
+  <text x="248.0" y="422" text-anchor="middle" class="szn-text szn-bold">GATAC Parquet</text>
+</svg>

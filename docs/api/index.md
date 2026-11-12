@@ -21,12 +21,13 @@ gpu
 ::::{grid} 1 1 3 3
 :gutter: 2
 
-:::{grid-item-card} {fas}`file-import` Fragment I/O — `gatac.io`
+:::{grid-item-card} {fas}`file-import` I/O — `gatac.io`
 :link: io
 :link-type: doc
 :shadow: none
 
-Convert fragment TSV.GZ files to Parquet and read them back.
+Convert fragment TSV.GZ files to Parquet and read them back; read count
+matrices from disk straight into GPU memory.
 :::
 
 :::{grid-item-card} {fas}`cogs` Preprocessing — `gatac.pp`
