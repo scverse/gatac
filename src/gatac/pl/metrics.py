@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from .._readers import read_metrics
+from gatac._readers import read_metrics
 
 if TYPE_CHECKING:
     from pathlib import Path

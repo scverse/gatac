@@ -18,9 +18,10 @@ def cleanup_gpu_memory():
 @contextmanager
 def async_memory_pool():
     """
-    Use RMM's stream-ordered pool (cudaMallocAsync) unless a memory resource
-    is already set. Without a pool every cuDF and CuPy allocation is a
-    cudaMalloc, which takes about as long as the work on fragment batches.
+    Use the stream-ordered pool of RMM (cudaMallocAsync) unless a memory resource is already set.
+
+    Without a pool every cuDF and CuPy allocation is a cudaMalloc, which
+    takes about as long as the work on fragment batches.
     """
     import rmm
 

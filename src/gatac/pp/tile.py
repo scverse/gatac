@@ -24,10 +24,11 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .._files import write_h5ad
-from .._readers import read_metrics
-from ..gpu import bincount
-from ..io.fragments import FragmentFile
+from gatac._files import write_h5ad
+from gatac._readers import read_metrics
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
+
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,10 @@ def _tile_key_counts_gpu(
     n_tiles: int,
 ) -> tuple[cp.ndarray, cp.ndarray]:
     """
-    Per (cell, tile) insertion counts for one batch of fragments, kept on the
-    GPU as sorted int64 keys ``cell * n_tiles + tile`` and int32 counts.
+    Per (cell, tile) insertion counts for one batch of fragments, kept on the GPU.
+
+    They come as sorted int64 keys ``cell * n_tiles + tile`` and int32
+    counts.
     """
     rows, cols, data = _insertions_gpu(cell_idx, tile_offset, start, end, count, tile_size)
     key = rows.astype(cp.int64) * n_tiles + cols
@@ -117,8 +120,9 @@ def _iter_slabs(
     slab_entries: int = 1 << 25,
 ):
     """
-    Sum the per-batch counts of each (cell, tile) key, a slab of cells at a
-    time, and yield ``(r0, r1, rows, cols, data)`` on the GPU: the summed
+    Sum the per-batch counts of each (cell, tile) key, a slab of cells at a time.
+
+    Each slab yields ``(r0, r1, rows, cols, data)`` on the GPU: the summed
     entries of rows ``r0:r1``, sorted by row then column, ``rows`` absolute.
 
     A (cell, tile) pair can appear in several batches, hence the second sum.
@@ -191,9 +195,10 @@ def _csr_from_key_counts(
     binarize: bool = False,
 ) -> sp.csr_matrix:
     """
-    The host CSR matrix of the per-batch (cell, tile) counts: uint16 data,
-    sorted column indices, built on the GPU a slab of cells at a time. The
-    tile statistics are added to ``stats`` when given.
+    Build the host CSR matrix of the per-batch (cell, tile) counts on the GPU.
+
+    The matrix has uint16 data and sorted column indices, and is built a slab
+    of cells at a time. The tile statistics are added to ``stats`` when given.
     """
     data_parts, index_parts = [], []
     row_nnz = np.zeros(n_cells, dtype=np.int64)
@@ -301,10 +306,11 @@ def _tile_cells(
     min_fragments_per_cell: int,
 ) -> pd.DataFrame:
     """
-    The cells of one fragment file, sorted by barcode: those with at least
-    ``min_fragments_per_cell`` unique fragments on ``all_chroms``, among the
-    metrics' barcodes when given, with ``n_unique`` and the metrics' other
-    columns.
+    Select the cells of one fragment file, sorted by barcode.
+
+    The cells are those with at least ``min_fragments_per_cell`` unique
+    fragments on ``all_chroms``, among the barcodes of the metrics when given,
+    with ``n_unique`` and the other columns of the metrics.
     """
     barcode_counts = fragments.barcode_counts(chroms=all_chroms)[["barcode", "n_unique"]]
     if cell_meta_extra is not None:
@@ -333,8 +339,9 @@ def _stream_key_counts(
     row_groups_per_batch: int,
 ) -> tuple[list[cp.ndarray], list[cp.ndarray]]:
     """
-    Per (cell, tile) counts of each batch of row groups, kept on the GPU,
-    the cell being the index in ``cells``. See :func:`_tile_key_counts_gpu`.
+    Per (cell, tile) counts of each batch of row groups, kept on the GPU, the cell being the index in ``cells``.
+
+    See :func:`_tile_key_counts_gpu`.
     """
     effective_strategy = "unique" if count_strategy == "binarize" else count_strategy
     frag_columns = ["chrom", "start", "end"]
@@ -758,7 +765,6 @@ def make_tile_matrix(
     ...     tile_size=500,
     ... )
     """
-
     from .genome import get_chrom_sizes
 
     if isinstance(chrom_sizes, str):

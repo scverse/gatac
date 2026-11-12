@@ -22,13 +22,14 @@ import pandas as pd
 from anndata import AnnData
 from numba import njit, prange
 
-from .._readers import read_bed
-from ..gpu import bincount
-from ..io.fragments import FragmentFile
-from ..pp._utils import async_memory_pool, cleanup_gpu_memory
-from ..pp.gene import optimize_sparse_matrix_dtype
-from ..pp.genome import get_chrom_sizes
-from ..pp.tile import _iter_slabs
+from gatac._readers import read_bed
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
+from gatac.pp._utils import async_memory_pool, cleanup_gpu_memory
+from gatac.pp.gene import optimize_sparse_matrix_dtype
+from gatac.pp.genome import get_chrom_sizes
+from gatac.pp.tile import _iter_slabs
+
 from . import _macs
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,11 @@ _HOST_BYTES_PER_FRAGMENT = 8
 
 def _source_parquet_name(source_file: str) -> str:
     """
-    The fragment file of a ``source_file`` value: a Parquet file name, as
-    tile matrices of several files record it, is kept; an h5ad name maps
-    ``{sample}_tile.h5ad`` or ``{sample}.h5ad`` to ``{sample}.parquet``.
+    Map a ``source_file`` value to the name of the fragment file.
+
+    A Parquet file name, as tile matrices of several files record it, is
+    kept. An h5ad name maps ``{sample}_tile.h5ad`` or ``{sample}.h5ad`` to
+    ``{sample}.parquet``.
     """
     if source_file.endswith(".parquet"):
         return source_file
@@ -62,9 +65,11 @@ def _source_parquet_name(source_file: str) -> str:
 
 def _available_host_memory() -> int:
     """
-    Bytes of host memory still available: the system's available memory,
-    capped by the limit of each cgroup the process is in (a SLURM job, a
-    container) less the memory its processes use.
+    Bytes of host memory still available.
+
+    The available memory of the system is capped by the limit of each cgroup
+    the process is in (a SLURM job, a container), less the memory the
+    processes of that cgroup use.
     """
     with open("/proc/meminfo") as f:
         info = dict(line.split(":", 1) for line in f)
@@ -110,9 +115,10 @@ def _group_fragment_counts(sources: list, n_groups: int) -> np.ndarray:
 
 def _group_passes(n_fragments: np.ndarray, cap: int) -> list:
     """
-    Groups read in each pass over the files, at most ``cap`` fragments per
-    pass (first fit, largest groups first; a group above ``cap`` gets its
-    own pass).
+    Return the groups read in each pass over the files, at most ``cap`` fragments per pass.
+
+    Groups are placed by first fit, largest groups first. A group above
+    ``cap`` gets a separate pass.
     """
     passes, room = [], []
     for i in np.argsort(-n_fragments, kind="stable"):
@@ -136,8 +142,10 @@ def _read_groups(
     batch_size: int,
 ) -> None:
     """
-    Add the fragments of ``cells`` to ``out[group][chrom]``, a list of
-    ``(starts, ends)`` host arrays, ``group`` being ``cell_group`` of the cell.
+    Add the fragments of ``cells`` to ``out[group][chrom]``, a list of host arrays.
+
+    The arrays are ``(starts, ends)``, and ``group`` is ``cell_group`` of the
+    cell.
 
     Each batch is sorted by (group, chromosome) on the GPU and copied to the
     host once, so the file is read a single time whatever the number of groups.
@@ -368,7 +376,7 @@ def call(
         logger.info(f"Reading the groups in {len(passes)} passes to fit {budget / 1e9:.0f} GB of host memory")
 
     if verbose:
-        from .._progress import tqdm
+        from gatac._progress import tqdm
     peaks_dict = {}
     for k, members in enumerate(passes):
         chunks = {i: defaultdict(list) for i in members}
@@ -617,7 +625,6 @@ def merge(
     ...     half_width=250,
     ... )
     """
-
     # Handle AnnData input
     if hasattr(peaks, "uns"):
         adata = peaks
@@ -816,10 +823,12 @@ def _expand_ranges(lo: cp.ndarray, hi: cp.ndarray) -> tuple[cp.ndarray, cp.ndarr
 
 def _peak_keys(peaks_df: pd.DataFrame, chroms: list) -> tuple:
     """
-    The peaks on ``chroms`` as sorted int64 keys ``chrom << 32 | position``
-    of their starts and ends, ``chrom`` being the index in ``chroms``, with
-    their column in the matrix (their row in ``peaks_df``). Also returns the
-    widest peak and whether the peaks are disjoint.
+    Encode the peaks on ``chroms`` as sorted int64 keys of their starts and ends.
+
+    The keys are ``chrom << 32 | position``, ``chrom`` being the index in
+    ``chroms``, and come with the column of each peak in the matrix (the row
+    of the peak in ``peaks_df``). Also returns the widest peak and whether
+    the peaks are disjoint.
     """
     code = pd.Series(np.arange(len(chroms), dtype=np.int64), index=chroms)
     on = peaks_df["chrom"].isin(chroms).to_numpy()
@@ -843,8 +852,10 @@ def _peak_key_counts_gpu(
     counting_strategy: str = "paired-insertion",
 ) -> tuple[cp.ndarray, cp.ndarray]:
     """
-    Per (cell, peak) counts of one batch of fragments, kept on the GPU as
-    sorted int64 keys ``cell * n_peaks + peak`` and int32 counts.
+    Per (cell, peak) counts of one batch of fragments, kept on the GPU.
+
+    They come as sorted int64 keys ``cell * n_peaks + peak`` and int32
+    counts.
 
     ``df`` has the 'chrom', 'start', 'end' and 'cell' columns of
     :meth:`FragmentFile.iter_batches`, ``peaks`` is :func:`_peak_keys` of
@@ -913,10 +924,12 @@ def _count_file_peaks(
     counting_strategy: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    The peak counts of ``cells`` in one fragment file, as the host CSR
-    components ``(row_nnz, cols, data)`` of its ``len(cells)`` rows, columns
-    sorted within each row. The counts of each batch stay on the GPU, and
-    the rows are summed and assembled there a slab of cells at a time.
+    Return the peak counts of ``cells`` in one fragment file as host CSR components.
+
+    The components are ``(row_nnz, cols, data)`` of the ``len(cells)`` rows,
+    with columns sorted within each row. The counts of each batch stay on the
+    GPU, and the rows are summed and assembled there a slab of cells at a
+    time.
     """
     keys, counts = [], []
     for df in fragments.iter_batches(["chrom", "start", "end"], batch_size, chroms=chroms, cells=cells):
@@ -941,9 +954,11 @@ def _count_file_peaks(
 
 def _assemble_rows(parts: list, n_cells: int, n_peaks: int):
     """
-    The CSR matrix of per-file rows ``(rows, row_nnz, cols, data)``, ``rows``
-    being the sorted output rows of the file's cells, in the smallest count
-    dtype. A row given by several files is their sum.
+    Assemble the CSR matrix of per-file rows, in the smallest count dtype.
+
+    Each part is ``(rows, row_nnz, cols, data)``, ``rows`` being the sorted
+    output rows of the cells of the file. A row given by several files is
+    their sum.
     """
     import scipy.sparse as sp
 
@@ -1122,7 +1137,7 @@ def make_matrix(
     if isinstance(parquet_path, list):
         # List of parquet files provided directly
         parquet_files = [Path(p) for p in parquet_path]
-        file_to_barcodes = {pf: all_barcodes for pf in parquet_files}
+        file_to_barcodes = dict.fromkeys(parquet_files, all_barcodes)
         logger.info(f"Processing {len(parquet_files)} parquet files (list mode)")
     else:
         parquet_path = Path(parquet_path)
@@ -1150,7 +1165,7 @@ def make_matrix(
     # Process each parquet file
     n_files = len(parquet_files)
     if verbose == "tqdm" or verbose is True:
-        from .._progress import tqdm
+        from gatac._progress import tqdm
 
         file_iter = tqdm(parquet_files, desc="Parquet files")
     else:

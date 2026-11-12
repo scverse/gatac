@@ -1,6 +1,4 @@
-"""
-ATAC fragments TSV.GZ to Parquet conversion, and back.
-"""
+"""ATAC fragments TSV.GZ to Parquet conversion, and back."""
 
 import logging
 import multiprocessing as mp
@@ -15,7 +13,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .._workers import default_workers, resolve_workers
+from gatac._workers import default_workers, resolve_workers
+
 from .fragments import NAMED_SCHEMA, FragmentFile, sql_string, write_fragments
 
 logger = logging.getLogger(__name__)
@@ -30,16 +29,17 @@ def _stem(path: Path) -> str:
 
 def sample_names(paths: Sequence[str | Path]) -> list[str]:
     """
-    A sample name for each fragments file: the parts of the paths that
-    differ between the files, compared from the file name up and joined
-    with ``_``; a single file's name without its extensions.
+    Return a sample name for each fragments file, from the parts of the paths that differ.
+
+    The paths are compared from the file name up and the differing parts
+    joined with ``_``. A single file gets the file name without the
+    extensions.
 
     Examples
     --------
     >>> sample_names(["samples/s1.tsv.gz", "samples/s2.tsv.gz"])
     ['s1', 's2']
-    >>> sample_names(["runs/A/outs/atac_fragments.tsv.gz",
-    ...               "runs/B/outs/atac_fragments.tsv.gz"])
+    >>> sample_names(["runs/A/outs/atac_fragments.tsv.gz", "runs/B/outs/atac_fragments.tsv.gz"])
     ['A', 'B']
     """
     paths = [Path(p).resolve() for p in paths]
@@ -217,8 +217,10 @@ def _make_parquet_duckdb(
     skip_invalid: bool = False,
     threads: int | None = None,
 ) -> Path:
-    """:func:`make_parquet` with DuckDB on the CPU, on ``threads`` threads
-    (default: the CPUs this process may use minus one)."""
+    """Run :func:`make_parquet` with DuckDB on the CPU, on ``threads`` threads.
+
+    ``threads`` defaults to the CPUs this process may use minus one.
+    """
     input_path = Path(input_path)
     if output_path is None:
         output_path = input_path.with_suffix("").with_suffix(".parquet")
@@ -537,8 +539,7 @@ def make_parquet_batch(
 
 
 def _batch_workers(workers: int | str, n_gpu_files: int, n_cpu_files: int) -> tuple[int, int, int]:
-    """Processes of :func:`make_parquet_batch` for its GPU files and its DuckDB
-    files, and the DuckDB threads of each.
+    """Processes of :func:`make_parquet_batch` for the GPU files and the DuckDB files, and the DuckDB threads of each.
 
     ``"auto"``: the GPU files get :func:`~gatac.io.gpu_convert._default_gpu_workers`
     (at most 4, one per 7 GB of free GPU memory), and the DuckDB files the

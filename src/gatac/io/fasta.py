@@ -105,8 +105,10 @@ class Fasta:
         return blk[(blk != 10) & (blk != 13)][:length]
 
     def region_bytes(self, chrom: str, starts: np.ndarray, ends: np.ndarray) -> np.ndarray:
-        """Bytes of the 0-based, half-open intervals ``[start, end)`` of one sequence,
-        concatenated (uint8, case kept). Intervals must lie within the sequence."""
+        """Bytes of the 0-based, half-open intervals ``[start, end)`` of one sequence, concatenated (uint8, case kept).
+
+        Intervals must lie within the sequence.
+        """
         _, off, lb, lw = self.index[chrom]
         starts = np.asarray(starts, dtype=np.int64)
         lens = np.asarray(ends, dtype=np.int64) - starts
@@ -189,8 +191,7 @@ def _gunzip(src: Path, dst: Path) -> None:
 
 
 def _load_index(fasta: Path) -> dict[str, tuple[int, int, int, int]]:
-    """The ``.fai`` index of ``fasta``: read, or built and written when missing or
-    older than the FASTA file."""
+    """The ``.fai`` index of ``fasta``: read, or built and written when missing or older than the FASTA file."""
     fai = Path(str(fasta) + ".fai")
     if fai.exists() and fai.stat().st_mtime >= fasta.stat().st_mtime:
         index = {}

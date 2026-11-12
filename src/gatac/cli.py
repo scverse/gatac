@@ -770,7 +770,7 @@ def main():
     for ep in entry_points(group="gatac.cli"):
         try:
             ep.load()(subparsers)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - a broken extension must not stop gatac
             print(f"WARNING: gatac extension {ep.name!r} ({ep.value}) could not add its commands: {e}", file=sys.stderr)
 
     args = parser.parse_args()

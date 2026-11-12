@@ -1,6 +1,5 @@
 """
-GATAC fragment Parquet files: the layout, the reader, and the streaming
-writer behind :func:`gatac.io.make_parquet`.
+GATAC fragment Parquet files: the layout, the reader, and the streaming writer behind :func:`gatac.io.make_parquet`.
 
 Chromosomes and barcodes are integer ids, and the lookup tables travel inside
 the same file::
@@ -46,7 +45,7 @@ import pyarrow.compute as pc
 import pyarrow.csv as pa_csv
 import pyarrow.parquet as pq
 
-from ..gpu import bincount
+from gatac.gpu import bincount
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +116,8 @@ class FragmentFile:
     --------
     >>> import gatac as ga
     >>> ff = ga.io.FragmentFile("pbmc.parquet")
-    >>> counts = ff.barcode_counts()          # barcode, n_unique, n_total
-    >>> for batch in ff.iter_batches(["chrom", "start", "end"],
-    ...                              chroms=["chr1", "chr2"],
-    ...                              cells=counts["barcode"][:100]):
+    >>> counts = ff.barcode_counts()  # barcode, n_unique, n_total
+    >>> for batch in ff.iter_batches(["chrom", "start", "end"], chroms=["chr1", "chr2"], cells=counts["barcode"][:100]):
     ...     ...  # batch: cudf.DataFrame with int chrom / cell indices
     """
 
@@ -150,6 +147,7 @@ class FragmentFile:
 
     @property
     def num_row_groups(self) -> int:
+        """Number of Parquet row groups in the file."""
         return self._metadata.num_row_groups
 
     @property
@@ -159,10 +157,7 @@ class FragmentFile:
 
     @property
     def barcodes(self) -> np.ndarray:
-        """
-        Barcode names, with the prefix, as an object array indexed by barcode
-        id (ids by decreasing fragment count).
-        """
+        """Barcode names, with the prefix, as an object array indexed by barcode id (ids by decreasing fragment count)."""
         if self._barcodes is None:
             self._barcodes = self._prefixed(self._barcode_table(["bc_name"])["bc_name"]).to_numpy(zero_copy_only=False)
         return self._barcodes
@@ -174,9 +169,7 @@ class FragmentFile:
         return pc.binary_join_element_wise(self.barcode_prefix, names, "")
 
     def barcode_ids(self, barcodes: Sequence[str]) -> np.ndarray:
-        """
-        Barcode ids of ``barcodes`` (int64), -1 for barcodes absent from the file.
-        """
+        """Barcode ids of ``barcodes`` (int64), -1 for barcodes absent from the file."""
         if self._barcode_index is None:
             self._barcode_index = pd.Index(self.barcodes)
         return self._barcode_index.get_indexer(pd.Index(np.asarray(barcodes, dtype=object)))
@@ -314,8 +307,7 @@ class FragmentFile:
         cells: Sequence[str] | None = None,
     ) -> Iterator[cudf.DataFrame]:
         """
-        Stream fragments onto the GPU, a batch of row groups at a time, with
-        chromosomes and cells as integer indices.
+        Stream fragments onto the GPU, a batch of row groups at a time, with chromosomes and cells as integer indices.
 
         Parameters
         ----------
@@ -409,8 +401,11 @@ class FragmentFile:
         low_memory: bool = True,
     ) -> cudf.DataFrame:
         """
-        Read the whole file into one GPU DataFrame with the named columns (``chrom``, ``start``, ``end``, ``barcode``, ``count``),
-        ``chrom`` and ``barcode`` as categoricals (sorted categories).
+        Read the whole file into one GPU DataFrame with the named columns.
+
+        The columns are among ``chrom``, ``start``, ``end``, ``barcode`` and
+        ``count``, with ``chrom`` and ``barcode`` as categoricals (sorted
+        categories).
 
         The categoricals are built from the stored integer ids, without
         materialising strings on the GPU.
@@ -468,8 +463,10 @@ class FragmentFile:
 
     def iter_arrow(self, batch_size: int = 1_000_000) -> Iterator[pa.Table]:
         """
-        Stream the file on the CPU as Arrow tables with the named columns (``chrom``, ``start``, ``end``, ``barcode``, ``count``),
-        in file order (ids decoded back to names).
+        Stream the file on the CPU as Arrow tables, in file order.
+
+        The tables have the named columns ``chrom``, ``start``, ``end``,
+        ``barcode`` and ``count`` (ids decoded back to names).
         """
         return self._iter_arrow(batch_size, pa.array(self.barcodes, pa.string()))
 
@@ -572,7 +569,6 @@ def read_fragments_parquet(
     >>> df.columns.tolist()
     ['chrom', 'start', 'end', 'barcode', 'count']
     """
-
     if columns is None:
         columns = list(FRAGMENT_DTYPES.keys())
 
@@ -647,8 +643,10 @@ def _empty_counts(with_mito: bool) -> pd.DataFrame:
 
 def _categorical_from_ids(ids: cp.ndarray, names: np.ndarray) -> cudf.Series:
     """
-    Categorical Series from integer ids into ``names``: categories are the
-    observed names, sorted, as ``astype('category')`` on the strings gives.
+    Build a categorical Series from integer ids into ``names``.
+
+    The categories are the observed names, sorted, as
+    ``astype('category')`` on the strings gives.
     """
     # Mark the ids in use; unweighted cp.bincount would take CuPy 14's CUB
     # histogram, which crashes above ~5M bins (raw barcode counts can reach that)
@@ -826,8 +824,9 @@ def _write_cells(
     barcode_prefix: str | None = None,
 ) -> tuple[int, int]:
     """
-    Write the fragments of some barcodes of ``fragments`` to a new fragment
-    file, in file order, on the GPU: the ids are renumbered without being
+    Write the fragments of some barcodes of ``fragments`` to a new fragment file on the GPU.
+
+    The fragments stay in file order, the ids are renumbered without being
     decoded to names, and the file is encoded and compressed by cuDF.
 
     ``cells`` holds ``barcode_id`` (in ``fragments``), ``barcode`` (the name
@@ -868,9 +867,10 @@ def _write_cells(
 
 class _GpuWriter:
     """
-    Streaming writer of fragments encoded as ids (:data:`ID_SCHEMA` columns,
-    cuDF frames) with cuDF, in the layout of :func:`_write_fragments`. Rows
-    are buffered on the GPU and written in whole row groups.
+    Streaming cuDF writer of fragments encoded as ids, in the layout of :func:`_write_fragments`.
+
+    The fragments come as cuDF frames with the :data:`ID_SCHEMA` columns.
+    Rows are buffered on the GPU and written in whole row groups.
     """
 
     def __init__(

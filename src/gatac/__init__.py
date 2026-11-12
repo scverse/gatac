@@ -36,7 +36,7 @@ os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "OFF")
 _SUBMODULES = ("io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu")
 
 if TYPE_CHECKING:
-    from . import dr, gpu, io, motif, peak, pl, pp, tobias  # noqa: F401
+    from . import dr, gpu, io, motif, peak, pl, pp, tobias
 
 __version__ = version("gatac")
 __all__ = ["io", "pp", "dr", "peak", "motif", "tobias", "pl", "gpu", "extensions", "set_verbosity"]
@@ -120,8 +120,8 @@ def set_verbosity(level: str | int) -> None:
     Examples
     --------
     >>> import gatac
-    >>> gatac.set_verbosity("DEBUG")   # show all messages
-    >>> gatac.set_verbosity("WARNING") # silence info messages
+    >>> gatac.set_verbosity("DEBUG")  # show all messages
+    >>> gatac.set_verbosity("WARNING")  # silence info messages
     """
     if isinstance(level, str):
         level = getattr(logging, level.upper())

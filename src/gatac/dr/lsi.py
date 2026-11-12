@@ -1,6 +1,5 @@
 """
-GPU-accelerated Latent Semantic Indexing (TF-IDF + truncated SVD) for
-ATAC-seq matrices.
+GPU-accelerated Latent Semantic Indexing (TF-IDF + truncated SVD) for ATAC-seq matrices.
 
 A port of ``ArchR:::.computeLSI`` / ``ArchR:::.projectLSI`` (ArchR 1.0.3),
 accelerated with CuPy. The three TF-IDF variants are ArchR's ``LSIMethod``
@@ -51,7 +50,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from ..gpu import bincount
+from gatac.gpu import bincount
+
 from ._gpu import ChunkedMatrix, _to_gpu_csr
 
 logger = logging.getLogger(__name__)
@@ -791,7 +791,7 @@ def compute_lsi(
     deterministic: bool = True,
     chunk_size: int | None = None,
 ) -> LSIModel:
-    """
+    r"""
     Fit LSI on a cells × features matrix, following ``ArchR:::.computeLSI``.
 
     Parameters
@@ -816,7 +816,7 @@ def compute_lsi(
         Total fragments per cell, for the depth-correlation filter only. When
         ``None`` the matrix's own per-cell depth is used, with a warning.
     depth_cor_cutoff
-        Drop components whose \\|r\\| with ``log10(depth)`` exceeds this.
+        Drop components whose \|r\| with ``log10(depth)`` exceeds this.
         ``None`` keeps every component but still reports the correlations.
     scale_by_sv
         Return ``V @ diag(d)`` (ArchR's ``matSVD``) rather than ``V``.
@@ -1793,8 +1793,7 @@ def lsi(
 
 def model_from_adata(adata, uns_key: str = "lsi") -> LSIModel:
     """
-    Rebuild an :class:`LSIModel` from an AnnData written with
-    ``store_model=True``.
+    Rebuild an :class:`LSIModel` from an AnnData written with ``store_model=True``.
 
     Survives a ``write_h5ad`` / ``read_h5ad`` round trip, which is the point of
     storing plain arrays and scalars rather than the dataclass itself.

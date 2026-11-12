@@ -46,8 +46,9 @@ import numba
 import numpy as np
 import pandas as pd
 
-from ..gpu import to_device
-from ..io.fasta import Fasta
+from gatac.gpu import to_device
+from gatac.io.fasta import Fasta
+
 from .footprint import FootprintTracks
 
 logger = logging.getLogger(__name__)
@@ -250,8 +251,11 @@ def _thresholds(pssms: list[np.ndarray], bg: np.ndarray, p: float) -> np.ndarray
 
 
 def _moods_order(pssm: np.ndarray, bg: np.ndarray, window: int = MOODS_WINDOW) -> np.ndarray:
-    """MOODS Motif0 summation order: best expected-difference window first, then the
-    remaining columns by decreasing expected difference (std::sort, stable below 16)."""
+    """Return the MOODS Motif0 summation order of the columns of ``pssm``.
+
+    The best expected-difference window comes first, then the remaining columns by decreasing
+    expected difference (std::sort, stable below 16).
+    """
     a, m = pssm.shape
     ed = np.empty(m)
     for i in range(m):
@@ -424,7 +428,9 @@ def _short_run_hits(
 @numba.njit(cache=True)
 def _resolve_overlaps(gstart, chrom, start, end, score, keep):
     """RegionList.resolve_overlaps(priority="higher") on every loc-sorted (TF, chunk) group.
-    Host reference of ``_resolve_kernel`` (kept for tests)."""
+
+    Host reference of ``_resolve_kernel`` (kept for tests).
+    """
     for g in range(len(gstart) - 1):
         o, n = gstart[g], gstart[g + 1] - gstart[g]
         i, j = 0, 1
@@ -447,9 +453,12 @@ def _resolve_overlaps(gstart, chrom, start, end, score, keep):
 
 @numba.njit(cache=True)
 def _count_overlaps(gstart, chrom, start, end, name, n_mot, ov, tot):
-    """RegionList.count_overlaps per chunk of loc-sorted sites (all TFs): merge same-name
-    overlapping neighbours (end = current end), then bp overlap with each following site
-    while ``s1_start < s2_end and s1_end > s2_start + 1``. Host reference of ``_count_kernel``."""
+    """Run RegionList.count_overlaps per chunk of loc-sorted sites (all TFs).
+
+    Same-name overlapping neighbours are merged (end = current end), then the bp overlap with each
+    following site is taken while ``s1_start < s2_end and s1_end > s2_start + 1``. Host reference
+    of ``_count_kernel``.
+    """
     for g in range(len(gstart) - 1):
         o, n = gstart[g], gstart[g + 1] - gstart[g]
         mc = np.empty(n, np.int64)
@@ -582,8 +591,11 @@ def _log2fc(s1: np.ndarray, s2: np.ndarray, pseudo: float) -> np.ndarray:
 
 
 def _round5_dev(x: cp.ndarray) -> cp.ndarray:
-    """``_round5`` on the device: ``cp.around`` equals ``np.round`` bit for bit; the rare values
-    within 1e-6 of a rounding tie take the host string path."""
+    """Compute ``_round5`` on the device.
+
+    ``cp.around`` equals ``np.round`` bit for bit. The rare values within 1e-6 of a rounding tie
+    take the host string path.
+    """
     r = cp.around(x, 5)
     y = x * 1e5
     amb = cp.flatnonzero(cp.abs(cp.abs(y - cp.trunc(y)) - 0.5) < 1e-6)
@@ -706,7 +718,7 @@ def _quantile_normalization(arrays: list[np.ndarray]) -> list[_ArrayNorm]:
             bounds = ((np.min(x), -np.inf, 0, 0), (np.max(x), np.inf, L_range, np.inf))
             popt, _ = curve_fit(_sigmoid, xv, yi, bounds=bounds)
             func = "sigmoid"
-        except Exception:
+        except Exception:  # noqa: BLE001 - as TOBIAS: a fit that fails falls back to a constant
             popt, func = np.mean(yi), "constant"
         out.append(_ArrayNorm(func, popt, np.min(x), np.max(x)))
     return out
@@ -740,7 +752,9 @@ def _bound_threshold(bgv: np.ndarray, bound_pvalue: float):
 
 def _sample_changes(n: int, bg_mean: float, bg_std: float) -> np.ndarray:
     """TOBIAS: ``np.random.seed(n_obs)``; 100 × ``norm.rvs(bg_mean, bg_std, n_obs)`` → standardised changes.
-    One ``standard_normal`` stream of ``100 * n_obs`` draws equals the 100 successive calls."""
+
+    One ``standard_normal`` stream of ``100 * n_obs`` draws equals the 100 successive calls.
+    """
     rs = np.random.RandomState(n)
     out = np.empty(100)
     # bound memory (one chunk per thread of the pool); the stream stays continuous
@@ -759,9 +773,10 @@ def _sample_changes(n: int, bg_mean: float, bg_std: float) -> np.ndarray:
 
 @dataclass
 class SiteSet:
-    """Motif binding sites in a peak set: everything BINDetect computes that does not depend on
-    the footprints. Build once with :func:`bindetect_sites` and pass to :func:`bindetect` for
-    every set of pseudobulks footprinted on the same peaks.
+    """Motif binding sites in a peak set: everything BINDetect computes that does not depend on the footprints.
+
+    Build once with :func:`bindetect_sites` and pass to :func:`bindetect` for every set of
+    pseudobulks footprinted on the same peaks.
 
     Site arrays are sorted per motif by (chromosome, start), the order TOBIAS processes them in;
     ``motif_offsets[k]:motif_offsets[k + 1]`` are the sites of motif ``k``.
@@ -980,15 +995,15 @@ def bindetect_sites(
         _launch(_resolve_kernel, len(gstart) - 1, (gstart, cp.int64(len(gstart) - 1), chrom, start, end, score, keep))
         k = cp.flatnonzero(keep)
         kept.append(
-            dict(
-                chrom=chrom[k],
-                start=start[k],
-                end=end[k],
-                motif=(mloc[k] + m0).astype(cp.int32),
-                score=score[k],
-                minus=minus[k],
-                rid=rid[k].astype(cp.int32),
-            )
+            {
+                "chrom": chrom[k],
+                "start": start[k],
+                "end": end[k],
+                "motif": (mloc[k] + m0).astype(cp.int32),
+                "score": score[k],
+                "minus": minus[k],
+                "rid": rid[k].astype(cp.int32),
+            }
         )
         del mloc, minus, rid, chrom, start, end, score, keep, k, gstart
     del seq_d
@@ -1032,15 +1047,15 @@ def bindetect_sites(
     # ---- final order: per motif by (chrom, start), as process_tfbs sorts its sites ----
     t0 = time.perf_counter()
     if S is None:
-        S = dict(
-            chrom=cp.zeros(0, cp.int32),
-            start=cp.zeros(0, cp.int64),
-            end=cp.zeros(0, cp.int64),
-            motif=cp.zeros(0, cp.int32),
-            score=cp.zeros(0),
-            minus=cp.zeros(0, cp.bool_),
-            rid=cp.zeros(0, cp.int32),
-        )
+        S = {
+            "chrom": cp.zeros(0, cp.int32),
+            "start": cp.zeros(0, cp.int64),
+            "end": cp.zeros(0, cp.int64),
+            "motif": cp.zeros(0, cp.int32),
+            "score": cp.zeros(0),
+            "minus": cp.zeros(0, cp.bool_),
+            "rid": cp.zeros(0, cp.int32),
+        }
     o = _stable_order(S["motif"], S["rid"].astype(cp.int64) * (1 << 27) + (S["start"] - reg_s_d[S["rid"]]))
     pos_t = np.int32 if int(reg_e.max()) < 2**31 else np.int64
     out = {k: v[o].get() for k, v in S.items()}
@@ -1168,9 +1183,11 @@ def _layout_index_dev(layout, chroms: list[str], chrom: cp.ndarray, pos: cp.ndar
 
 
 def _sample_changes_exact_null(n: int, bg_mean: float, bg_std: float, seed=None, size: int = 100) -> np.ndarray:
-    """The null of ``_sample_changes`` drawn from its exact sampling distribution: the mean of
-    ``n`` normal draws is N(bg_mean, bg_std²/n) and n·var/bg_std² is an independent χ²(n-1),
-    so 2 draws per replicate replace ``n`` (only the random stream differs from TOBIAS)."""
+    """Draw the null of ``_sample_changes`` from the exact sampling distribution.
+
+    The mean of ``n`` normal draws is N(bg_mean, bg_std²/n) and n·var/bg_std² is an independent
+    χ²(n-1), so 2 draws per replicate replace ``n`` (only the random stream differs from TOBIAS).
+    """
     rng = np.random.default_rng(n if seed is None else seed)
     z = rng.standard_normal(size)
     x = 2.0 * rng.standard_gamma((n - 1) / 2.0, size) if n > 1 else np.zeros(size)
@@ -1180,9 +1197,12 @@ def _sample_changes_exact_null(n: int, bg_mean: float, bg_std: float, seed=None,
 
 
 def _tobias_site_order(sites: SiteSet, idx: np.ndarray | None = None) -> np.ndarray:
-    """Order of sites ``idx`` (sorted by motif; default: all sites) by TOBIAS's groupby key
-    "chrom_start_end" within each motif: Python string order of the id, computed on the device
-    from its characters. The order indexes ``idx`` and has its smallest integer dtype."""
+    """Order sites ``idx`` by the TOBIAS groupby key "chrom_start_end" within each motif.
+
+    ``idx`` is sorted by motif and defaults to all sites. The order is the Python string order of
+    the id, computed on the device from the characters of the id. The order indexes ``idx``, in the
+    smallest integer dtype.
+    """
 
     def col(a):
         return a if idx is None else a[idx]
@@ -1280,8 +1300,9 @@ def bindetect(
 
     Examples
     --------
-    >>> tracks = ga.tobias.footprint(adata, "cell_type", "fragments.parquet", "GRCh38.fa",
-    ...                          groups=["CD14 Mono", "CD4 Memory"])
+    >>> tracks = ga.tobias.footprint(
+    ...     adata, "cell_type", "fragments.parquet", "GRCh38.fa", groups=["CD14 Mono", "CD4 Memory"]
+    ... )
     >>> res = ga.tobias.bindetect(tracks, "cisBP_human.meme")
     >>> res.results.sort_values("CD14 Mono_CD4 Memory_change").head()
     """
@@ -1506,16 +1527,16 @@ def bindetect(
         pseudo=pseudo,
         groups=groups,
         comparisons=comps,
-        params=dict(
-            motif_pvalue=sites.motif_pvalue,
-            bound_pvalue=bound_pvalue,
-            gc=sites.gc,
-            background=sites.background,
-            motif_thresholds=dict(zip(prefixes, sites.thresholds)),
-            log2fc_params=log2fc_params,
-            cluster_threshold=cluster_threshold,
-            tobias_compat=tobias_compat,
-            n_background=len(sites.bg_pos),
-            timings=T,
-        ),
+        params={
+            "motif_pvalue": sites.motif_pvalue,
+            "bound_pvalue": bound_pvalue,
+            "gc": sites.gc,
+            "background": sites.background,
+            "motif_thresholds": dict(zip(prefixes, sites.thresholds)),
+            "log2fc_params": log2fc_params,
+            "cluster_threshold": cluster_threshold,
+            "tobias_compat": tobias_compat,
+            "n_background": len(sites.bg_pos),
+            "timings": T,
+        },
     )

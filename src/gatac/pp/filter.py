@@ -14,9 +14,10 @@ import cudf
 import cupy as cp
 import pandas as pd
 
-from .._readers import read_metrics
-from .._workers import default_workers, resolve_workers
-from ..io.fragments import FragmentFile, _write_cells
+from gatac._readers import read_metrics
+from gatac._workers import default_workers, resolve_workers
+from gatac.io.fragments import FragmentFile, _write_cells
+
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
 logger = logging.getLogger(__name__)
@@ -89,17 +90,11 @@ def filter_fragments(
     >>> filter_fragments("fragments.parquet", min_fragments_per_cell=500)
 
     >>> # Filter using metrics CSV with quality threshold
-    >>> filter_fragments(
-    ...     "fragments.parquet",
-    ...     metrics="metrics.csv",
-    ...     filter_query="tsse_score > 5 and n_unique > 1000"
-    ... )
+    >>> filter_fragments("fragments.parquet", metrics="metrics.csv", filter_query="tsse_score > 5 and n_unique > 1000")
 
     >>> # Filter multiple samples
     >>> filter_fragments(
-    ...     ["sample1.parquet", "sample2.parquet"],
-    ...     metrics=combined_metrics_df,
-    ...     filter_query="tsse_score > 5"
+    ...     ["sample1.parquet", "sample2.parquet"], metrics=combined_metrics_df, filter_query="tsse_score > 5"
     ... )
     """
     from .genome import get_chrom_sizes
@@ -118,7 +113,7 @@ def filter_fragments(
             valid_chroms = set(chrom_sizes.keys())
         else:
             raise ValueError("chrom_sizes must be a string (genome name), dict, or object with chrom_sizes attribute")
-        logger.info(f"Filtering to {len(valid_chroms)} chromosomes: {sorted(list(valid_chroms))[:5]}...")
+        logger.info(f"Filtering to {len(valid_chroms)} chromosomes: {sorted(valid_chroms)[:5]}...")
 
     # Handle single vs multiple inputs
     if isinstance(input_parquet, (str, Path)):

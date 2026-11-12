@@ -1,9 +1,6 @@
-"""
-Motifs: reading and scanning motifs, enrichment in peak sets, GSEA on motif
-rankings, and chromVAR TF-activity scores.
-"""
+"""Motifs: reading and scanning motifs, enrichment in peak sets, GSEA on motif rankings, and chromVAR TF-activity scores."""
 
-from .._rapids import require as _require_rapids
+from gatac._rapids import require as _require_rapids
 
 _require_rapids()
 

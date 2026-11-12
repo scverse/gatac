@@ -1,9 +1,6 @@
-"""
-TOBIAS on the GPU: Tn5 bias correction and footprint scores per pseudobulk,
-and differential TF binding (BINDetect).
-"""
+"""TOBIAS on the GPU: Tn5 bias correction and footprint scores per pseudobulk, and differential TF binding (BINDetect)."""
 
-from .._rapids import require as _require_rapids
+from gatac._rapids import require as _require_rapids
 
 _require_rapids()
 

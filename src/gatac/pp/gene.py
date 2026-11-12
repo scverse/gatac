@@ -20,8 +20,9 @@ import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
 
-from .._files import write_h5ad
-from .._readers import read_gtf, read_metrics
+from gatac._files import write_h5ad
+from gatac._readers import read_gtf, read_metrics
+
 from ._utils import async_memory_pool
 
 logger = logging.getLogger(__name__)
@@ -169,8 +170,9 @@ def load_gene_annotation(
 
 @functools.lru_cache(maxsize=4)
 def _cached_gene_annotation(resolved: str, mtime_ns: int, gtf_path: str, **kwargs) -> pd.DataFrame:
-    """:func:`load_gene_annotation` of ``gtf_path``, parsed once per file
-    version (its ``resolved`` path and ``mtime_ns``) and options.
+    """Return :func:`load_gene_annotation` of ``gtf_path``, parsed once per file version and options.
+
+    A file version is the ``resolved`` path and the ``mtime_ns`` of the file.
 
     Callers must not modify the returned table.
     """
@@ -233,7 +235,7 @@ def create_gene_matrix_gpu(
             exclude_chroms = [exclude_chroms]
         valid_chroms = valid_chroms - set(exclude_chroms)
 
-    valid_chroms = sorted(list(valid_chroms))  # Sort for reproducibility
+    valid_chroms = sorted(valid_chroms)  # Sort for reproducibility
 
     if len(valid_chroms) == 0:
         raise ValueError("No valid chromosomes in gene annotation after exclusion")
@@ -696,8 +698,7 @@ def make_gene_matrix(
     ...     output_path="genes.h5ad",
     ... )
     """
-
-    from ..io.fragments import read_fragments_parquet
+    from gatac.io.fragments import read_fragments_parquet
 
     if isinstance(input_parquet, (list, tuple)):
         from ._combine import _check_distinct_cells, _file_names, combine_file_matrices

@@ -20,7 +20,7 @@ import cupy as cp
 import numpy as np
 import scipy.sparse as sp
 
-from ..gpu import bincount
+from gatac.gpu import bincount
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +133,11 @@ class StreamedCounts:
     @classmethod
     def from_arrays(cls, indptr, data, indices, shape, chunk_size: int, memory_fraction: float = 0.5):
         """
-        From CSR arrays: host ``indptr`` (int64), and ``data`` and int32
-        ``indices`` either in GPU memory, where every chunk stays as a view
-        on them, or in host memory, used as by the constructor.
+        Build the streamed matrix from CSR arrays.
+
+        ``indptr`` is int64 on the host. ``data`` and int32 ``indices`` are
+        either in GPU memory, where every chunk stays as a view on them, or in
+        host memory, used as by the constructor.
         """
         self = cls.__new__(cls)
         self._setup(np.asarray(indptr, dtype=np.int64), data, indices, tuple(shape), chunk_size, memory_fraction)
@@ -144,7 +146,7 @@ class StreamedCounts:
     @staticmethod
     def from_h5ad(*args, **kwargs):
         """:func:`gatac.io._h5counts.open_counts`: read the matrix of an h5ad straight to the GPU."""
-        from ..io._h5counts import open_counts
+        from gatac.io._h5counts import open_counts
 
         return open_counts(*args, **kwargs)
 
@@ -211,7 +213,7 @@ class StreamedCounts:
     def __del__(self):
         try:
             self.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - __del__ must not raise
             pass
 
     # -- chunk iteration -------------------------------------------------------

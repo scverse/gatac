@@ -79,7 +79,7 @@ def serve(conn_in: Connection, conn_out: Connection, buffers: list[str]) -> None
                 conn_out.send(("closed", spent))
             elif msg[0] == "exit":
                 break
-    except BaseException:
+    except BaseException:  # noqa: BLE001 - any failure goes to the parent, which raises it
         try:
             conn_out.send(("error", traceback.format_exc()))
         except OSError:

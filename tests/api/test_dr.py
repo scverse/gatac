@@ -143,7 +143,7 @@ def test_gpu_input_gives_the_same_result_and_is_left_alone(tiles, name):
 
 def test_scale_by_sv_only_rescales_columns(selected):
     """``scale_by_sv`` returns ``V @ diag(d)`` instead of ``V`` — for every cell, held-out ones included."""
-    kw = dict(outlier_quantiles=(0.02, 0.98), depth_cor_cutoff=None)
+    kw = {"outlier_quantiles": (0.02, 0.98), "depth_cor_cutoff": None}
     scaled, unscaled = selected.copy(), selected.copy()
     ga.dr.lsi(scaled, N_COMPS, **kw)
     ga.dr.lsi(unscaled, N_COMPS, scale_by_sv=False, **kw)

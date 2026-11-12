@@ -1,5 +1,7 @@
-"""docs/_static/parquet_size.svg: per-column size, fragments.tsv.gz vs GATAC Parquet (PBMC 5k),
-in the style of runtime_clustering.svg. Chromosome (0.9 MB vs < 0.01 MB) is too small to draw."""
+"""Draw docs/_static/parquet_size.svg: per-column size, fragments.tsv.gz vs GATAC Parquet (PBMC 5k).
+
+The chart follows the style of runtime_clustering.svg. Chromosome (0.9 MB vs < 0.01 MB) is too small to draw.
+"""
 
 from pathlib import Path
 

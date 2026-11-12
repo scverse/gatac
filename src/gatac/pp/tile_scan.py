@@ -26,9 +26,10 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .._files import write_h5ad
-from ..gpu import bincount
-from ..io.fragments import FragmentFile
+from gatac._files import write_h5ad
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
+
 from ._combine import _check_distinct_cells, _combined_obs, _file_names
 from ._utils import async_memory_pool, cleanup_gpu_memory
 from .tile import (
@@ -60,8 +61,7 @@ def scan_tiles(
     output_path: PathLike | None = None,
 ) -> ad.AnnData:
     """
-    Cells and tiles of the combined tile matrix of several fragment files,
-    with per-tile statistics but no matrix.
+    Cells and tiles of the combined tile matrix of several fragment files, with per-tile statistics but no matrix.
 
     Each file is read once. Its cells are chosen as in
     :func:`~gatac.pp.make_tile_matrix`, and its tile counts are computed on
@@ -337,7 +337,7 @@ def build_tile_matrix(
     # Written as it is built. With every scanned cell kept, the tile
     # statistics give the number of entries (uncompressed datasets are then
     # contiguous); otherwise they are an upper bound.
-    from ..io._csr_writer import CSRWriter
+    from gatac.io._csr_writer import CSRWriter
 
     output_path = Path(output_path)
     if "n_cells" not in var.columns:

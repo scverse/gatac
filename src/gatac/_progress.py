@@ -8,9 +8,11 @@ import sys
 
 def show_progress() -> bool:
     """
-    Whether progress bars are shown: when stderr is a terminal or in a
-    Jupyter kernel, so that pipelines (e.g. Snakemake) keep clean logs, and
-    never with ``TQDM_DISABLE`` set.
+    Whether progress bars are shown.
+
+    They are shown when stderr is a terminal or in a Jupyter kernel, so that
+    pipelines (e.g. Snakemake) keep clean logs, and never with
+    ``TQDM_DISABLE`` set.
     """
     if os.environ.get("TQDM_DISABLE", "").lower() in ("1", "true", "yes"):
         return False

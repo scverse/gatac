@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .._files import csr_disk_dtypes, replacing
+from gatac._files import csr_disk_dtypes, replacing
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class _Child:
                 if self.proc.poll() is None:
                     self.conn_out.send(("exit",))
                 self.proc.wait(timeout=60)
-            except Exception:
+            except Exception:  # noqa: BLE001 - whatever failed, the child is killed
                 self.proc.kill()
                 self.proc.wait()
             self.proc = None
@@ -278,7 +278,7 @@ class CSRWriter:
             error = RuntimeError("CSRWriter: the block ended without finalize(); nothing was written")
         try:
             self._release()
-        except BaseException as e:
+        except BaseException as e:  # noqa: BLE001 - kept and raised after the cleanup
             if error is None:
                 error = e
         if error is None:

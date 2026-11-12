@@ -29,10 +29,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
-from .._rapids import INSTALL_HINT
+from gatac._rapids import INSTALL_HINT
 
 if TYPE_CHECKING:
-    from ..dr._stream import StreamedCounts
+    from gatac.dr._stream import StreamedCounts
 
 logger = logging.getLogger(__name__)
 
@@ -243,8 +243,11 @@ class _Reader:
         stream.synchronize()
 
     def _blocks(self, lay: _Layout, c0: int, c1: int) -> Iterator[tuple[int, int]]:
-        """Runs of chunks read with one pread each: in file order, at most ``block_bytes``
-        apart in the file and ``max_decoded_bytes`` decoded."""
+        """Yield the runs of chunks that are read with one pread each.
+
+        A run is in file order, at most ``block_bytes`` apart in the file and
+        ``max_decoded_bytes`` decoded.
+        """
         offs, sizes = lay.chunk_offsets, lay.chunk_sizes
         max_k = max(1, self.max_decoded_bytes // (lay.chunk_len * lay.dtype.itemsize))
         start = c0
@@ -624,8 +627,10 @@ def _in_order(starts: np.ndarray, lens: np.ndarray) -> bool:
 
 
 def _row_blocks(starts: np.ndarray, lens: np.ndarray, max_entries: int) -> Iterator[tuple[int, int]]:
-    """Runs of output rows whose source span plus output fit in ``max_entries`` entries
-    (a single row always forms a block)."""
+    """Yield runs of output rows whose source span plus output fit in ``max_entries`` entries.
+
+    A single row always forms a block.
+    """
     n = len(starts)
     cum = np.concatenate([[0], np.cumsum(lens)])
 
@@ -767,7 +772,7 @@ def open_counts(
     import cupy as cp
     import scipy.sparse as sp
 
-    from ..dr._stream import StreamedCounts
+    from gatac.dr._stream import StreamedCounts
 
     if isinstance(source, ad.AnnData) and not source.isbacked:
         X = source.layers[key.removeprefix("layers/")] if key != "X" else source.X

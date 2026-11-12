@@ -1,6 +1,8 @@
 """
-Run the GPU test workflow (.github/workflows/test-gpu.yml) on a Modal GPU,
-against the working tree as it is (uncommitted changes included).
+Run the GPU test workflow on a Modal GPU, against the working tree as it is.
+
+The workflow is .github/workflows/test-gpu.yml, and uncommitted changes are
+included.
 
     modal run ci/modal_gpu.py                                  # the workflow's stable job, as CI runs it
     modal run ci/modal_gpu.py --pytest-args "tests/api/test_pp.py -x"   # appended to its pytest command

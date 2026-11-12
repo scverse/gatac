@@ -72,7 +72,7 @@ def test_make_tile_matrix_metrics_inputs(kind, world, tmp_path):
     path = tmp_path / "metrics.csv"
     metrics.to_csv(path, index=False)
     other = {"pandas": lambda: metrics, "csv": lambda: path}[kind]()
-    kw = dict(chrom_sizes=_chrom_sizes(world), tile_size=5_000, filter_query="tsse_score >= 5")
+    kw = {"chrom_sizes": _chrom_sizes(world), "tile_size": 5_000, "filter_query": "tsse_score >= 5"}
     ref = ga.pp.make_tile_matrix(world["parquet"], metrics=cudf.from_pandas(metrics), **kw)
     got = ga.pp.make_tile_matrix(world["parquet"], metrics=other, **kw)
     assert 0 < got.n_obs < len(counts)

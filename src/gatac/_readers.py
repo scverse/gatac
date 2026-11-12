@@ -1,7 +1,8 @@
 """
-Readers shared by every GATAC function that takes a cell metrics table, a
-BED file or a gene annotation, so they all accept the same inputs and parse
-them the same way.
+Readers of cell metrics tables, BED files and gene annotations.
+
+Every GATAC function that takes one of these inputs uses the same reader, so
+they all accept the same inputs and parse them the same way.
 """
 
 from __future__ import annotations

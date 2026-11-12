@@ -42,9 +42,10 @@ import numpy as np
 import scipy.sparse as sp
 from anndata import AnnData
 
-from ..gpu import bincount
-from ..io._h5counts import gpu_csr, open_counts
-from ..io._results import _store_results
+from gatac.gpu import bincount
+from gatac.io._h5counts import gpu_csr, open_counts
+from gatac.io._results import _store_results
+
 from ._gpu import (
     _launch_1d,
     _row_norms_sq_kernel,

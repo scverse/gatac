@@ -1,6 +1,4 @@
-"""
-``.h5ad`` files read and written with their sparse matrices decoded on the GPU.
-"""
+"""``.h5ad`` files read and written with their sparse matrices decoded on the GPU."""
 
 from __future__ import annotations
 
@@ -133,7 +131,7 @@ def write_h5ad(filepath: str | Path, adata: ad.AnnData, *, compression: Literal[
     An ``X`` that is not CSR, and the AnnData of a backed file, are written
     by anndata alone, with the same ``compression``.
     """
-    from .._files import write_h5ad as _write
+    from gatac._files import write_h5ad as _write
 
     if compression not in ("gzip", None):
         raise ValueError(f"compression is 'gzip' or None, not {compression!r}")

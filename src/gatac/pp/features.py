@@ -1,6 +1,4 @@
-"""
-GPU-accelerated feature selection for ATAC-seq tile matrices.
-"""
+"""GPU-accelerated feature selection for ATAC-seq tile matrices."""
 
 from __future__ import annotations
 
@@ -12,8 +10,8 @@ import cupyx.scipy.sparse as cusp
 import numpy as np
 import scipy.sparse as sp
 
-from .._files import write_h5ad
-from ..gpu import bincount
+from gatac._files import write_h5ad
+from gatac.gpu import bincount
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +173,7 @@ def _compute_feature_counts_gpu(X, chunk_size: int = 2000) -> cp.ndarray:
 
 def _backed_feature_counts(adata) -> tuple[cp.ndarray, bool]:
     """Per-feature sums of a backed matrix, read once from its file, and whether it is binary."""
-    from ..io._h5counts import iter_row_chunks
+    from gatac.io._h5counts import iter_row_chunks
 
     counts = cp.zeros(adata.n_vars, cp.float64)
     binary = True
@@ -187,11 +185,13 @@ def _backed_feature_counts(adata) -> tuple[cp.ndarray, bool]:
 
 def _tile_stats_usable(adata) -> bool:
     """
-    Whether var holds tile statistics that match ``adata``'s matrix: summed
-    over exactly its cells, with as many entries as it has and, when the
-    matrix is in memory, the same total. A matrix binarized, normalized or
-    subset after it was built fails one of these; a backed matrix is only
-    checked for its entry count, so its values are not read.
+    Whether var holds tile statistics that match the matrix of ``adata``.
+
+    The statistics must be summed over exactly the cells of the matrix, with
+    as many entries as it has and, when the matrix is in memory, the same
+    total. A matrix binarized, normalized or subset after it was built fails
+    one of these. A backed matrix is only checked for the entry count, so the
+    values are not read.
     """
     stats = adata.uns.get("tile_stats")
     if (
@@ -265,7 +265,6 @@ def select_features(
     >>> ga.pp.select_features(adata, n_features=500_000)
     >>> # adata.var["selected"] is now a boolean mask of the chosen features
     """
-
     logger.info(f"Selecting features from {adata.shape[1]:,} total")
 
     feature_counts = None

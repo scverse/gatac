@@ -406,7 +406,7 @@ def markers(
     # Binarize matrix on GPU
     logger.debug("Binarizing matrix on GPU")
     if backed:
-        from ..io._h5counts import gpu_csr
+        from gatac.io._h5counts import gpu_csr
 
         cells = np.unique(np.concatenate([np.r_[f, b] for f, b in samples.values()] or [np.zeros(0, np.int64)]))
         X_binary = _binarize_matrix_gpu(gpu_csr(adata, rows=cells))
@@ -474,7 +474,7 @@ def markers(
     if backed and adata.is_view:
         logger.warning(f"A view of a backed AnnData cannot hold results: adata.uns['{key_added}'] is not set")
     else:
-        from ..io._results import _store_results
+        from gatac.io._results import _store_results
 
         _store_results(adata, uns={key_added: stored})
 
@@ -529,7 +529,6 @@ def get_markers(
     >>> # A single group's top peaks
     >>> top_peak_names = ga.peak.get_markers(adata, group="CD8_T", fdr_threshold=0.05, n_peaks=100)
     """
-
     if key not in adata.uns:
         raise KeyError(f"'{key}' not found in adata.uns. Run markers first.")
 

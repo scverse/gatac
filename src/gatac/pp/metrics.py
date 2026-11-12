@@ -19,9 +19,10 @@ import cupy as cp
 import numpy as np
 import pandas as pd
 
-from .._readers import read_gtf
-from .._workers import default_workers, resolve_workers
-from ..io.fragments import FragmentFile
+from gatac._readers import read_gtf
+from gatac._workers import default_workers, resolve_workers
+from gatac.io.fragments import FragmentFile
+
 from ._utils import async_memory_pool, cleanup_gpu_memory
 
 logger = logging.getLogger(__name__)

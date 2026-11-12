@@ -283,8 +283,10 @@ class ChunkedMatrix:
 
     def gram_operator(self, diag_shift: cp.ndarray | None = None):
         """
-        ``X Xᵀ`` (optionally minus ``diag(diag_shift)``) as an
-        ``(n_rows, n_rows)`` symmetric LinearOperator, for ``eigsh``.
+        Return the Gram product ``X Xᵀ`` as a symmetric LinearOperator, for ``eigsh``.
+
+        The operator is ``(n_rows, n_rows)`` and optionally subtracts
+        ``diag(diag_shift)``.
 
         Parameters
         ----------

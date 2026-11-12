@@ -9,10 +9,10 @@ import pytest
 pytest.importorskip("cupy")
 pytest.importorskip("cudf")
 
-import anndata as ad  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
+import anndata as ad
+import matplotlib.pyplot as plt
 
-import gatac as ga  # noqa: E402
+import gatac as ga
 
 CHROMS = {"chr1": 400_000, "chr2": 300_000}
 MOTIFS = {  # A C G T per position
@@ -98,7 +98,7 @@ def inputs(tmp_path_factory):
     )
     adata = ad.AnnData(obs=obs)
     tracks = ga.tobias.footprint(adata, "group", parquet, fasta, peaks=peaks, verbose=False)
-    return dict(tracks=tracks, meme=meme)
+    return {"tracks": tracks, "meme": meme}
 
 
 @pytest.mark.parametrize("deduplicate", [True, False])

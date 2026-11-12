@@ -175,7 +175,7 @@ def test_gc_matched_background_matches_target_gc(gc_world):
     # Targets are removed from the pool, so leave GC-rich candidates in it.
     rich = np.flatnonzero(gc > 0.6)
     target = regions[rich[::2]]
-    kw = dict(background_pool=list(regions), replace=False, random_state=0)
+    kw = {"background_pool": list(regions), "replace": False, "random_state": 0}
     bg = ga.motif.sample_gc_matched_background(list(target), gc_world["fasta"], **kw)
     assert len(bg) == len(target) and len(set(bg)) == len(bg)
     lookup = dict(zip(regions, gc))

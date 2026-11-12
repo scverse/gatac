@@ -42,8 +42,8 @@ import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
 
-from .._files import write_h5ad
-from .._readers import read_gtf, read_metrics
+from gatac._files import write_h5ad
+from gatac._readers import read_gtf, read_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def _eval_gene_model(model: str | Callable, x: cp.ndarray) -> cp.ndarray:
         "cp": cp,
         "np": cp,
     }
-    return cp.asarray(eval(model, env), dtype=cp.float64)  # noqa: S307
+    return cp.asarray(eval(model, env), dtype=cp.float64)
 
 
 # =============================================================================
@@ -526,7 +526,7 @@ def _gene_score_chrom(
 
 
 def _cusparse_to_scipy(mat) -> sp.csr_matrix:
-    """cupyx CSR/COO -> scipy CSR on host."""
+    """Cupyx CSR/COO -> scipy CSR on host."""
     mat = mat.tocsr()
     return sp.csr_matrix(
         (cp.asnumpy(mat.data), cp.asnumpy(mat.indices), cp.asnumpy(mat.indptr)),
@@ -538,6 +538,7 @@ def _cusparse_to_scipy(mat) -> sp.csr_matrix:
 # AnnData export + top-level driver
 # =============================================================================
 def gene_score_to_anndata(matrix, cell_metadata, gene_metadata):
+    """Build the cells × genes AnnData of a gene score matrix, indexed by barcode and gene name."""
     import scanpy as sc
 
     obs = cell_metadata.to_pandas() if hasattr(cell_metadata, "to_pandas") else cell_metadata
@@ -625,7 +626,7 @@ def make_gene_score_matrix(
     -------
     AnnData of shape ``(cells, genes)`` with normalised gene scores.
     """
-    from ..io.fragments import read_fragments_parquet
+    from gatac.io.fragments import read_fragments_parquet
 
     gene_regions = load_gene_score_annotation(
         gene_anno,

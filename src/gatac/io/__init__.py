@@ -1,8 +1,9 @@
-from .._rapids import require as _require_rapids
+from gatac._rapids import require as _require_rapids
 
 _require_rapids()
 
-from .._readers import read_bed, read_gtf, read_metrics
+from gatac._readers import read_bed, read_gtf, read_metrics
+
 from .convert import make_parquet, make_parquet_batch, sample_names, set_barcode_prefix, to_tsv
 from .fasta import Fasta
 from .fragments import FragmentFile, read_fragments_parquet

@@ -36,9 +36,10 @@ import pandas as pd
 import scipy.stats as stats
 import statsmodels.api as sm
 
-from .._readers import read_bed
-from ..gpu import bincount
-from ..io.fragments import FragmentFile
+from gatac._readers import read_bed
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
+
 from ._utils import cleanup_gpu_memory
 from .genome import get_chrom_sizes
 
@@ -466,7 +467,6 @@ def detect_doublets(
     >>> doublets = set(result.loc[result["is_doublet"], "cell_id"])
     >>> keep = adata[~adata.obs_names.isin(doublets)].copy()
     """
-
     if isinstance(chrom_sizes, str):
         chrom_sizes = get_chrom_sizes(chrom_sizes)
 

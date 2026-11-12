@@ -1,6 +1,4 @@
-"""
-Genomic constants and chromosome sizes.
-"""
+"""Genomic constants and chromosome sizes."""
 
 #: GRCh38 / hg38 chromosome sizes (Gencode v41).
 HG38 = {

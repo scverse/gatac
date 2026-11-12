@@ -20,15 +20,15 @@ import pytest
 pytest.importorskip("cupy")
 pytest.importorskip("cudf")
 
-import anndata as ad  # noqa: E402
-import duckdb  # noqa: E402
-import h5py  # noqa: E402
-import pyarrow as pa  # noqa: E402
-import pyarrow.parquet as pq  # noqa: E402
-import scipy.sparse as sp  # noqa: E402
+import anndata as ad
+import duckdb
+import h5py
+import pyarrow as pa
+import pyarrow.parquet as pq
+import scipy.sparse as sp
 
-import gatac as ga  # noqa: E402
-from gatac.io.fragments import FragmentFile  # noqa: E402
+import gatac as ga
+from gatac.io.fragments import FragmentFile
 
 CHROM_SIZES = {"chr1": 3_000_000, "chr2": 2_500_000, "chr3": 2_000_000, "chrX": 1_500_000}
 
@@ -607,7 +607,7 @@ def test_shared_cell_names_are_refused(data, tmp_path):
     assert ga.pp.scan_tiles([data["path"], other], **SCAN_KW).obs_names.is_unique
 
 
-SCAN_KW = dict(chrom_sizes=CHROM_SIZES, tile_size=50_000, min_fragments_per_cell=50)
+SCAN_KW = {"chrom_sizes": CHROM_SIZES, "tile_size": 50_000, "min_fragments_per_cell": 50}
 
 
 @pytest.mark.parametrize("strategy", ["unique", "count", "binarize"])
@@ -812,7 +812,7 @@ def test_gene_matrices_barcode_only_metrics(data, fn):
 def test_gene_matrices_of_several_files(two_samples, data, fn, tmp_path):
     """A list of files makes the per-file matrices' rows, in memory or written as built."""
     make = ga.pp.make_gene_matrix if fn == "gene" else ga.pp.make_gene_score_matrix
-    kw = dict(min_fragments_per_cell=50)
+    kw = {"min_fragments_per_cell": 50}
     one = [make(p, data["gtf"], output_path=tmp_path / f"one{i}.h5ad", **kw) for i, p in enumerate(two_samples)]
     full = sp.vstack([sp.csr_matrix(o.X) for o in one]).tocsr()
 

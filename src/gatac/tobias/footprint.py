@@ -42,10 +42,10 @@ import cupy as cp
 import numpy as np
 import pandas as pd
 
-from .._readers import read_bed
-from ..gpu import bincount
-from ..io.fasta import Fasta
-from ..io.fragments import FragmentFile
+from gatac._readers import read_bed
+from gatac.gpu import bincount
+from gatac.io.fasta import Fasta
+from gatac.io.fragments import FragmentFile
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -131,8 +131,11 @@ def _split(iv: np.ndarray, max_len: int = SPLIT) -> np.ndarray:
 
 
 def _atacorrect_regions(peaks: np.ndarray, length: int, tobias_compat: bool) -> dict[str, np.ndarray]:
-    """run_atacorrect's region bookkeeping for one chromosome: split peaks and
-    non-peaks (bias input) and the split, unextended output regions."""
+    """Do the region bookkeeping of run_atacorrect for one chromosome.
+
+    Returns the split peaks and non-peaks (bias input) and the split,
+    unextended output regions.
+    """
     flank_extend = K_FLANK + WINDOW // 2
     pk = np.clip(_merge(peaks, tobias_compat), 0, length)
     pk = pk[pk[:, 1] > pk[:, 0]]
@@ -144,7 +147,7 @@ def _atacorrect_regions(peaks: np.ndarray, length: int, tobias_compat: bool) -> 
     out[:, 0] += flank_extend
     out[:, 1] -= flank_extend
     out = out[out[:, 1] > out[:, 0]]
-    return dict(peaks=_split(pk), nonpeaks=_split(nonpk), output=_split(out))
+    return {"peaks": _split(pk), "nonpeaks": _split(nonpk), "output": _split(out)}
 
 
 def _score_regions(peaks: np.ndarray, length: int, tobias_compat: bool) -> np.ndarray:
@@ -271,9 +274,10 @@ def _dwm_counts(kmers: cp.ndarray, w: cp.ndarray, chunk: int = 2_000_000) -> np.
 
 
 def _bias_counts(cuts_fr, regions: dict, seq_d: cp.ndarray, length: int, read_length: int | None):
-    """bias_estimation() on one chromosome: unique cut positions per strand and region,
-    weight ``min(count, 10)``, foreground k-mer at the cut, background k-mer ``BG_SHIFT``
-    upstream (strand-aware).
+    """Run bias_estimation() on one chromosome.
+
+    Unique cut positions are taken per strand and region, with weight ``min(count, 10)``, the
+    foreground k-mer at the cut and the background k-mer ``BG_SHIFT`` upstream (strand-aware).
 
     TOBIAS fetches reads overlapping each non-peak chunk, then (because extend_reg
     mutates the region) keeps cuts inside the chunk extended by ``K_FLANK + BG_SHIFT``.
@@ -330,15 +334,15 @@ def _prepare_dwm(counts: np.ndarray, bg_counts: np.ndarray) -> dict[str, np.ndar
 
     bias_pwm_log, bias_dwm_log, bias_pwm = one(counts)
     bg_pwm_log, bg_dwm_log, bg_pwm = one(bg_counts)
-    return dict(
-        counts=counts,
-        bg_counts=bg_counts,
-        bias_pwm_log=bias_pwm_log,
-        bias_dwm_log=bias_dwm_log,
-        bg_pwm_log=bg_pwm_log,
-        bg_dwm_log=bg_dwm_log,
-        pssm=np.log2(bias_pwm / bg_pwm),
-    )
+    return {
+        "counts": counts,
+        "bg_counts": bg_counts,
+        "bias_pwm_log": bias_pwm_log,
+        "bias_dwm_log": bias_dwm_log,
+        "bg_pwm_log": bg_pwm_log,
+        "bg_dwm_log": bg_dwm_log,
+        "pssm": np.log2(bias_pwm / bg_pwm),
+    }
 
 
 def _score_tables(pwm_log: np.ndarray, dwm_log: np.ndarray):
@@ -603,8 +607,11 @@ def _correct_chrom(
 
 
 def _footprints_chrom(regions: np.ndarray, dense_signal: cp.ndarray) -> cp.ndarray:
-    """ScoreBigwig ``--score footprint`` over ``regions`` (concatenated, float32);
-    ``dense_signal`` is the float32 corrected track of the whole chromosome."""
+    """Compute ScoreBigwig ``--score footprint`` over ``regions``.
+
+    The scores of all regions are concatenated, in float32. ``dense_signal`` is the float32
+    corrected track of the whole chromosome.
+    """
     ext = regions.copy()
     ext[:, 0] -= FP_FLANK_MAX
     ext[:, 1] += FP_FLANK_MAX
@@ -660,11 +667,13 @@ class TrackLayout:
         self.n = o
 
     def chrom_slice(self, chrom: str) -> slice:
+        """Positions of ``chrom`` in the flat track arrays."""
         iv = self.intervals[chrom]
         o = self.offsets[chrom]
         return slice(o, o + int((iv[:, 1] - iv[:, 0]).sum()))
 
     def positions(self, chrom: str) -> np.ndarray:
+        """Genomic coordinate of each position of ``chrom`` in the flat track arrays."""
         iv = self.intervals[chrom]
         lens = iv[:, 1] - iv[:, 0]
         return np.repeat(iv[:, 0], lens) + (np.arange(lens.sum()) - np.repeat(np.cumsum(lens) - lens, lens))
@@ -727,6 +736,7 @@ class FootprintTracks:
         )
 
     def layout(self, track: str) -> TrackLayout:
+        """Layout of ``track``: the footprint positions, or the corrected-signal positions for the other tracks."""
         return self.layouts["footprint" if track == "footprint" else "corrected"]
 
     def get(
@@ -857,14 +867,17 @@ def footprint(
     Examples
     --------
     >>> tracks = ga.tobias.footprint(
-    ...     adata, "cell_type", "fragments.parquet", "GRCh38.fa",
+    ...     adata,
+    ...     "cell_type",
+    ...     "fragments.parquet",
+    ...     "GRCh38.fa",
     ...     groups=["CD14 Mono", "CD4 Memory"],
     ... )
     >>> res = ga.tobias.bindetect(tracks, "cisBP_human.meme", "GRCh38.fa")
     """
     import time
 
-    from .._progress import tqdm
+    from gatac._progress import tqdm
 
     keep_tracks = tuple(keep_tracks)
     bad = set(keep_tracks) - set(TRACKS)
@@ -985,12 +998,12 @@ def footprint(
         values=values,
         stats=stats,
         bias_models={g: models[i] for i, g in enumerate(groups)},
-        params=dict(
-            groupby=groupby,
-            read_length=rl,
-            tobias_compat=tobias_compat,
-            deduplicate=deduplicate,
-            genome_fasta=str(genome_fasta),
-            timings=T,
-        ),
+        params={
+            "groupby": groupby,
+            "read_length": rl,
+            "tobias_compat": tobias_compat,
+            "deduplicate": deduplicate,
+            "genome_fasta": str(genome_fasta),
+            "timings": T,
+        },
     )

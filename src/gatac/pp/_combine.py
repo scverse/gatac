@@ -1,6 +1,8 @@
 """
-One matrix of several fragment files: the cells of each file in turn, named
-and tagged with their file as :func:`~gatac.pp.make_tile_matrix` does.
+Combine several fragment files into one matrix.
+
+The matrix holds the cells of each file in turn, named and tagged with their
+file as :func:`~gatac.pp.make_tile_matrix` does.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ def _shared_names_error(cells: pd.Index, files: np.ndarray, names: Sequence[str]
 
 def _check_distinct_cells(paths: Sequence[Path], names: Sequence[str]) -> None:
     """Raise, before any work, if fragment files share barcode names."""
-    from ..io.fragments import FragmentFile
+    from gatac.io.fragments import FragmentFile
 
     barcodes = [FragmentFile(p).barcodes for p in paths]
     cells = pd.Index(np.concatenate(barcodes))
@@ -113,7 +115,7 @@ def combine_file_matrices(
         X = sp.vstack(X, format="csr", dtype=np.result_type(*(x.dtype for x in X)))
         return ad.AnnData(X=X, obs=_combined_obs(obs_parts, names), var=var)
 
-    from ..io._csr_writer import CSRWriter
+    from gatac.io._csr_writer import CSRWriter
 
     # Written next to the output and moved onto it once complete: an error in
     # a later part (other features, shared cell names) leaves an existing

@@ -258,9 +258,7 @@ def _normalize_es(
     es: float,
     esnull: np.ndarray,
 ) -> tuple[float, np.ndarray]:
-    """
-    Normalize ES and null distribution following GSEA convention.
-    """
+    """Normalize ES and null distribution following GSEA convention."""
     pos_mask = esnull >= 0
     neg_mask = esnull < 0
 
@@ -284,9 +282,7 @@ def _normalize_es(
 
 
 def _compute_pval(es: float, esnull: np.ndarray) -> float:
-    """
-    Compute nominal p-value from null distribution.
-    """
+    """Compute nominal p-value from null distribution."""
     if es >= 0:
         denom = (esnull >= 0).sum()
         numer = (esnull >= es).sum()
@@ -469,7 +465,7 @@ def prerank_gpu(
         - lead_edge_idx: indices of the leading-edge features in the ranked list
         - hits: indices of feature-set members in the ranked list
     """
-    from .._progress import tqdm
+    from gatac._progress import tqdm
 
     N = len(feature_names)
     if N == 0:

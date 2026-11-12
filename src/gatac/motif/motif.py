@@ -19,7 +19,8 @@ import numpy as np
 import pandas as pd
 from numba import njit
 
-from ..io.fasta import Fasta
+from gatac.io.fasta import Fasta
+
 from ._bias_matching import sample_bias_matched_indices
 
 logger = logging.getLogger(__name__)
@@ -152,12 +153,14 @@ class DNAMotif:
     --------
     >>> import numpy as np
     >>> from gatac.motif import DNAMotif
-    >>> pwm = np.array([
-    ...     [0.10, 0.10, 0.70, 0.10],   # strong G
-    ...     [0.70, 0.10, 0.10, 0.10],   # strong A
-    ...     [0.10, 0.10, 0.10, 0.70],   # strong T
-    ...     [0.25, 0.25, 0.25, 0.25],   # ambiguous
-    ... ])
+    >>> pwm = np.array(
+    ...     [
+    ...         [0.10, 0.10, 0.70, 0.10],  # strong G
+    ...         [0.70, 0.10, 0.10, 0.10],  # strong A
+    ...         [0.10, 0.10, 0.10, 0.70],  # strong T
+    ...         [0.25, 0.25, 0.25, 0.25],  # ambiguous
+    ...     ]
+    ... )
     >>> motif = DNAMotif(id="MA0001.1", pwm=pwm, name="Example-TF")
     >>> len(motif)
     4
@@ -338,7 +341,6 @@ def read(filename: str | Path, unique: bool = True) -> list[DNAMotif]:
     >>> print(f"Loaded {len(motifs)} motifs")
     >>> motifs[0].id, motifs[0].name
     """
-
     path = Path(filename)
     with open(path) as f:
         content = f.read()
@@ -382,7 +384,6 @@ def parse_meme(content: str) -> list[DNAMotif]:
     >>> content = Path("cisBP_human.meme").read_text()
     >>> motifs = parse_meme(content)
     """
-
     motifs = []
 
     # Split by MOTIF keyword
@@ -680,8 +681,7 @@ def _snapatac2_score_threshold_jit(
     pvalue: float,
 ) -> float:
     """
-    Score threshold as SnapATAC2 2.9 computes it (``ScoreCDF`` in
-    snapatac2-core/src/motif.rs).
+    Score threshold as SnapATAC2 2.9 computes it (``ScoreCDF`` in snapatac2-core/src/motif.rs).
 
     The score distribution is built position by position on a grid of at
     most 200,000 bins of width >= 1e-5 spanning the reachable scores, each
@@ -781,7 +781,7 @@ def _scan_motifs_batch_gpu(
     np.ndarray
         Boolean array of shape (n_motifs, n_seqs) indicating motif presence
     """
-    from .._progress import tqdm
+    from gatac._progress import tqdm
 
     n_seqs, max_len = encoded_seqs.shape
     n_motifs = len(pwm_list)
@@ -1185,9 +1185,7 @@ def enrichment(
     ...     "cluster1": ["chr1:1000-1500", "chr1:5000-5500"],
     ...     "cluster2": ["chr2:2000-2500"],
     ... }
-    >>> results = gatac.motif.enrichment(
-    ...     motifs, regions, "genome.fa"
-    ... )
+    >>> results = gatac.motif.enrichment(motifs, regions, "genome.fa")
     >>> results["cluster1"]  # DataFrame with enrichment results
     >>> matched_bg = gatac.motif.sample_gc_matched_background(
     ...     regions,
@@ -1483,7 +1481,7 @@ def gsea(
     >>> # Multiple groups at once
     >>> group_rankings = {
     ...     "CD4_Memory": pd.DataFrame({"log2fc": logfc_cd4}, index=peak_names),
-    ...     "NK":         pd.DataFrame({"log2fc": logfc_nk},  index=peak_names),
+    ...     "NK": pd.DataFrame({"log2fc": logfc_nk}, index=peak_names),
     ... }
     >>> results = ga.motif.gsea(peak_adata, group_rankings)
     >>> results["NK"].head()
@@ -1809,7 +1807,7 @@ def presence_matrix(
     --------
     enrichment_regression : consumes this through ``precomputed_hits``.
     """
-    from .._progress import tqdm
+    from gatac._progress import tqdm
 
     if len(motifs) == 0:
         raise ValueError("no motifs supplied")
@@ -1944,7 +1942,7 @@ def enrichment_regression(
     tol: float = 1e-8,
     precomputed_hits: dict | None = None,
 ) -> pd.DataFrame:
-    """
+    r"""
     Motif enrichment as logistic regression on a continuous score (MEIRLOP-style).
 
     Instead of comparing a foreground list against a matched background pool,
@@ -1952,8 +1950,8 @@ def enrichment_regression(
     continuous per-region score, adjusting for sequence composition:
 
     .. math::
-        \\mathrm{logit}\\, P(\\text{motif present in region } i)
-          = b_0 + b_s \\cdot \\text{score}_i + \\sum_c b_c d_{ic}
+        \mathrm{logit}\, P(\text{motif present in region } i)
+          = b_0 + b_s \cdot \text{score}_i + \sum_c b_c d_{ic}
 
     The reported statistic is :math:`b_s`, one number per motif. Positive means
     the motif is more likely in regions with a higher score.
@@ -2063,7 +2061,7 @@ def enrichment_regression(
     """
     from scipy.stats import norm
 
-    from .._progress import tqdm
+    from gatac._progress import tqdm
 
     scores = np.asarray(scores, dtype=np.float64)
     if len(regions) != len(scores):

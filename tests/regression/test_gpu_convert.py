@@ -17,11 +17,11 @@ import pytest
 pytest.importorskip("cupy")
 pytest.importorskip("cudf")
 
-import pyarrow.parquet as pq  # noqa: E402
+import pyarrow.parquet as pq
 
-import gatac as ga  # noqa: E402
-from gatac.io.fragments import _BgzfWriter  # noqa: E402
-from gatac.io.gpu_convert import _gpu_available, _make_parquet_gpu  # noqa: E402
+import gatac as ga
+from gatac.io.fragments import _BgzfWriter
+from gatac.io.gpu_convert import _gpu_available, _make_parquet_gpu
 
 if not _gpu_available():
     pytest.skip("nvCOMP is not installed", allow_module_level=True)
@@ -76,7 +76,7 @@ def _assert_same_file(a, b) -> None:
     ma, mb = pq.ParquetFile(a).metadata.metadata, pq.ParquetFile(b).metadata.metadata
     keys = [k for k in ma if k.startswith(b"gatac.")]
     assert keys and {k: ma[k] for k in keys} == {k: mb.get(k) for k in keys}
-    rows = lambda p: [pq.ParquetFile(p).metadata.row_group(i).num_rows for i in range(pq.ParquetFile(p).num_row_groups)]  # noqa: E731
+    rows = lambda p: [pq.ParquetFile(p).metadata.row_group(i).num_rows for i in range(pq.ParquetFile(p).num_row_groups)]
     assert rows(a) == rows(b)
 
 

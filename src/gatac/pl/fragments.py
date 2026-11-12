@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from ..gpu import bincount
-from ..io.fragments import FragmentFile
+from gatac.gpu import bincount
+from gatac.io.fragments import FragmentFile
 
 if TYPE_CHECKING:
     import matplotlib.axes

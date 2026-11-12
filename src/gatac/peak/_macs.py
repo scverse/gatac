@@ -131,8 +131,7 @@ def _track(pos, cid, minus, five, three):
 
 def _segments(pos, cid, minus, n_chrom, p: Params, lambda_bg, ctrl_scale):
     """
-    Pair the treatment and control tracks of a batch of chromosomes as
-    MACS3's ``__chrom_pair_treat_ctrl``.
+    Pair the treatment and control tracks of a batch of chromosomes as ``__chrom_pair_treat_ctrl`` of MACS3 does.
 
     Returns the end key of each run, the start key, the treatment pileup
     (int32) and the local lambda (float32) on it. Each chromosome stops at the
@@ -173,8 +172,10 @@ def _log_sums(m_max):
 @njit(parallel=True, cache=True)
 def _log10_poisson_upper(k, lam, sums):
     """
-    log10 P(X > k), X ~ Poisson(lam), before rounding: MACS3's
-    ``log10_poisson_cdf_Q_large_lambda`` operation for operation.
+    Compute log10 P(X > k), X ~ Poisson(lam), before rounding.
+
+    The computation follows ``log10_poisson_cdf_Q_large_lambda`` of MACS3
+    operation for operation.
     """
     out = np.empty(k.size, np.float64)
     ln10 = math.log(10.0)
@@ -329,9 +330,12 @@ def qscores(pscore: np.ndarray, lengths: np.ndarray) -> np.ndarray:
 @njit(parallel=True, cache=True)
 def _fill_regions(a_start, a_end, a_treat, g0, g1, offset, signal, index, sign, h, version31):
     """
-    Per region: the treatment pileup over the region padded by 10 bp
-    (``peakdata`` in MACS3's ``__close_peak_with_subpeaks``), the run each base
-    belongs to, and the sign of the Savitzky-Golay first derivative.
+    Fill the pileup, the run and the derivative sign of each base of each region.
+
+    The pileup is the treatment pileup over the region padded by 10 bp
+    (``peakdata`` in ``__close_peak_with_subpeaks`` of MACS3), the run is the
+    one each base belongs to, and the sign is that of the Savitzky-Golay first
+    derivative.
 
     MACS3 3.0 writes the pileup ``start_boundary`` bases to the right (its
     last bases fall off the end) and maps gaps between runs to the first run;
@@ -400,8 +404,10 @@ def _sg_kernel(window: int) -> np.ndarray:
 
 def _numpy_signs(signal: np.ndarray, js: np.ndarray, window: int) -> np.ndarray:
     """
-    Sign of MACS3's smoothed derivative of the region ``signal`` at bases
-    ``js``, computed by numpy exactly as in ``savitzky_golay_order2_deriv1``.
+    Return the sign of the smoothed MACS3 derivative of the region ``signal`` at bases ``js``.
+
+    The sign is computed by numpy exactly as in
+    ``savitzky_golay_order2_deriv1``.
 
     Each base is one ``np.convolve`` over its own window, which runs the same
     dot product as the whole-region call (one base further keeps the
@@ -508,8 +514,9 @@ def _peaky(signal, o, L, maxima, n_max, version31, out):
 @njit(cache=True)
 def _single_summit(a_start, a_end, a_treat, lo, hi):
     """
-    MACS3's summit without sub-peaks: the middle one of the runs with the
-    highest pileup, at the middle of that run. Returns (run, position).
+    Find the summit without sub-peaks as MACS3 does: the middle one of the runs with the highest pileup, at the middle of that run.
+
+    Returns (run, position).
     """
     top = np.float32(0.0)
     n_tie = 0
@@ -533,11 +540,13 @@ def _single_summit(a_start, a_end, a_treat, lo, hi):
 @njit(parallel=True, cache=True)
 def _mark_summits(a_start, a_end, a_treat, g0, g1, offset, signal, index, sign, mark, version31):
     """
-    MACS3's ``__close_peak_with_subpeaks``: local maxima of the smoothed
-    pileup inside the peak, kept by ``enforce_peakyness`` (and, in 3.1, when
-    they fall on a run above the cutoff); the single summit when none is
-    left. ``mark`` gets, at each summit's offset from the region start, the
-    summit's run (from the region's first) plus one.
+    Mark the summits of each region as ``__close_peak_with_subpeaks`` of MACS3 does.
+
+    The summits are the local maxima of the smoothed pileup inside the peak,
+    kept by ``enforce_peakyness`` (and, in 3.1, when they fall on a run above
+    the cutoff), or the single summit when none is left. At the offset of
+    each summit from the region start, ``mark`` gets the run of the summit
+    (counted from the first run of the region) plus one.
     """
     for r in prange(g0.size):
         ps = a_start[g0[r]]
@@ -585,9 +594,10 @@ def _single_summits(a_start, a_end, a_treat, g0, g1):
 
 def _resolve_zero_slopes(signal, sign, offset, lo, length, window):
     """
-    Replace the 2s of ``_fill_regions`` by numpy's sign where a summit can
-    depend on it (bases ``lo`` to ``lo + length + 1`` of the region), by 0
-    elsewhere.
+    Replace the 2s of ``_fill_regions`` by the numpy sign where a summit can depend on it.
+
+    Those are the bases ``lo`` to ``lo + length + 1`` of the region.
+    Elsewhere the 2s become 0.
     """
     zero = np.flatnonzero(sign == 2)
     sign[zero] = 0

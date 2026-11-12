@@ -126,33 +126,51 @@ conflicts = [
 
 [tool.ruff]
 line-length = 120
+src = [ "src" ]
 # The package, its tests and the docs config; not the submodules
 extend-exclude = [ "reproducibility", "tutorials" ]
+format.docstring-code-format = true
 lint.select = [
-  "B",  # bugbear
-  "E",  # pycodestyle errors
-  "F",  # pyflakes
-  "I",  # isort
-  "UP", # pyupgrade
-  "W",  # pycodestyle warnings
+  "B",      # flake8-bugbear
+  "BLE",    # flake8-blind-except
+  "C4",     # flake8-comprehensions
+  "D",      # pydocstyle
+  "E",      # Error detected by Pycodestyle
+  "F",      # Errors detected by Pyflakes
+  "I",      # isort
+  "RUF100", # Report unused noqa directives
+  "TID",    # flake8-tidy-imports
+  "UP",     # pyupgrade
+  "W",      # Warning detected by Pycodestyle
 ]
 lint.ignore = [
+  "B008", # Errors from function calls in argument defaults. These are fine when the result is immutable.
   "B905", # zip(strict=) on every zip is noise here: the zips pair arrays of one length
-  "E501", # line too long -> the formatter handles code lines
-  "E731", # lambda assignments are fine
-  "E741", # I, O, l as variable names
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+  "D105", # __magic__ methods are often self-explanatory, allow missing docstrings
+  "D107", # Missing docstring in __init__
+  # Disable one in each pair of mutually incompatible rules
+  "D203", # We don’t want a blank line before a class docstring
+  "D213", # <> We want docstrings to start immediately after the opening triple quote
+  "D400", # first line should end with a period [Bug: doesn’t work with single-line docstrings]
+  "D401", # First line should be in imperative mood; try rephrasing
+  "E501", # line too long -> we accept long comment lines; formatter gets rid of long code lines
+  "E731", # Do not assign a lambda expression, use a def -> lambda expression assignments are convenient
+  "E741", # allow I, O, l as variable names -> I is the identity matrix
 ]
 lint.per-file-ignores."*/__init__.py" = [ "E402", "F401" ]
+lint.per-file-ignores."ci/*" = [ "D103" ]  # tooling, not API
+lint.per-file-ignores."docs/*" = [ "I" ]
+lint.per-file-ignores."docs/scripts/*" = [ "D101", "D102", "D103" ]  # figure drawing helpers
 # Imports after _require_rapids(), which names the CUDA extra to install
 lint.per-file-ignores."src/gatac/gpu.py" = [ "E402" ]
 # The closures of the motif scan and the background sampling read the loop's
 # variables, but each runs in the iteration that defines it
 lint.per-file-ignores."src/gatac/tobias/bindetect.py" = [ "B023" ]
+lint.per-file-ignores."tests/*" = [ "D" ]
 lint.isort.known-first-party = [ "gatac" ]
-
-[tool.pyproject-fmt]
-# the newest Python the dev environment tests; RAPIDS has no wheels beyond it
-max_supported_python = "3.14"
+lint.pydocstyle.convention = "numpy"
 
 [tool.pytest]
 # A hung GPU test fails after 2 minutes instead of holding the CI runner.

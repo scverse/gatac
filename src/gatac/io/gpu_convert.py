@@ -183,13 +183,16 @@ def _gpu_available() -> bool:
 
         _nvcomp()
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure to load nvCOMP means no GPU route
         return False
 
 
 def _input_kind(path: Path) -> str:
-    """``"bgzf"`` or ``"plain"`` text (read on the GPU), ``"gzip"`` (a single
-    deflate stream) or ``"zstd"`` (read by DuckDB)."""
+    """Return the kind of an input file, from the first bytes.
+
+    ``"bgzf"`` or ``"plain"`` text is read on the GPU, ``"gzip"`` (a single
+    deflate stream) or ``"zstd"`` by DuckDB.
+    """
     with open(path, "rb") as fh:
         head = fh.read(16)
     if head[:2] == b"\x1f\x8b":
@@ -212,8 +215,11 @@ def _cpu_reason(kind: str) -> str | None:
 
 
 def _bgzf_blocks(buf, eof: bool):
-    """Complete BGZF blocks in ``buf`` (cupy uint8, starting at a block): starts,
-    sizes and uncompressed sizes (numpy int64), and the end of the last one."""
+    """Find the complete BGZF blocks in ``buf``, a cupy uint8 array starting at a block.
+
+    Returns the starts, sizes and uncompressed sizes (numpy int64) of the
+    blocks, and the end of the last one.
+    """
     import cupy as cp
 
     n = int(buf.size)
@@ -304,9 +310,11 @@ def _inflate_blocks(buf, starts, bsize, isize, codec, nvcomp):
 
 
 class _DeviceSpan:
-    """A bare ``__cuda_array_interface__`` over device bytes: far cheaper to
-    make by the hundred thousand than cupy slices. The caller keeps the
-    underlying buffer alive."""
+    """A bare ``__cuda_array_interface__`` over device bytes.
+
+    Spans are far cheaper to make by the hundred thousand than cupy slices.
+    The caller keeps the underlying buffer alive.
+    """
 
     __slots__ = ("__cuda_array_interface__",)
 
@@ -331,8 +339,7 @@ def _corrupt_block_error(cause: Exception | None = None) -> ValueError:
 
 
 def _check_empty_block(payload: bytes) -> None:
-    """A block whose trailer gives no text must inflate to nothing (on the CPU:
-    there is about one per file)."""
+    """A block whose trailer gives no text must inflate to nothing (on the CPU: there is about one per file)."""
     d = zlib.decompressobj(-15)
     try:
         out = d.decompress(payload, 1)
@@ -447,8 +454,11 @@ def _bad_line_error(name: str, line: str, sep: str) -> ValueError:
 
 
 def _parse(text, sep: str, name: str, skip_invalid: bool) -> tuple[dict, int, int]:
-    """Fragments of a chunk of whole lines: columns (cupy / cuDF) and the numbers
-    of lines rejected (not 5 fields of the right types) and with a missing field."""
+    """Parse the fragments of a chunk of whole lines.
+
+    Returns the columns (cupy / cuDF) and the numbers of lines rejected (not 5
+    fields of the right types) and with a missing field.
+    """
     import cudf
     import cupy as cp
 
@@ -533,13 +543,16 @@ def _ids(names, index):
 
 
 def _default_gpu_workers() -> int:
-    """Conversions sharing the GPU by default: :func:`gatac._workers.default_workers`
-    (at most 4, at most the usable CPUs minus one), and one per 7 GB of free
-    GPU memory (a conversion's peak with the default chunk size, much of it
-    independent of the file and chunk sizes)."""
+    """Return the default number of conversions that share the GPU.
+
+    The number is at most :func:`gatac._workers.default_workers` (at most 4,
+    at most the usable CPUs minus one), and at most one per 7 GB of free GPU
+    memory (the peak of one conversion with the default chunk size, much of
+    it independent of the file and chunk sizes).
+    """
     import cupy as cp
 
-    from .._workers import default_workers
+    from gatac._workers import default_workers
 
     free = cp.cuda.Device().mem_info[0]
     return max(1, min(default_workers(), int(free // (7 << 30))))
@@ -592,7 +605,7 @@ def _make_parquet_gpu(
     if reason:
         logger.info(f"{input_path.name}: {reason}; converting it with DuckDB on the CPU")
         return _make_parquet_duckdb(input_path, output_path, separator, barcode_prefix, row_group_size, skip_invalid)
-    from ..pp._utils import cleanup_gpu_memory  # after the fallback: imports RAPIDS
+    from gatac.pp._utils import cleanup_gpu_memory  # after the fallback: imports RAPIDS
 
     barcode_prefix = _fill(barcode_prefix, _stem(input_path))
     logger.info(f"Converting {input_path.name} to Parquet on the GPU ({kind})")

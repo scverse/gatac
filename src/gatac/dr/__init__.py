@@ -1,9 +1,6 @@
-"""
-Dimensionality reduction: spectral embedding and latent semantic indexing of
-the cell × feature matrix.
-"""
+"""Dimensionality reduction: spectral embedding and latent semantic indexing of the cell × feature matrix."""
 
-from .._rapids import require as _require_rapids
+from gatac._rapids import require as _require_rapids
 
 _require_rapids()
 

@@ -20,8 +20,9 @@ import scipy.sparse as sp
 from anndata import AnnData
 from scipy.sparse import csr_matrix as scipy_csr_matrix
 
-from .._progress import tqdm, trange
-from ..io.fasta import Fasta
+from gatac._progress import tqdm, trange
+from gatac.io.fasta import Fasta
+
 from ._bias_matching import compute_bias_knn_indices, normalize_bias_matrix
 from .motif import DNAMotif, _encode_sequences_batch
 
@@ -539,12 +540,10 @@ def scan(
     >>> ga.motif.scan(peak_adata, motifs, "genome.fa")
     >>>
     >>> # For R/chromVAR peaks (1-based GenomicRanges format)
-    >>> ga.motif.scan(
-    ...     peak_adata, motifs, "genome.fa",
-    ...     coordinate_system="1-based"
-    ... )
+    >>> ga.motif.scan(peak_adata, motifs, "genome.fa", coordinate_system="1-based")
     """
-    from .._progress import tqdm
+    from gatac._progress import tqdm
+
     from .motif import (
         _compute_score_threshold,
         _reverse_complement_encoded,
@@ -918,7 +917,7 @@ def compute_deviations(
     logger.info("Computing chromVAR deviations on GPU...")
     logger.info("Computing expectation reads per cell and peak...")
     if backed:
-        from ..io._h5counts import iter_row_chunks
+        from gatac.io._h5counts import iter_row_chunks
 
         def chunks():
             for c in iter_row_chunks(adata, rows_per_chunk=rows_per_chunk):
@@ -1020,7 +1019,7 @@ def compute_deviations(
     motif_names = adata.uns["motif_name"]
     frame = pd.DataFrame(dev, index=adata.obs_names, columns=motif_names)
     if not (backed and adata.is_view):
-        from ..io._results import _store_results
+        from gatac.io._results import _store_results
 
         _store_results(adata, obsm={key_added: frame})
         logger.info(f"Computed chromVAR deviations: {dev.shape}. Stored in adata.obsm['{key_added}']")

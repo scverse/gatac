@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # mock context.  Pre-importing here ensures they are already in sys.modules
 # before any mock context is entered.
 # Inspired by scverse/rapids-singlecell docs/conf.py.
-import anndata  # noqa: E402, F401
-import scanpy  # noqa: E402, F401
+import anndata  # noqa: F401
+import scanpy  # noqa: F401
 
 # -- Project information -----------------------------------------------------
 project = "GATAC"
@@ -228,6 +228,7 @@ def _class_role(name):
 
 
 def setup(app):
+    """Register the release-note roles and the notebook post-processing."""
     app.add_role("small", _class_role("small"))
     app.add_role("smaller", _class_role("smaller"))
     app.connect("doctree-read", _relink_notebooks)

@@ -1,6 +1,4 @@
-"""
-Merging the matrices of several samples into one ``.h5ad``.
-"""
+"""Merging the matrices of several samples into one ``.h5ad``."""
 
 from __future__ import annotations
 

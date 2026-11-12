@@ -107,7 +107,7 @@ def _import_cugraph():
     when the default clusterer is actually reached.
     """
     try:
-        import cugraph  # noqa: PLC0415
+        import cugraph
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise ImportError(_CUGRAPH_HINT) from exc
     return cugraph
@@ -127,7 +127,7 @@ _ANNOY_HINT = (
 
 def _knn_exact(X: np.ndarray, k: int) -> np.ndarray:
     """Exact euclidean kNN indices, ``(n, k)``, self included."""
-    from cuml.neighbors import NearestNeighbors  # noqa: PLC0415
+    from cuml.neighbors import NearestNeighbors
 
     nn = NearestNeighbors(n_neighbors=k, metric="euclidean", output_type="cupy")
     Xg = cp.asarray(X, dtype=cp.float32)
@@ -152,7 +152,7 @@ def _knn_annoy(X: np.ndarray, k: int, *, random_state: int, n_trees: int = _ANNO
     the error *structure*, which is what the downstream agreement depends on.
     """
     try:
-        from annoy import AnnoyIndex  # noqa: PLC0415
+        from annoy import AnnoyIndex
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise ImportError(_ANNOY_HINT) from exc
 
@@ -239,7 +239,7 @@ def snn_graph(
 def _communities(graph: cusp.csr_matrix, resolution: float, flavor: str, random_state: int) -> np.ndarray:
     """Community detection on the SNN graph via cuGraph."""
     cugraph = _import_cugraph()
-    import cudf  # noqa: PLC0415
+    import cudf
 
     coo = graph.tocoo()
     # upper triangle only; cuGraph symmetrises an undirected graph itself
@@ -300,7 +300,7 @@ def _reassign_small_clusters(
     neighbours **excluding** the dissolved cluster's own cells, matching
     ArchR's ``matDR[-idxi, ]`` candidate pool.
     """
-    from cuml.neighbors import NearestNeighbors  # noqa: PLC0415
+    from cuml.neighbors import NearestNeighbors
 
     labels = labels.copy()
     uniq, counts = np.unique(labels, return_counts=True)
@@ -343,7 +343,7 @@ def _merge_to_max_clusters(embedding: np.ndarray, labels: np.ndarray, max_cluste
     and ``dist`` to euclidean. This is a merge of existing clusters, not a
     resolution search.
     """
-    from scipy.cluster.hierarchy import fcluster, linkage  # noqa: PLC0415
+    from scipy.cluster.hierarchy import fcluster, linkage
 
     uniq = np.unique(labels)
     if uniq.size <= max_clusters:
@@ -364,7 +364,7 @@ def _relabel_by_dendrogram(embedding: np.ndarray, labels: np.ndarray) -> np.ndar
     numbering a deterministic function of the data rather than of Louvain's
     internal ordering.
     """
-    from scipy.cluster.hierarchy import dendrogram, linkage  # noqa: PLC0415
+    from scipy.cluster.hierarchy import dendrogram, linkage
 
     uniq = np.unique(labels)
     if uniq.size < 2:
