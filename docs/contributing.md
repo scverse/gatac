@@ -14,8 +14,10 @@ cd GATAC
 # rapids-cu13), the test and lint tools
 uv sync --extra rapids-cu12 --group test --group dev
 
-# Lint and format each commit (ruff check, ruff format)
-uv run pre-commit install
+# Lint, format and type check each commit. The mypy hook runs
+# `hatch check types`, so hatch has to be on the PATH
+uv tool install hatch
+uv run prek install
 ```
 
 ---
@@ -96,23 +98,35 @@ options.
 
 ## Code style
 
-- **Linter and formatter**: `ruff check` (pycodestyle, pyflakes, isort,
-  pyupgrade and bugbear rules) and `ruff format`, 120 characters a line
-  (`[tool.ruff]` in `pyproject.toml`). The pre-commit hook runs them on each
-  commit, and [autofix.ci](https://autofix.ci) on each pull request, where it
-  commits the fixes it can make. `.git-blame-ignore-revs` lists the reformat
-  commits: `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
-- **Type hints**: encouraged for all public functions
-- **Docstrings**: NumPy style
+GATAC follows the [cookiecutter-scverse](https://github.com/scverse/cookiecutter-scverse)
+template, linked with cruft (`.cruft.json`): `cruft update` proposes the
+template's later changes.
+
+- **Hooks**: [prek](https://github.com/j178/prek) runs the hooks of
+  `.pre-commit-config.yaml` on each commit: biome, pyproject-fmt, ruff, mypy,
+  the pre-commit-hooks checks and zizmor. [autofix.ci](https://autofix.ci) runs
+  them on each pull request and commits the fixes it can make.
+  `.git-blame-ignore-revs` lists the reformat commits:
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
+- **Linter and formatter**: `ruff check` and `ruff format`, 120 characters a
+  line, with the template's rules (`[tool.ruff]` in `pyproject.toml`). Imports
+  are absolute.
+- **Type hints**: mypy checks `src` and `tests`. RAPIDS and the other GPU
+  libraries count as untyped (`[tool.mypy]`); a `type: ignore` names its error
+  code and why.
+- **Docstrings**: NumPy style, each with a one-line summary
 
 ```bash
-uv run ruff check --fix && uv run ruff format   # or: uv run pre-commit run --all-files
+uv run prek run --all-files   # all hooks
+hatch check                   # the same, by group: code (lint), fmt and types; --fix to apply fixes
 ```
 
 The _Checks_ workflow builds the package (`uv build`, `twine check
 --strict`), installs the wheel without a CUDA extra, and builds the docs with
-warnings as errors. It runs on GitHub's free runners, on every pull request;
-the GPU tests need the `run-gpu-ci` label.
+warnings as errors. It runs on GitHub's free runners, on every pull request.
+The GPU tests run on pushes to `main`; a pull request needs the `run-gpu-ci`
+label to run them, or `skip-gpu-ci` when it cannot affect GPU code. Pull
+requests that only change docs or Markdown skip them.
 
 ---
 
