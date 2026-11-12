@@ -35,7 +35,7 @@ that far exceed available GPU RAM.
 Parquet format
 ```
 ```{button-link} overview.html
-:color: success
+:color: secondary
 :outline:
 Pipeline overview
 ```
@@ -58,7 +58,7 @@ framework. It produces standard **AnnData** objects fully compatible with the
 Get started
 ```
 ```{button-link} tutorials/index.html
-:color: success
+:color: secondary
 :outline:
 View Tutorials
 ```
