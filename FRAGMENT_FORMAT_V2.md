@@ -717,3 +717,70 @@ chrom = pc.take(pa.array(meta["chroms"]), frags["chrom_id"])
 end = pc.add(frags["start"], frags["length"])
 cell = pc.take(barcodes, frags["barcode_id"])
 ```
+
+## Appendix C. Review findings to fold in
+
+An independent review (2026-11-12) checked this draft against the version 1
+code and reran the cuDF measurements of section 6, which it confirmed. Two of
+its findings are folded in: crash-safe footer updates (section 7.2) and the
+pyarrow Dataset reader (section 8.4). The others are still to be addressed:
+
+1. **Region queries (section 5).** Sorted starts alone cannot prune an overlap
+   query: `[100, 1000)` overlaps `[500, 501)` though its start is below the
+   query. Define the query as `start < q.end AND start + length > q.start`,
+   and store the largest fragment length (per file or per chromosome), so
+   that readers keep every row group with `start > q.start - max_length`.
+2. **Which version 1 files can be upgraded (sections 3.1, 9).** Both version 1
+   converters accept `start == end` (length 0) and `count == 0`, which
+   version 2 forbids. `gatac upgrade` must check a file against version 2 in
+   full and refuse the ones that fail, and section 1 should promise the
+   cheap migration only for those that pass.
+3. **"Nullable: no" (section 3.1).** Version 1 files store every column as
+   OPTIONAL in the Parquet schema, even without nulls. Say that columns MAY be
+   OPTIONAL or REQUIRED but MUST hold no nulls, or footer-only upgrades are
+   impossible.
+4. **Missing counts in a single-pass stream (section 8.3).** Whether all
+   counts are absent is only known at the end of the stream. Keep nulls in the
+   staged file and fill or drop them there, before the barcode statistics,
+   ids and `chrom_rows` are computed.
+5. **Validation gaps (sections 8.2, 8.3).** Add `count >= 1` to the stream
+   contract. Negative or overflowing coordinates fail or wrap when cast to
+   uint32, before the shared checks see them: adapters must cast with checks,
+   or the stream must use a wider signed type until validation.
+6. **`sort: "barcode"` (sections 5, 8.3).** Comparing each row with the
+   previous one cannot catch `A, B, A`. Define it as one contiguous run per
+   barcode, in any order, and check it with the set of finished barcodes.
+7. **Memory bound of conversion (section 8.5).** Staging bounds the memory
+   used by rows, not by barcodes: the barcode statistics and lookup are held
+   in memory whole. State the bound, and that the staged relation keeps the
+   input order.
+8. **Metadata contract (sections 3.3 to 4.2).** Allow other Parquet metadata
+   keys (pyarrow writes `ARROW:schema`). Say what a missing, duplicated or
+   conflicting key means. Require `chrom_rows` to cover every row, in
+   `chrom_id` order. A new value of a known field (a new `sort` option) is
+   not a minor version. Give a JSON schema.
+9. **Count units and duplicate rows (sections 2, 3.2).** Say whether `count`
+   counts reads or read pairs (Cell Ranger: read pairs). `bc_n_unique` counts
+   rows, not distinct intervals: say whether identical rows are allowed.
+10. **Count width (section 11, question 2).** `NAMED_SCHEMA` and the readers
+    return uint16 today. Decide the logical range before step 2 of the plan,
+    and the overflow behaviour of `bc_n_total`.
+11. **Barcode table rules (section 3.2).** The `bc_*` columns are a separate
+    table that shares row positions only. Readers load it independently of
+    any row filter, and a writer that filters or reorders rows must rebuild
+    it.
+12. **Prefix (sections 4.2, 8.2, 8.7).** "Readers put the prefix in front of
+    cell names" contradicts `to_tsv`, which writes names without it on
+    purpose: state the exception. Say what `barcode_prefix=None` does when
+    converting a GATAC file (keep or clear). `tabix` needs rows sorted by
+    position, not only BGZF.
+13. **Section 6 wording.** `bc_n_total` is not necessarily decreasing when ids
+    follow `bc_n_unique`. "No cost in size" should read "negligible in the
+    measured files". The zero high bytes of `length` and `count` come from
+    their values, not from the barcode order.
+
+The review also found a bug in the current code, to fix apart from this spec:
+the GPU writer casts `bc_n_total` to uint32 without a check
+(`src/gatac/io/fragments.py`, `_GpuWriter.__init__`), so a barcode with more
+than 2³² − 1 reads gets a wrong total without an error. The DuckDB path
+rejects it.
