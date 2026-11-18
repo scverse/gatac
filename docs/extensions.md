@@ -10,7 +10,8 @@ like a built-in namespace and command:
 import gatac as ga
 
 ga.extensions()  # installed extensions
-ga.chromafold.predict(adata, ...)
+inputs = ga.chromafold.prepare("tcell.parquet", "hg38")
+pred = ga.chromafold.predict(inputs, genome="hg38", chroms=["chr19"])
 ```
 
 ```bash
@@ -19,6 +20,21 @@ gatac chromafold --help
 
 GATAC does not import extensions until they are used, so an extension may
 depend on heavy packages (PyTorch, model weights) that core GATAC never needs.
+
+---
+
+## Example: gatac-chromafold
+
+[gatac-chromafold](https://github.com/LouisFaure/gatac-chromafold) is an
+example extension, and the code on this page is based on it. It predicts Hi-C
+contact maps from scATAC-seq with
+[ChromaFold](https://github.com/viannegao/ChromaFold). It builds the
+ChromaFold inputs from a fragment file on the GPU, then runs the published
+model. To try it, install it from GitHub:
+
+```bash
+pip install "gatac-chromafold[rapids-cu12,model] @ git+https://github.com/LouisFaure/gatac-chromafold"
+```
 
 ---
 
@@ -31,7 +47,7 @@ in its `pyproject.toml`:
 ```toml
 [project]
 name = "gatac-chromafold"
-dependencies = ["gatac>=0.1"]
+dependencies = ["gatac>=0.2"]
 
 # gatac.chromafold imports gatac_chromafold
 [project.entry-points."gatac.ext"]
