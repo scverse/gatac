@@ -112,15 +112,13 @@ exclude_patterns = [
 
 # -- Options for HTML output -------------------------------------------------
 html_title = "GATAC: GPU-Accelerated scATACseq Analysis"
-html_logo = "_static/logo_light.svg"
+html_logo = "_static/logo_outlines.svg"
 html_theme_options = {
     # Amber, for links in dark mode; custom.css keeps the blue of the
     # earlier docs for links on light, and pins the exact shades of both modes
     "accent": "#e68c2c",
     "navigation_with_keys": False,
     "show_toc_level": 2,
-    # "ATAC" in dark grey on light (7.2:1 on white), light grey on dark
-    "logo": {"image_light": "_static/logo_light.svg", "image_dark": "_static/logo_dark.svg"},
 }
 html_show_sphinx = False
 
