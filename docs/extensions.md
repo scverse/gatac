@@ -33,7 +33,7 @@ ChromaFold inputs from a fragment file on the GPU, then runs the published
 model. To try it, install it from GitHub:
 
 ```bash
-pip install "gatac-chromafold[rapids-cu12,model] @ git+https://github.com/LouisFaure/gatac-chromafold"
+pip install "gatac-chromafold[rapids-cu12] @ git+https://github.com/LouisFaure/gatac-chromafold"
 ```
 
 ---
