@@ -12,7 +12,7 @@ GATAC reads from and writes:
 - **Count matrices:** GATAC writes `.h5ad` files for the tile, gene and
   gene-score count matrices, compressed on GPU. GATAC also reads these
   matrices directly from disk into GPU memory, see [count matrices on
-  disk](#count-matrices-on-disk).
+disk](#count-matrices-on-disk).
 
 All GATAC functions that access the genome sequence do so through `Fasta`.
 The BED file, GTF file and cell metrics readers are used by every GATAC
