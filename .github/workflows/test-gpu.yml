@@ -2,8 +2,9 @@ name: GPU Tests
 
 # GATAC imports cudf at module level, so the whole suite needs a GPU. It runs on
 # a Cirun AWS T4 (see .cirun.yml), in the hatch-test environments of hatch.toml;
-# to save GPU time, pull requests only run with the 'run-gpu-ci' label, and
-# changes to only docs/, Markdown files or the submodules skip it.
+# to save GPU time, pull requests only run with the 'run-gpu-ci' label (or
+# automatically for Dependabot PRs), and changes to only docs, Markdown,
+# submodules, or non-GPU config/workflows skip it.
 # pytest runs on four xdist workers (addopts in pyproject.toml).
 # ci/modal_gpu.py runs the test-stable-dev job on a Modal GPU, from this file and
 # hatch.toml: keep its steps' `hatch run "${ENV_NAME}:<script>"` form.
@@ -34,7 +35,7 @@ jobs:
     steps:
       # Skipped in this job rather than with `paths-ignore`, so that CI-Pass and
       # All Tests Green still report (and pass) when there is nothing to test.
-      - name: Only docs, Markdown or submodule changes?
+      - name: Only non-GPU files changed?
         id: changes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,32 +56,37 @@ jobs:
             files=""
           fi
           printf '%s\n' "$files"
-          # docs/, any .md file, and the reproducibility and tutorials submodules
-          ignored='^(docs/|reproducibility$|tutorials$)|\.md$'
+          # Docs, Markdown, submodules, lint/formatter/editor config, and workflows
+          # other than test-gpu.yml (unknown files fail safe and run tests)
+          ignored='^(docs/|reproducibility$|tutorials$|\.pre-commit-config\.yaml$|\.readthedocs\.yaml$|biome\.jsonc$|\.editorconfig$|\.git-blame-ignore-revs$|\.gitignore$|LICENSE$|\.github/dependabot\.yml$|\.github/ISSUE_TEMPLATE/|\.github/workflows/(autofix\.yaml|checks\.yml|release\.yml)$)|\.md$'
           if [[ -n "$files" ]] && ! grep -Evq "$ignored" <<< "$files"; then
-            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "skip_paths=true" >> "$GITHUB_OUTPUT"
           else
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "skip_paths=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Require push to main, 'run-gpu-ci' or 'skip-gpu-ci' label
+      - name: Decide whether to run or skip GPU CI
         id: mode
         env:
           LABEL_RUN: ${{ contains(github.event.pull_request.labels.*.name, 'run-gpu-ci') }}
-          PUSH: ${{ github.event_name == 'push' }}
-          DOCS_ONLY: ${{ steps.changes.outputs.docs_only }}
           SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-gpu-ci') }}
+          SKIP_PATHS: ${{ steps.changes.outputs.skip_paths }}
+          PUSH: ${{ github.event_name == 'push' }}
+          DEPENDABOT: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           if [[ "$LABEL_RUN" == "true" ]]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          elif [[ "$DOCS_ONLY" == "true" ]]; then
-            echo "::notice::GPU CI skipped: only docs, Markdown or submodule changes."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$PUSH" == "true" ]]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
           elif [[ "$SKIP" == "true" ]]; then
             echo "::notice::GPU CI skipped by the 'skip-gpu-ci' label."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$SKIP_PATHS" == "true" ]]; then
+            echo "::notice::GPU CI skipped: only docs, Markdown, submodules, or non-GPU config/workflows changed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$PUSH" == "true" ]]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$DEPENDABOT" == "true" ]]; then
+            echo "::notice::GPU CI enabled automatically for Dependabot PR."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           else
             echo "::error::GPU CI requires a push to main or the 'run-gpu-ci' or 'skip-gpu-ci' label on the PR."
             exit 1
@@ -195,7 +201,7 @@ jobs:
           hatch run "${ENV_NAME}:cov-report" --sort=cover --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test results
-        if: ${{ !cancelled() && contains(matrix.env.name, 'stable') }}
+        if: ${{ !cancelled() && contains(matrix.env.name, 'stable') && github.actor != 'dependabot[bot]' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           report_type: test_results
@@ -205,7 +211,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage data
-        if: contains(matrix.env.name, 'stable')
+        if: ${{ contains(matrix.env.name, 'stable') && github.actor != 'dependabot[bot]' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: test-data/coverage.xml
